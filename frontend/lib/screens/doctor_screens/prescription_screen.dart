@@ -9,7 +9,6 @@ import 'package:frontend/model/prescription_model.dart';
 import 'package:frontend/screens/doctor_screens/pharmacy_selection_screen.dart';
 import 'package:frontend/screens/doctor_screens/prescription_history_screen.dart';
 import 'package:path_provider/path_provider.dart';
-
 import 'package:intl/intl.dart';
 import 'package:share_plus/share_plus.dart';
 
@@ -35,17 +34,17 @@ class _PrescriptionScreenState extends State<PrescriptionScreen> {
   final TextEditingController _doctorNameController = TextEditingController();
   final TextEditingController _doctorRegNoController = TextEditingController();
 
+  // Drawing variables
   Color _selectedColor = Colors.black;
-double _strokeWidth = 3.0;
-bool _isErasing = false;
-
+  double _strokeWidth = 3.0;
+  bool _isErasing = false;
   final List<DrawingPoint> _drawingPoints = [];
   final GlobalKey _drawingKey = GlobalKey();
-  double _drawingStrokeWidth = 3.0;
-  final Color _drawingColor = Colors.black;
-  final GlobalKey _signatureKey = GlobalKey();
-List<DrawingPoint> _signaturePoints = [];
 
+  // Signature variables
+  final GlobalKey _signatureKey = GlobalKey();
+  final List<DrawingPoint> _signaturePoints = [];
+  bool _hasSignature = false;
 
   bool _isLoading = false;
   List<Map<String, dynamic>> _availablePharmacies = [];
@@ -241,36 +240,39 @@ List<DrawingPoint> _signaturePoints = [];
     }
   }
 
+  // Drawing Methods
   void _handleDrawingStart(DragStartDetails details) {
-  final RenderBox renderBox = _drawingKey.currentContext!.findRenderObject() as RenderBox;
-  final Offset localPosition = renderBox.globalToLocal(details.globalPosition);
+    final RenderBox renderBox = _drawingKey.currentContext!.findRenderObject() as RenderBox;
+    final Offset localPosition = renderBox.globalToLocal(details.globalPosition);
 
-  setState(() {
-    _drawingPoints.add(DrawingPoint(
-      position: localPosition,
-      paint: Paint()
-        ..color = _isErasing ? Colors.white : _selectedColor
-        ..strokeWidth = _strokeWidth
-        ..strokeCap = StrokeCap.round
-        ..blendMode = _isErasing ? BlendMode.clear : BlendMode.srcOver,
-    ));
-  });
-}
+    setState(() {
+      _drawingPoints.add(DrawingPoint(
+        position: localPosition,
+        paint: Paint()
+          ..color = _isErasing ? Colors.white : _selectedColor
+          ..strokeWidth = _strokeWidth
+          ..strokeCap = StrokeCap.round
+          ..blendMode = _isErasing ? BlendMode.clear : BlendMode.srcOver,
+      ));
+    });
+  }
+
   void _handleDrawingUpdate(DragUpdateDetails details) {
-  final RenderBox renderBox = _drawingKey.currentContext!.findRenderObject() as RenderBox;
-  final Offset localPosition = renderBox.globalToLocal(details.globalPosition);
+    final RenderBox renderBox = _drawingKey.currentContext!.findRenderObject() as RenderBox;
+    final Offset localPosition = renderBox.globalToLocal(details.globalPosition);
 
-  setState(() {
-    _drawingPoints.add(DrawingPoint(
-      position: localPosition,
-      paint: Paint()
-        ..color = _isErasing ? Colors.white : _selectedColor
-        ..strokeWidth = _strokeWidth
-        ..strokeCap = StrokeCap.round
-        ..blendMode = _isErasing ? BlendMode.clear : BlendMode.srcOver,
-    ));
-  });
-}
+    setState(() {
+      _drawingPoints.add(DrawingPoint(
+        position: localPosition,
+        paint: Paint()
+          ..color = _isErasing ? Colors.white : _selectedColor
+          ..strokeWidth = _strokeWidth
+          ..strokeCap = StrokeCap.round
+          ..blendMode = _isErasing ? BlendMode.clear : BlendMode.srcOver,
+      ));
+    });
+  }
+
   void _handleDrawingEnd(DragEndDetails details) {
     setState(() {
       _drawingPoints.add(DrawingPoint(position: null, paint: Paint()));
@@ -283,9 +285,61 @@ List<DrawingPoint> _signaturePoints = [];
     });
   }
 
+  // Signature Methods
+  void _handleSignatureStart(DragStartDetails details) {
+    final RenderBox renderBox = _signatureKey.currentContext!.findRenderObject() as RenderBox;
+    final Offset localPosition = renderBox.globalToLocal(details.globalPosition);
+    
+    setState(() {
+      _signaturePoints.add(DrawingPoint(
+        position: localPosition,
+        paint: Paint()
+          ..color = Colors.black
+          ..strokeWidth = 3.0
+          ..strokeCap = StrokeCap.round
+          ..style = PaintingStyle.stroke,
+      ));
+      _hasSignature = true;
+    });
+  }
+
+  void _handleSignatureUpdate(DragUpdateDetails details) {
+    final RenderBox renderBox = _signatureKey.currentContext!.findRenderObject() as RenderBox;
+    final Offset localPosition = renderBox.globalToLocal(details.globalPosition);
+    
+    setState(() {
+      _signaturePoints.add(DrawingPoint(
+        position: localPosition,
+        paint: Paint()
+          ..color = Colors.black
+          ..strokeWidth = 3.0
+          ..strokeCap = StrokeCap.round
+          ..style = PaintingStyle.stroke,
+      ));
+    });
+  }
+
+  void _handleSignatureEnd(DragEndDetails details) {
+    setState(() {
+      _signaturePoints.add(DrawingPoint(position: null, paint: Paint()));
+    });
+  }
+
+  void _clearSignature() {
+    setState(() {
+      _signaturePoints.clear();
+      _hasSignature = false;
+    });
+  }
+
   Future<void> _savePrescription({bool shareWithPharmacies = false}) async {
     if (_patientNameController.text.isEmpty) {
       _showError('Please select a patient');
+      return;
+    }
+
+    if (!_hasSignature) {
+      _showError('Please provide your signature before saving');
       return;
     }
 
@@ -298,6 +352,11 @@ List<DrawingPoint> _signaturePoints = [];
       Uint8List? drawingImage;
       if (_drawingPoints.isNotEmpty) {
         drawingImage = await _captureDrawing();
+      }
+
+      Uint8List? signatureImage;
+      if (_signaturePoints.isNotEmpty) {
+        signatureImage = await _captureSignature();
       }
 
       final prescription = Prescription(
@@ -316,6 +375,7 @@ List<DrawingPoint> _signaturePoints = [];
         createdAt: DateTime.now(),
         updatedAt: DateTime.now(),
         drawingImage: drawingImage,
+        signatureImage: signatureImage,
       );
 
       await FirebaseFirestore.instance
@@ -368,6 +428,20 @@ List<DrawingPoint> _signaturePoints = [];
     }
   }
 
+  Future<Uint8List?> _captureSignature() async {
+    try {
+      final boundary = _signatureKey.currentContext?.findRenderObject() as RenderRepaintBoundary?;
+      if (boundary == null) return null;
+      
+      final image = await boundary.toImage();
+      final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
+      return byteData?.buffer.asUint8List();
+    } catch (e) {
+      debugPrint('Error capturing signature: $e');
+      return null;
+    }
+  }
+
   List<Medicine> _getMedicines() {
     List<Medicine> medicines = [];
     for (int i = 0; i < _medicineControllers.length; i++) {
@@ -398,7 +472,7 @@ List<DrawingPoint> _signaturePoints = [];
           'prescriptionId': prescription.id,
           'patientName': prescription.patientName,
           'doctorId': prescription.doctorId,
-          'doctorName': 'Dr. Umapathy',
+          'doctorName': _doctorNameController.text,
           'timestamp': DateTime.now().millisecondsSinceEpoch,
           'status': 'pending',
           'medicinesCount': prescription.medicines.length,
@@ -431,7 +505,7 @@ List<DrawingPoint> _signaturePoints = [];
       final prescriptionText = _generatePrescriptionText();
       await Share.share(
         prescriptionText,
-        subject: 'Prescription for ${_patientNameController.text} - Dr. Umapathy',
+        subject: 'Prescription for ${_patientNameController.text} - ${_doctorNameController.text}',
       );
     } catch (e) {
       _showError('Failed to share prescription: $e');
@@ -445,7 +519,7 @@ List<DrawingPoint> _signaturePoints = [];
   String _generatePrescriptionText() {
     StringBuffer buffer = StringBuffer();
     buffer.writeln('═══════════════════════════════════════════');
-    buffer.writeln('           DR. UMAPATHY\'S CLINIC          ');
+    buffer.writeln('           ${_doctorNameController.text.toUpperCase()}\'S CLINIC          ');
     buffer.writeln('              MEDICAL PRESCRIPTION         ');
     buffer.writeln('═══════════════════════════════════════════');
     buffer.writeln();
@@ -488,8 +562,8 @@ List<DrawingPoint> _signaturePoints = [];
     }
     
     buffer.writeln('═══════════════════════════════════════════');
-    buffer.writeln('Verified by: Dr. Umapathy');
-    buffer.writeln('Registration No: MED12345');
+    buffer.writeln('Verified by: ${_doctorNameController.text}');
+    buffer.writeln('Registration No: ${_doctorRegNoController.text}');
     buffer.writeln('Date: ${DateFormat('dd/MM/yyyy').format(DateTime.now())}');
     buffer.writeln('═══════════════════════════════════════════');
     
@@ -558,6 +632,10 @@ List<DrawingPoint> _signaturePoints = [];
                   
                   // Additional Instructions
                   _buildAdditionalInstructions(),
+                  const SizedBox(height: 16),
+                  
+                  // Signature Section
+                  _buildSignatureSection(),
                   const SizedBox(height: 16),
                   
                   // Action Buttons
@@ -892,103 +970,122 @@ List<DrawingPoint> _signaturePoints = [];
     );
   }
 
-Widget _buildDrawingSection() {
-  return Column(
-    crossAxisAlignment: CrossAxisAlignment.start,
-    children: [
-      const Text(
-        'Digital Prescription Pad',
-        style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-      ),
-      const SizedBox(height: 8),
-
-      // 🎨 Toolbar (Color + Eraser + Clear)
-      Row(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          _buildColorButton(Colors.black),
-          _buildColorButton(Colors.red),
-          _buildColorButton(Colors.blue),
-          _buildColorButton(Colors.green),
-          const SizedBox(width: 12),
-          IconButton(
-            icon: Icon(Icons.brush, color: _isErasing ? Colors.grey : _selectedColor),
-            tooltip: 'Pencil',
-            onPressed: () {
-              setState(() {
-                _isErasing = false;
-              });
-            },
-          ),
-          IconButton(
-            icon: Icon(Icons.auto_fix_normal, color: _isErasing ? Colors.orange : Colors.grey),
-            tooltip: 'Eraser',
-            onPressed: () {
-              setState(() {
-                _isErasing = !_isErasing;
-              });
-            },
-          ),
-          IconButton(
-            icon: const Icon(Icons.clear, color: Colors.redAccent),
-            tooltip: 'Clear All',
-            onPressed: _clearDrawing,
-          ),
-        ],
-      ),
-
-      const SizedBox(height: 10),
-
-      // 🖋️ Drawing Area
-      Container(
-        height: 400,
-        width: double.infinity,
-        decoration: BoxDecoration(
-          color: Colors.white,
-          border: Border.all(color: Colors.grey),
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: GestureDetector(
-          behavior: HitTestBehavior.opaque,
-          onPanStart: _handleDrawingStart,
-          onPanUpdate: _handleDrawingUpdate,
-          onPanEnd: _handleDrawingEnd,
-          child: RepaintBoundary(
-            key: _drawingKey,
-            child: CustomPaint(
-              painter: DrawingPainter(points: _drawingPoints),
-              size: Size.infinite,
+  Widget _buildDrawingSection() {
+    return Card(
+      elevation: 2,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      color: _cardColor,
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _buildSectionHeader('CLINICAL DRAWING PAD', Icons.edit),
+            const SizedBox(height: 16),
+            
+            // Toolbar
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                _buildColorButton(Colors.black),
+                _buildColorButton(Colors.red),
+                _buildColorButton(Colors.blue),
+                _buildColorButton(Colors.green),
+                const SizedBox(width: 12),
+                IconButton(
+                  icon: Icon(Icons.brush, color: _isErasing ? Colors.grey : _selectedColor),
+                  tooltip: 'Pencil',
+                  onPressed: () {
+                    setState(() {
+                      _isErasing = false;
+                    });
+                  },
+                ),
+                IconButton(
+                  icon: Icon(Icons.auto_fix_normal, color: _isErasing ? Colors.orange : Colors.grey),
+                  tooltip: 'Eraser',
+                  onPressed: () {
+                    setState(() {
+                      _isErasing = !_isErasing;
+                    });
+                  },
+                ),
+                IconButton(
+                  icon: const Icon(Icons.clear, color: Colors.redAccent),
+                  tooltip: 'Clear All',
+                  onPressed: _clearDrawing,
+                ),
+              ],
             ),
+            const SizedBox(height: 16),
+
+            // Drawing Area
+            Container(
+              height: 200,
+              decoration: BoxDecoration(
+                border: Border.all(color: _accentColor),
+                borderRadius: BorderRadius.circular(12),
+                color: Colors.white,
+              ),
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onPanStart: _handleDrawingStart,
+                onPanUpdate: _handleDrawingUpdate,
+                onPanEnd: _handleDrawingEnd,
+                child: RepaintBoundary(
+                  key: _drawingKey,
+                  child: CustomPaint(
+                    painter: DrawingPainter(points: _drawingPoints),
+                    size: Size.infinite,
+                    child: _drawingPoints.isEmpty
+                        ? const Center(
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(Icons.draw, size: 40, color: Colors.grey),
+                                SizedBox(height: 8),
+                                Text(
+                                  'Draw clinical diagrams or notes here',
+                                  style: TextStyle(color: Colors.grey, fontSize: 14),
+                                  textAlign: TextAlign.center,
+                                ),
+                              ],
+                            ),
+                          )
+                        : null,
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildColorButton(Color color) {
+    return GestureDetector(
+      onTap: () {
+        setState(() {
+          _selectedColor = color;
+          _isErasing = false;
+        });
+      },
+      child: Container(
+        margin: const EdgeInsets.symmetric(horizontal: 4),
+        height: 32,
+        width: 32,
+        decoration: BoxDecoration(
+          color: color,
+          shape: BoxShape.circle,
+          border: Border.all(
+            color: _selectedColor == color ? Colors.white : Colors.grey,
+            width: 2,
           ),
         ),
       ),
-    ],
-  );
-}
-
-Widget _buildColorButton(Color color) {
-  return GestureDetector(
-    onTap: () {
-      setState(() {
-        _selectedColor = color;
-        _isErasing = false;
-      });
-    },
-    child: Container(
-      margin: const EdgeInsets.symmetric(horizontal: 4),
-      height: 32,
-      width: 32,
-      decoration: BoxDecoration(
-        color: color,
-        shape: BoxShape.circle,
-        border: Border.all(
-          color: _selectedColor == color ? Colors.white : Colors.grey,
-          width: 2,
-        ),
-      ),
-    ),
-  );
-}
+    );
+  }
 
   Widget _buildAdditionalInstructions() {
     return Card(
@@ -1024,59 +1121,208 @@ Widget _buildColorButton(Color color) {
     );
   }
 
+  Widget _buildSignatureSection() {
+    return Card(
+      elevation: 2,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      color: _cardColor,
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Section Header
+            Row(
+              children: [
+                _buildSectionHeader('DOCTOR SIGNATURE', Icons.assignment_ind),
+                const Spacer(),
+                if (_hasSignature)
+                  IconButton(
+                    icon: const Icon(Icons.clear, color: Colors.red),
+                    onPressed: _clearSignature,
+                    tooltip: 'Clear Signature',
+                  ),
+              ],
+            ),
+            const SizedBox(height: 16),
+
+            // Signature Area
+            Container(
+              height: 120,
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: _accentColor, width: 2),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.1),
+                    blurRadius: 4,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
+              ),
+              child: Stack(
+                children: [
+                  // Background with guide lines
+                  Container(
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(12),
+                      gradient: LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        colors: [
+                          Colors.white,
+                          Colors.grey.shade50,
+                        ],
+                        stops: const [0.7, 1.0],
+                      ),
+                    ),
+                    child: CustomPaint(
+                      painter: SignatureGuidePainter(),
+                    ),
+                  ),
+
+                  // Signature Canvas
+                  GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onPanStart: _handleSignatureStart,
+                    onPanUpdate: _handleSignatureUpdate,
+                    onPanEnd: _handleSignatureEnd,
+                    child: RepaintBoundary(
+                      key: _signatureKey,
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(12),
+                        child: CustomPaint(
+                          painter: DrawingPainter(points: _signaturePoints),
+                          size: Size.infinite,
+                        ),
+                      ),
+                    ),
+                  ),
+
+                  // Instruction Text (only shown when no signature)
+                  if (!_hasSignature)
+                    Center(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(
+                            Icons.edit,
+                            size: 32,
+                            color: _darkColor.withOpacity(0.5),
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            'Sign above this line',
+                            style: TextStyle(
+                              color: _darkColor.withOpacity(0.7),
+                              fontSize: 14,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            'Draw your signature in the box above',
+                            style: TextStyle(
+                              color: _darkColor.withOpacity(0.5),
+                              fontSize: 12,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 12),
+
+            // Doctor Information
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: _primaryColor.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: _primaryColor.withOpacity(0.3)),
+              ),
+              child: Row(
+                children: [
+                  Icon(
+                    Icons.verified_user,
+                    color: _darkColor,
+                    size: 20,
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          _doctorNameController.text,
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            color: _darkColor,
+                            fontSize: 16,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          'Registration No: ${_doctorRegNoController.text}',
+                          style: TextStyle(
+                            color: _darkColor.withOpacity(0.7),
+                            fontSize: 12,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          'Date: ${DateFormat('dd/MM/yyyy').format(DateTime.now())}',
+                          style: TextStyle(
+                            color: _darkColor.withOpacity(0.7),
+                            fontSize: 12,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  if (_hasSignature)
+                    Icon(
+                      Icons.check_circle,
+                      color: Colors.green,
+                      size: 24,
+                    ),
+                ],
+              ),
+            ),
+
+            // Signature Status
+            const SizedBox(height: 8),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(
+                  _hasSignature ? Icons.check_circle : Icons.info,
+                  color: _hasSignature ? Colors.green : _darkColor.withOpacity(0.6),
+                  size: 16,
+                ),
+                const SizedBox(width: 4),
+                Text(
+                  _hasSignature ? 'Signature provided' : 'Signature required',
+                  style: TextStyle(
+                    color: _hasSignature ? Colors.green : _darkColor.withOpacity(0.6),
+                    fontSize: 12,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildActionButtons() {
     return Column(
       children: [
-        const SizedBox(height: 20),
-Column(
-  crossAxisAlignment: CrossAxisAlignment.start,
-  children: [
-    const Text(
-      'Doctor Signature',
-      style: TextStyle(
-        fontSize: 18,
-        fontWeight: FontWeight.bold,
-      ),
-    ),
-    const SizedBox(height: 8),
-
-    // 🖋️ Small Signature Pad
-    Container(
-      height: 120, // smaller area for signature
-      width: double.infinity,
-      decoration: BoxDecoration(
-        color: Colors.white,
-        border: Border.all(color: Colors.grey),
-        borderRadius: BorderRadius.circular(10),
-      ),
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onPanStart: _handleSignatureStart,
-        onPanUpdate: _handleSignatureUpdate,
-        onPanEnd: _handleSignatureEnd,
-        child: RepaintBoundary(
-          key: _signatureKey,
-          child: CustomPaint(
-            painter: DrawingPainter(points: _signaturePoints),
-            size: Size.infinite,
-          ),
-        ),
-      ),
-    ),
-
-    const SizedBox(height: 8),
-
-    // 👨‍⚕️ Doctor name
-    Text(
-      doctorName != null ? "Dr. $doctorName" : "Dr. [Name]",
-      style: const TextStyle(
-        fontSize: 16,
-        fontWeight: FontWeight.w500,
-      ),
-    ),
-  ],
-),
-
         // Action Buttons
         Row(
           children: [
@@ -1084,7 +1330,7 @@ Column(
               child: ElevatedButton.icon(
                 onPressed: _isLoading ? null : () => _savePrescription(),
                 icon: const Icon(Icons.save, color: Colors.white),
-                label: const Text('Save', style: TextStyle(color: Colors.white)),
+                label: const Text('Save Prescription', style: TextStyle(color: Colors.white)),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: _primaryColor,
                   padding: const EdgeInsets.symmetric(vertical: 16),
@@ -1099,7 +1345,7 @@ Column(
               child: ElevatedButton.icon(
                 onPressed: _isLoading ? null : _shareWithPharmacies,
                 icon: const Icon(Icons.share, color: Colors.white),
-                label: const Text('Share', style: TextStyle(color: Colors.white)),
+                label: const Text('Share to Pharmacy', style: TextStyle(color: Colors.white)),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: _accentColor,
                   padding: const EdgeInsets.symmetric(vertical: 16),
@@ -1117,7 +1363,7 @@ Column(
           child: ElevatedButton.icon(
             onPressed: _isLoading ? null : _generateAndSharePDF,
             icon: const Icon(Icons.picture_as_pdf, color: Colors.white),
-            label: const Text('Export PDF', style: TextStyle(color: Colors.white)),
+            label: const Text('Export as PDF', style: TextStyle(color: Colors.white)),
             style: ElevatedButton.styleFrom(
               backgroundColor: _darkColor,
               padding: const EdgeInsets.symmetric(vertical: 16),
@@ -1125,6 +1371,40 @@ Column(
                 borderRadius: BorderRadius.circular(12),
               ),
             ),
+          ),
+        ),
+
+        // Signature Requirement Note
+        const SizedBox(height: 16),
+        Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: _hasSignature ? Colors.green.withOpacity(0.1) : Colors.orange.withOpacity(0.1),
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(
+              color: _hasSignature ? Colors.green.withOpacity(0.3) : Colors.orange.withOpacity(0.3),
+            ),
+          ),
+          child: Row(
+            children: [
+              Icon(
+                _hasSignature ? Icons.check_circle : Icons.warning,
+                color: _hasSignature ? Colors.green : Colors.orange,
+                size: 20,
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  _hasSignature 
+                    ? 'Your signature has been added to the prescription.'
+                    : 'Please provide your signature above to complete the prescription.',
+                  style: TextStyle(
+                    color: _hasSignature ? Colors.green : Colors.orange,
+                    fontSize: 12,
+                  ),
+                ),
+              ),
+            ],
           ),
         ),
       ],
@@ -1165,6 +1445,39 @@ Column(
       ],
     );
   }
+}
+
+// Custom painter for signature guide lines
+class SignatureGuidePainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = Colors.grey.shade300
+      ..strokeWidth = 1.0
+      ..style = PaintingStyle.stroke;
+
+    // Draw horizontal guide line in the middle
+    final middleY = size.height * 0.6;
+    canvas.drawLine(
+      Offset(0, middleY),
+      Offset(size.width, middleY),
+      paint,
+    );
+
+    // Draw border
+    final borderPaint = Paint()
+      ..color = Colors.grey.shade200
+      ..strokeWidth = 1.0
+      ..style = PaintingStyle.stroke;
+
+    canvas.drawRect(
+      Rect.fromLTWH(0, 0, size.width, size.height),
+      borderPaint,
+    );
+  }
+
+  @override
+  bool shouldRepaint(SignatureGuidePainter oldDelegate) => false;
 }
 
 class DrawingPoint {

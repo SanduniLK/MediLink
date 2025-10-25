@@ -18,6 +18,7 @@ class Prescription {
   final DateTime? createdAt;
   final DateTime? updatedAt;
   final Uint8List? drawingImage;
+  final Uint8List? signatureImage;
 
   Prescription({
     required this.id,
@@ -36,6 +37,7 @@ class Prescription {
     this.createdAt,
     this.updatedAt,
     this.drawingImage,
+    this.signatureImage,
   });
 
   Map<String, dynamic> toMap() {
@@ -56,6 +58,7 @@ class Prescription {
       'createdAt': createdAt?.millisecondsSinceEpoch,
       'updatedAt': updatedAt?.millisecondsSinceEpoch,
       'drawingImage': drawingImage,
+      'signatureImage': signatureImage,
     };
   }
 
@@ -82,6 +85,7 @@ class Prescription {
           ? DateTime.fromMillisecondsSinceEpoch(map['updatedAt'])
           : null,
       drawingImage: map['drawingImage'],
+      signatureImage: map['signatureImage'],
     );
   }
 }
