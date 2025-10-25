@@ -1,0 +1,48 @@
+{
+  "project_info": {
+    "project_number": "617494714296",
+    "project_id": "medilink-c7499",
+    "storage_bucket": "medilink-c7499.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:617494714296:android:58d09e37e087f4042b614d",
+        "android_client_info": {
+          "package_name": "com.example.frontend"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBkbnOnw9z-uYjg2W1JXUwTBJz3tYPxn_4"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:617494714296:android:c4b9d590a24d07602b614d",
+        "android_client_info": {
+          "package_name": "com.reshika.medilink"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBkbnOnw9z-uYjg2W1JXUwTBJz3tYPxn_4"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

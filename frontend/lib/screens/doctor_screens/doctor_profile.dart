@@ -1,0 +1,536 @@
+import 'dart:io';
+import 'dart:typed_data';
+import 'package:flutter/material.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:firebase_storage/firebase_storage.dart';
+import 'package:file_picker/file_picker.dart'; // ← ADD THIS IMPORT
+
+class EditProfileScreen extends StatefulWidget {
+  const EditProfileScreen({super.key});
+
+  @override
+  State<EditProfileScreen> createState() => _EditProfileScreenState();
+}
+
+class _EditProfileScreenState extends State<EditProfileScreen> {
+  final User? user = FirebaseAuth.instance.currentUser;
+  final _formKey = GlobalKey<FormState>();
+  final ImagePicker _imagePicker = ImagePicker();
+
+  // Controllers
+  final TextEditingController _fullnameController = TextEditingController();
+  final TextEditingController _specializationController = TextEditingController();
+  final TextEditingController _qualificationController = TextEditingController();
+  final TextEditingController _experienceController = TextEditingController();
+  final TextEditingController _hospitalController = TextEditingController();
+  final TextEditingController _feesController = TextEditingController();
+  final TextEditingController _licenseController = TextEditingController();
+  final TextEditingController _emailController = TextEditingController();
+  final TextEditingController _phoneController = TextEditingController();
+  final TextEditingController _dobController = TextEditingController();
+
+  String? _profileImageUrl;
+  File? _pickedImage;
+  bool _isUploadingImage = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadDoctorData();
+  }
+
+  Future<void> _loadDoctorData() async {
+    if (user == null) return;
+    
+    try {
+      var doc = await FirebaseFirestore.instance
+          .collection('doctors')
+          .doc(user!.uid)
+          .get();
+          
+      if (doc.exists) {
+        var data = doc.data()!;
+        setState(() {
+          _fullnameController.text = data['fullname'] ?? '';
+          _specializationController.text = data['specialization'] ?? '';
+          _qualificationController.text = data['qualification'] ?? '';
+          _experienceController.text = (data['experience'] ?? 0).toString();
+          _hospitalController.text = data['hospital'] ?? '';
+          _feesController.text = (data['fees'] ?? 0).toString();
+          _licenseController.text = data['license'] ?? '';
+          _emailController.text = data['email'] ?? '';
+          _phoneController.text = data['phone'] ?? '';
+          _dobController.text = data['dob'] ?? '';
+          _profileImageUrl = data['profileImage'];
+        });
+        
+        print('✅ Loaded doctor data');
+      } else {
+        print('❌ No doctor document found');
+        await _createInitialDoctorDocument();
+      }
+    } catch (e) {
+      print('❌ Error loading doctor data: $e');
+      _showErrorSnackBar('Error loading profile: $e');
+    }
+  }
+
+  Future<void> _createInitialDoctorDocument() async {
+    if (user == null) return;
+    
+    try {
+      await FirebaseFirestore.instance
+          .collection('doctors')
+          .doc(user!.uid)
+          .set({
+            'uid': user!.uid,
+            'fullname': user!.displayName ?? '',
+            'email': user!.email ?? '',
+            'role': 'doctor',
+            'specialization': '',
+            'qualification': '',
+            'experience': 0,
+            'hospital': '',
+            'fees': 0,
+            'license': '',
+            'phone': '',
+            'dob': '',
+            'profileImage': '',
+            'createdAt': FieldValue.serverTimestamp(),
+            'isEmailVerified': user!.emailVerified,
+          }, SetOptions(merge: true));
+          
+      print('✅ Created initial doctor document');
+    } catch (e) {
+      print('❌ Error creating initial doctor document: $e');
+    }
+  }
+
+  // ← PASTE THIS NEW IMAGE PICKER METHOD HERE
+  Future<void> _pickImage() async {
+  try {
+    FilePickerResult? result = await FilePicker.platform.pickFiles(
+      type: FileType.image, // Remove allowedExtensions when using FileType.image
+      allowMultiple: false,
+      // Remove this line: allowedExtensions: ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp'],
+    );
+
+    if (result != null && result.files.isNotEmpty) {
+      PlatformFile file = result.files.first;
+      
+      print('📄 Selected file: ${file.name}');
+      print('📁 File size: ${file.size} bytes');
+      print('🔤 File extension: ${file.extension}');
+      
+      if (file.size > 10 * 1024 * 1024) {
+        _showErrorSnackBar('Image size too large. Please select image less than 10MB.');
+        return;
+      }
+      
+      // Check if the file is actually an image
+      final validExtensions = ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp'];
+      if (file.extension != null && !validExtensions.contains(file.extension!.toLowerCase())) {
+        _showErrorSnackBar('Please select a valid image file (JPG, PNG, GIF, etc.)');
+        return;
+      }
+      
+      // For web platform
+      if (file.bytes != null) {
+        await _uploadImageWeb(file.bytes!, file.name);
+      } 
+      // For mobile/desktop platforms
+      else if (file.path != null) {
+        final imageFile = File(file.path!);
+        setState(() {
+          _pickedImage = imageFile;
+          _isUploadingImage = true;
+        });
+        
+        final imageUrl = await _uploadImage(imageFile, file.extension ?? 'jpg');
+        
+        setState(() {
+          _profileImageUrl = imageUrl;
+          _isUploadingImage = false;
+        });
+        
+        if (imageUrl != null) {
+          _showSuccessSnackBar('Profile image updated successfully!');
+        }
+      }
+    } else {
+      print('👤 User canceled image selection');
+    }
+  } catch (e) {
+    print('❌ File picker error: $e');
+    _showErrorSnackBar('Error selecting image: ${e.toString()}');
+  }
+}
+
+  // ← PASTE THIS UPLOAD METHOD FOR MOBILE/DESKTOP
+  Future<String?> _uploadImage(File image, String fileExtension) async {
+    try {
+      final timestamp = DateTime.now().millisecondsSinceEpoch;
+      final fileName = 'profile_$timestamp.${fileExtension.toLowerCase()}';
+      
+      final Reference storageRef = FirebaseStorage.instance
+          .ref()
+          .child('doctor_profile_images')
+          .child(user!.uid)
+          .child(fileName);
+      
+      final SettableMetadata metadata = SettableMetadata(
+        contentType: _getMimeType(fileExtension),
+      );
+      
+      final UploadTask uploadTask = storageRef.putFile(image, metadata);
+      final TaskSnapshot snapshot = await uploadTask;
+      
+      if (snapshot.state == TaskState.success) {
+        final String downloadUrl = await storageRef.getDownloadURL();
+        print('✅ Image uploaded successfully!');
+        return downloadUrl;
+      } else {
+        _showErrorSnackBar('Upload failed. Please try again.');
+        return null;
+      }
+    } catch (e) {
+      print('❌ Upload error: $e');
+      _showErrorSnackBar('Upload failed: ${e.toString()}');
+      return null;
+    }
+  }
+
+  // ← PASTE THIS UPLOAD METHOD FOR WEB
+  Future<void> _uploadImageWeb(Uint8List bytes, String fileName) async {
+    try {
+      setState(() => _isUploadingImage = true);
+      
+      final timestamp = DateTime.now().millisecondsSinceEpoch;
+      final fileExtension = fileName.split('.').last.toLowerCase();
+      final newFileName = 'profile_$timestamp.$fileExtension';
+      
+      final Reference storageRef = FirebaseStorage.instance
+          .ref()
+          .child('doctor_profile_images')
+          .child(user!.uid)
+          .child(newFileName);
+      
+      final SettableMetadata metadata = SettableMetadata(
+        contentType: _getMimeType(fileExtension),
+      );
+      
+      final UploadTask uploadTask = storageRef.putData(bytes, metadata);
+      final TaskSnapshot snapshot = await uploadTask;
+      
+      if (snapshot.state == TaskState.success) {
+        final String downloadUrl = await storageRef.getDownloadURL();
+        
+        setState(() {
+          _profileImageUrl = downloadUrl;
+          _isUploadingImage = false;
+        });
+        
+        _showSuccessSnackBar('Profile image updated successfully!');
+      }
+    } catch (e) {
+      print('❌ Web upload error: $e');
+      setState(() => _isUploadingImage = false);
+      _showErrorSnackBar('Upload failed: ${e.toString()}');
+    }
+  }
+
+  String _getMimeType(String extension) {
+    switch (extension.toLowerCase()) {
+      case 'jpg':
+      case 'jpeg':
+        return 'image/jpeg';
+      case 'png':
+        return 'image/png';
+      case 'gif':
+        return 'image/gif';
+      case 'bmp':
+        return 'image/bmp';
+      case 'webp':
+        return 'image/webp';
+      default:
+        return 'image/jpeg';
+    }
+  }
+
+  Future<void> _saveProfile() async {
+    if (!_formKey.currentState!.validate()) {
+      _showErrorSnackBar('Please fill all required fields');
+      return;
+    }
+
+    if (user == null) {
+      _showErrorSnackBar('User not logged in');
+      return;
+    }
+
+    try {
+      _showLoadingSnackBar('Saving profile...');
+
+      final updateData = {
+        'fullname': _fullnameController.text.trim(),
+        'specialization': _specializationController.text.trim(),
+        'qualification': _qualificationController.text.trim(),
+        'experience': int.tryParse(_experienceController.text) ?? 0,
+        'hospital': _hospitalController.text.trim(),
+        'fees': double.tryParse(_feesController.text) ?? 0.0,
+        'license': _licenseController.text.trim(),
+        'email': _emailController.text.trim(),
+        'phone': _phoneController.text.trim(),
+        'dob': _dobController.text.trim(),
+        'profileImage': _profileImageUrl ?? '',
+        'updatedAt': FieldValue.serverTimestamp(),
+      };
+
+      await FirebaseFirestore.instance
+          .collection('doctors')
+          .doc(user!.uid)
+          .set(updateData, SetOptions(merge: true));
+
+      ScaffoldMessenger.of(context).hideCurrentSnackBar();
+      _showSuccessSnackBar('Profile updated successfully!');
+
+      Future.delayed(const Duration(seconds: 1), () {
+        if (mounted) {
+          Navigator.pop(context);
+        }
+      });
+
+    } catch (e) {
+      print('❌ Error saving profile: $e');
+      ScaffoldMessenger.of(context).hideCurrentSnackBar();
+      _showErrorSnackBar('Error saving profile: $e');
+    }
+  }
+
+  void _showErrorSnackBar(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: Colors.red,
+        duration: const Duration(seconds: 3),
+      ),
+    );
+  }
+
+  void _showSuccessSnackBar(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: Colors.green,
+        duration: const Duration(seconds: 2),
+      ),
+    );
+  }
+
+  void _showLoadingSnackBar(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Row(
+          children: [
+            const SizedBox(
+              width: 20,
+              height: 20,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Text(message),
+          ],
+        ),
+        backgroundColor: Colors.blue,
+        duration: const Duration(seconds: 5),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Edit Doctor Profile'),
+        backgroundColor: const Color(0xFF18A3B6),
+        foregroundColor: Colors.white,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.save),
+            onPressed: _saveProfile,
+            tooltip: 'Save Profile',
+          )
+        ],
+      ),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(16),
+        child: Form(
+          key: _formKey,
+          child: Column(
+            children: [
+              // Profile Image
+              Stack(
+                children: [
+                  GestureDetector(
+                    onTap: _isUploadingImage ? null : _pickImage,
+                    child: CircleAvatar(
+                      radius: 60,
+                      backgroundColor: Colors.grey[200],
+                      backgroundImage: _buildProfileImageProvider(),
+                      child: _buildProfileImagePlaceholder(),
+                    ),
+                  ),
+                  if (_isUploadingImage)
+                    Positioned.fill(
+                      child: Container(
+                        decoration: BoxDecoration(
+                          color: Colors.black54,
+                          borderRadius: BorderRadius.circular(60),
+                        ),
+                        child: const Center(
+                          child: CircularProgressIndicator(
+                            valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                          ),
+                        ),
+                      ),
+                    ),
+                  if (!_isUploadingImage)
+                    Positioned(
+                      bottom: 0,
+                      right: 0,
+                      child: Container(
+                        padding: const EdgeInsets.all(6),
+                        decoration: const BoxDecoration(
+                          color: Color(0xFF18A3B6),
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(Icons.camera_alt, size: 20, color: Colors.white),
+                      ),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Text(
+                _isUploadingImage ? 'Uploading...' : 'Tap to change photo',
+                style: TextStyle(
+                  color: _isUploadingImage ? Colors.orange : Colors.grey[600], 
+                  fontSize: 12
+                ),
+              ),
+              
+              const SizedBox(height: 24),
+              
+              // Form Fields
+              _buildTextField(_fullnameController, 'Full Name', Icons.person, isRequired: true),
+              _buildTextField(_specializationController, 'Specialization', Icons.medical_services, isRequired: true),
+              _buildTextField(_qualificationController, 'Qualification', Icons.school, isRequired: true),
+              _buildTextField(_experienceController, 'Experience (Years)', Icons.work, isNumber: true),
+              _buildTextField(_hospitalController, 'Hospital/Clinic', Icons.local_hospital, isRequired: true),
+              _buildTextField(_feesController, 'Consultation Fees (LKR)', Icons.attach_money, isNumber: true),
+              _buildTextField(_licenseController, 'Medical License Number', Icons.badge, isRequired: true),
+              _buildTextField(_emailController, 'Email', Icons.email, isRequired: true),
+              _buildTextField(_phoneController, 'Phone Number', Icons.phone, isRequired: true),
+              _buildTextField(_dobController, 'Date of Birth (YYYY-MM-DD)', Icons.cake),
+              
+              const SizedBox(height: 30),
+              
+              // Save Button
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: _saveProfile,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF18A3B6),
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                  child: const Text(
+                    'Save Profile',
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                  ),
+                ),
+              ),
+              
+              const SizedBox(height: 20),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  ImageProvider _buildProfileImageProvider() {
+    if (_pickedImage != null) {
+      return FileImage(_pickedImage!);
+    } else if (_profileImageUrl != null && _profileImageUrl!.isNotEmpty) {
+      return NetworkImage(_profileImageUrl!);
+    } else {
+      return const AssetImage('assets/images/default_avatar.png');
+    }
+  }
+
+  Widget? _buildProfileImagePlaceholder() {
+    if (_pickedImage != null || (_profileImageUrl != null && _profileImageUrl!.isNotEmpty)) {
+      return null;
+    } else {
+      return const Icon(Icons.person, size: 50, color: Colors.grey);
+    }
+  }
+
+  Widget _buildTextField(
+    TextEditingController controller, 
+    String label, 
+    IconData icon, {
+    bool isRequired = false,
+    bool isNumber = false,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: TextFormField(
+        controller: controller,
+        keyboardType: isNumber ? TextInputType.number : TextInputType.text,
+        decoration: InputDecoration(
+          labelText: '$label${isRequired ? ' *' : ''}',
+          prefixIcon: Icon(icon, color: const Color(0xFF18A3B6)),
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: const BorderSide(color: Colors.grey),
+          ),
+          focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: const BorderSide(color: Color(0xFF18A3B6), width: 2),
+          ),
+        ),
+        validator: isRequired ? (value) {
+          if (value == null || value.isEmpty) {
+            return 'Please enter $label';
+          }
+          return null;
+        } : null,
+      ),
+    );
+  }
+
+  @override
+  void dispose() {
+    _fullnameController.dispose();
+    _specializationController.dispose();
+    _qualificationController.dispose();
+    _experienceController.dispose();
+    _hospitalController.dispose();
+    _feesController.dispose();
+    _licenseController.dispose();
+    _emailController.dispose();
+    _phoneController.dispose();
+    _dobController.dispose();
+    super.dispose();
+  }
+}
