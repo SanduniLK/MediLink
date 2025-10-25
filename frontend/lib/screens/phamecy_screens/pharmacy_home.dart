@@ -1,9 +1,10 @@
-
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_storage/firebase_storage.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:frontend/enroll_screnns/sign_in_page.dart';
 import 'package:intl/intl.dart';
+import 'dart:convert';
 
 class PharmacyHomeScreen extends StatefulWidget {
   final String uid;
@@ -20,6 +21,10 @@ class _PharmacyHomeScreenState extends State<PharmacyHomeScreen> {
   int _newPrescriptionsCount = 0;
   int _dispensedPrescriptionsCount = 0;
 
+  // Firebase Storage
+  final FirebaseStorage _storage = FirebaseStorage.instance;
+  late Reference _prescriptionsRef;
+
   // Search variables
   final TextEditingController _searchController = TextEditingController();
   List<Map<String, dynamic>> _searchResults = [];
@@ -30,6 +35,8 @@ class _PharmacyHomeScreenState extends State<PharmacyHomeScreen> {
   @override
   void initState() {
     super.initState();
+    // Initialize storage reference to your specific path
+    _prescriptionsRef = _storage.ref().child('prescriptions').child(widget.uid);
     _fetchPharmacyData();
     _loadPrescriptionsCounts();
   }
@@ -52,34 +59,86 @@ class _PharmacyHomeScreenState extends State<PharmacyHomeScreen> {
           _pharmacyData = doc.data()!;
           _isLoading = false;
         });
+      } else {
+        setState(() => _isLoading = false);
       }
     } catch (e) {
+      print('Error fetching pharmacy data: $e');
       setState(() => _isLoading = false);
+    }
+  }
+
+  // FETCH PRESCRIPTIONS FROM FIREBASE STORAGE
+  Future<List<Map<String, dynamic>>> _fetchPrescriptionsFromStorage({String? status}) async {
+    try {
+      List<Map<String, dynamic>> allPrescriptions = [];
+
+      // List all files in the prescriptions folder
+      final listResult = await _prescriptionsRef.listAll();
+      
+      for (var item in listResult.items) {
+        try {
+          final prescriptionData = await _downloadAndParsePrescription(item);
+          if (prescriptionData != null) {
+            allPrescriptions.add(prescriptionData);
+          }
+        } catch (e) {
+          print('Error parsing prescription ${item.name}: $e');
+        }
+      }
+
+      // Filter by status if provided
+      if (status != null) {
+        allPrescriptions = allPrescriptions.where((p) => p['status'] == status).toList();
+      }
+
+      // Sort by date (newest first)
+      allPrescriptions.sort((a, b) {
+        final dateA = a['date'] ?? 0;
+        final dateB = b['date'] ?? 0;
+        return dateB.compareTo(dateA);
+      });
+
+      return allPrescriptions;
+    } catch (e) {
+      print('Error fetching prescriptions from storage: $e');
+      return [];
+    }
+  }
+
+  Future<Map<String, dynamic>?> _downloadAndParsePrescription(Reference ref) async {
+    try {
+      // Download the file as string
+      final String downloadedData = await ref.getData() as String;
+      
+      // Parse JSON data
+      final Map<String, dynamic> prescriptionData = json.decode(downloadedData);
+      
+      // Add storage metadata
+      prescriptionData['storagePath'] = ref.fullPath;
+      prescriptionData['fileName'] = ref.name;
+      prescriptionData['id'] = ref.name; // Use filename as ID
+      
+      return prescriptionData;
+    } catch (e) {
+      print('Error downloading prescription ${ref.fullPath}: $e');
+      return null;
     }
   }
 
   Future<void> _loadPrescriptionsCounts() async {
     try {
-      // Load new prescriptions count
-      final newPrescriptionsSnapshot = await FirebaseFirestore.instance
-          .collection('prescriptions')
-          .where('sharedPharmacies', arrayContains: widget.uid)
-          .where('status', isEqualTo: 'shared')
-          .get();
-
-      // Load dispensed prescriptions count
-      final dispensedPrescriptionsSnapshot = await FirebaseFirestore.instance
-          .collection('prescriptions')
-          .where('sharedPharmacies', arrayContains: widget.uid)
-          .where('status', isEqualTo: 'dispensed')
-          .get();
+      final allPrescriptions = await _fetchPrescriptionsFromStorage();
+      
+      final newPrescriptions = allPrescriptions.where((p) => p['status'] == 'shared').length;
+      final dispensedPrescriptions = allPrescriptions.where((p) => p['status'] == 'dispensed').length;
 
       setState(() {
-        _newPrescriptionsCount = newPrescriptionsSnapshot.docs.length;
-        _dispensedPrescriptionsCount = dispensedPrescriptionsSnapshot.docs.length;
+        _newPrescriptionsCount = newPrescriptions;
+        _dispensedPrescriptionsCount = dispensedPrescriptions;
       });
     } catch (e) {
-      // Error loading prescriptions counts
+      print('Error loading prescriptions counts: $e');
     }
   }
 
@@ -98,30 +157,26 @@ class _PharmacyHomeScreenState extends State<PharmacyHomeScreen> {
     });
 
     try {
-      // Get all prescriptions for this pharmacy
-      final querySnapshot = await FirebaseFirestore.instance
-          .collection('prescriptions')
-          .where('sharedPharmacies', arrayContains: widget.uid)
-          .get();
-
-      // Filter locally for case-insensitive partial matching
-      final filteredResults = querySnapshot.docs.where((doc) {
-        final patientName = doc['patientName']?.toString().toLowerCase() ?? '';
+      final allPrescriptions = await _fetchPrescriptionsFromStorage();
+      
+      // Filter locally
+      final filteredResults = allPrescriptions.where((prescription) {
+        final patientName = prescription['patientName']?.toString().toLowerCase() ?? '';
+        final doctorName = prescription['doctorName']?.toString().toLowerCase() ?? '';
+        final diagnosis = prescription['diagnosis']?.toString().toLowerCase() ?? '';
         final searchQuery = query.toLowerCase();
-        return patientName.contains(searchQuery);
+        
+        return patientName.contains(searchQuery) || 
+               doctorName.contains(searchQuery) ||
+               diagnosis.contains(searchQuery);
       }).toList();
 
       setState(() {
-        _searchResults = filteredResults.map((doc) {
-          return {
-            'id': doc.id,
-            ...doc.data(),
-          };
-        }).toList();
+        _searchResults = filteredResults;
         _isSearching = false;
       });
     } catch (e) {
-      // Error searching prescriptions
+      print('Error searching prescriptions: $e');
       setState(() {
         _searchResults = [];
         _isSearching = false;
@@ -129,7 +184,41 @@ class _PharmacyHomeScreenState extends State<PharmacyHomeScreen> {
     }
   }
 
-  // DASHBOARD SCREEN
+  // MARK AS DISPENSED
+  Future<void> _markAsDispensed(String storagePath, String fileName, Map<String, dynamic> prescription) async {
+    try {
+      // Update prescription data
+      prescription['status'] = 'dispensed';
+      prescription['dispensedAt'] = DateTime.now().millisecondsSinceEpoch;
+      prescription['dispensedBy'] = widget.uid;
+      
+      // Convert to JSON
+      final String updatedData = json.encode(prescription);
+      
+      // Upload back to storage
+      final ref = _storage.ref().child(storagePath);
+      await ref.putString(updatedData);
+
+      // Reload counts
+      _loadPrescriptionsCounts();
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Prescription marked as dispensed'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } catch (e) {
+      print('Error marking as dispensed: $e');
+      if (mounted) {
+        _showError('Failed to update prescription status');
+      }
+    }
+  }
+
+  // DASHBOARD SCREEN (Keep your existing UI)
   Widget _buildDashboard() {
     if (_isLoading) {
       return const Center(child: CircularProgressIndicator());
@@ -300,49 +389,6 @@ class _PharmacyHomeScreenState extends State<PharmacyHomeScreen> {
               ),
             ],
           ),
-
-          const SizedBox(height: 30),
-
-          // Quick Access Section
-          const Text(
-            "Quick Access",
-            style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Color(0xFF18A3B6)),
-          ),
-          const SizedBox(height: 15),
-
-          GridView.count(
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            crossAxisCount: 2,
-            crossAxisSpacing: 15,
-            mainAxisSpacing: 15,
-            children: [
-              _buildFeatureCard(
-                icon: Icons.search,
-                title: "Search Prescriptions",
-                subtitle: "By patient name",
-                onTap: () => setState(() => _selectedIndex = 1),
-              ),
-              _buildFeatureCard(
-                icon: Icons.history,
-                title: "Dispensed History",
-                subtitle: "View dispensed",
-                onTap: () => setState(() => _selectedIndex = 2),
-              ),
-              _buildFeatureCard(
-                icon: Icons.assignment,
-                title: "All Prescriptions",
-                subtitle: "View all",
-                onTap: () => setState(() => _selectedIndex = 3),
-              ),
-              _buildFeatureCard(
-                icon: Icons.settings,
-                title: "Settings",
-                subtitle: "Account settings",
-                onTap: () => setState(() => _selectedIndex = 4),
-              ),
-            ],
-          ),
         ],
       ),
     );
@@ -388,267 +434,121 @@ class _PharmacyHomeScreenState extends State<PharmacyHomeScreen> {
     );
   }
 
-  Widget _buildFeatureCard({required IconData icon, required String title, required String subtitle, required VoidCallback onTap}) {
-    return Card(
-      elevation: 2,
-      child: InkWell(
-        onTap: onTap,
-        child: Padding(
-          padding: const EdgeInsets.all(15),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(icon, size: 30, color: _deepTeal),
-              const SizedBox(height: 8),
-              Text(
-                title,
-                style: const TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                subtitle,
-                textAlign: TextAlign.center,
-                style: const TextStyle(
-                  fontSize: 12,
-                  color: Colors.grey,
-                ),
-              ),
+  // PRESCRIPTIONS SCREEN WITH TABS
+  Widget _buildPrescriptions() {
+    return DefaultTabController(
+      length: 3,
+      child: Scaffold(
+        backgroundColor: const Color(0xFFDDF0F5),
+        appBar: AppBar(
+          title: const Text('Prescriptions'),
+          backgroundColor: _deepTeal,
+          bottom: const TabBar(
+            tabs: [
+              Tab(icon: Icon(Icons.search), text: 'Search'),
+              Tab(icon: Icon(Icons.assignment), text: 'New'),
+              Tab(icon: Icon(Icons.history), text: 'Dispensed'),
             ],
           ),
+        ),
+        body: TabBarView(
+          children: [
+            _buildSearchTab(),
+            _buildNewPrescriptionsTab(),
+            _buildDispensedTab(),
+          ],
         ),
       ),
     );
   }
 
-  // PRESCRIPTIONS SEARCH SCREEN
- // PRESCRIPTIONS SCREEN WITH TABS
-Widget _buildPrescriptions() {
-  return DefaultTabController(
-    length: 3,
-    child: Scaffold(
-      backgroundColor: const Color(0xFFDDF0F5),
-      appBar: AppBar(
-        title: const Text('Prescriptions'),
-        backgroundColor: _deepTeal,
-        bottom: const TabBar(
-          tabs: [
-            Tab(icon: Icon(Icons.search), text: 'Search'),
-            Tab(icon: Icon(Icons.assignment), text: 'New'),
-            Tab(icon: Icon(Icons.history), text: 'Dispensed'),
-          ],
-        ),
-      ),
-      body: TabBarView(
+  Widget _buildSearchTab() {
+    return Padding(
+      padding: const EdgeInsets.all(16.0),
+      child: Column(
         children: [
-          // Search Tab
-          _buildSearchTab(),
-          // New Prescriptions Tab
-          _buildNewPrescriptionsTab(),
-          // Dispensed Tab
-          _buildDispensedTab(),
-        ],
-      ),
-    ),
-  );
-}
-
-Widget _buildSearchTab() {
-  return Padding(
-    padding: const EdgeInsets.all(16.0),
-    child: Column(
-      children: [
-        // Search Box
-        Card(
-          elevation: 2,
-          child: Padding(
-            padding: const EdgeInsets.all(16.0),
-            child: Column(
-              children: [
-                TextField(
-                  controller: _searchController,
-                  decoration: InputDecoration(
-                    hintText: 'Enter patient name...',
-                    prefixIcon: Icon(Icons.search, color: _deepTeal),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(10),
+          // Search Box
+          Card(
+            elevation: 2,
+            child: Padding(
+              padding: const EdgeInsets.all(16.0),
+              child: Column(
+                children: [
+                  TextField(
+                    controller: _searchController,
+                    decoration: InputDecoration(
+                      hintText: 'Enter patient name, doctor, or diagnosis...',
+                      prefixIcon: Icon(Icons.search, color: _deepTeal),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
                     ),
+                    onChanged: (value) {
+                      _performSearch(value);
+                    },
                   ),
-                  onChanged: (value) {
-                    _performSearch(value);
-                  },
-                ),
-                const SizedBox(height: 10),
-                Text(
-                  'Search across all prescriptions',
-                  style: TextStyle(color: Colors.grey[600], fontSize: 12),
-                ),
-              ],
+                  const SizedBox(height: 10),
+                  Text(
+                    'Search across all prescriptions',
+                    style: TextStyle(color: Colors.grey[600], fontSize: 12),
+                  ),
+                ],
+              ),
             ),
           ),
-        ),
-        const SizedBox(height: 20),
-        
-        // Search Results
-        Expanded(
-          child: _isSearching
-              ? Center(child: CircularProgressIndicator(color: _deepTeal))
-              : _searchResults.isEmpty
-                  ? Center(
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(
-                            _searchController.text.isEmpty 
-                                ? Icons.search 
-                                : Icons.assignment_outlined,
-                            size: 80,
-                            color: Colors.grey,
-                          ),
-                          const SizedBox(height: 20),
-                          Text(
-                            _searchController.text.isEmpty
-                                ? "Enter patient name to search prescriptions"
-                                : "No prescriptions found for '${_searchController.text}'",
-                            style: const TextStyle(fontSize: 16, color: Colors.grey),
-                            textAlign: TextAlign.center,
-                          ),
-                        ],
+          const SizedBox(height: 20),
+          
+          // Search Results
+          Expanded(
+            child: _isSearching
+                ? Center(child: CircularProgressIndicator(color: _deepTeal))
+                : _searchResults.isEmpty
+                    ? Center(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(
+                              _searchController.text.isEmpty 
+                                  ? Icons.search 
+                                  : Icons.assignment_outlined,
+                              size: 80,
+                              color: Colors.grey,
+                            ),
+                            const SizedBox(height: 20),
+                            Text(
+                              _searchController.text.isEmpty
+                                  ? "Enter patient name to search prescriptions"
+                                  : "No prescriptions found for '${_searchController.text}'",
+                              style: const TextStyle(fontSize: 16, color: Colors.grey),
+                              textAlign: TextAlign.center,
+                            ),
+                          ],
+                        ),
+                      )
+                    : ListView.builder(
+                        itemCount: _searchResults.length,
+                        itemBuilder: (context, index) {
+                          final prescription = _searchResults[index];
+                          final storagePath = prescription['storagePath'] ?? '';
+                          final fileName = prescription['fileName'] ?? '';
+                          return _buildPrescriptionCard(prescription, storagePath, fileName);
+                        },
                       ),
-                    )
-                  : ListView.builder(
-                      itemCount: _searchResults.length,
-                      itemBuilder: (context, index) {
-                        final prescription = _searchResults[index];
-                        final prescriptionId = prescription['id'] ?? '';
-                        return _buildPrescriptionCard(prescription, prescriptionId);
-                      },
-                    ),
-        ),
-      ],
-    ),
-  );
-}
-
-Widget _buildNewPrescriptionsTab() {
-  return StreamBuilder<QuerySnapshot>(
-    stream: FirebaseFirestore.instance
-        .collection('prescriptions')
-        .where('sharedPharmacies', arrayContains: widget.uid)
-        .where('status', isEqualTo: 'shared')
-        .orderBy('date', descending: true)
-        .snapshots(),
-    builder: (context, snapshot) {
-      if (snapshot.connectionState == ConnectionState.waiting) {
-        return Center(child: CircularProgressIndicator(color: _deepTeal));
-      }
-
-      if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
-        return Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(Icons.assignment, size: 80, color: Colors.grey),
-              const SizedBox(height: 20),
-              Text(
-                "No new prescriptions available",
-                style: const TextStyle(fontSize: 16, color: Colors.grey),
-              ),
-            ],
           ),
-        );
-      }
+        ],
+      ),
+    );
+  }
 
-      final prescriptions = snapshot.data!.docs;
-
-      return ListView.builder(
-        padding: const EdgeInsets.all(16),
-        itemCount: prescriptions.length,
-        itemBuilder: (context, index) {
-          final prescription = prescriptions[index].data() as Map<String, dynamic>;
-          final prescriptionId = prescriptions[index].id;
-          return _buildPrescriptionCard(prescription, prescriptionId);
-        },
-      );
-    },
-  );
-}
-
-Widget _buildDispensedTab() {
-  return StreamBuilder<QuerySnapshot>(
-    stream: FirebaseFirestore.instance
-        .collection('prescriptions')
-        .where('sharedPharmacies', arrayContains: widget.uid)
-        .where('status', isEqualTo: 'dispensed')
-        .orderBy('date', descending: true)
-        .snapshots(),
-    builder: (context, snapshot) {
-      if (snapshot.connectionState == ConnectionState.waiting) {
-        return Center(child: CircularProgressIndicator(color: _deepTeal));
-      }
-
-      if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
-        return Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(Icons.history, size: 80, color: Colors.grey),
-              const SizedBox(height: 20),
-              Text(
-                "No dispensed prescriptions yet",
-                style: const TextStyle(fontSize: 16, color: Colors.grey),
-              ),
-            ],
-          ),
-        );
-      }
-
-      final prescriptions = snapshot.data!.docs;
-
-      return ListView.builder(
-        padding: const EdgeInsets.all(16),
-        itemCount: prescriptions.length,
-        itemBuilder: (context, index) {
-          final prescription = prescriptions[index].data() as Map<String, dynamic>;
-          final prescriptionId = prescriptions[index].id;
-          return _buildDispensedPrescriptionCard(prescription, prescriptionId);
-        },
-      );
-    },
-  );
-}
-
-// DISPENSED HISTORY SCREEN (Standalone)
-Widget _buildDispensedHistory() {
-  return Scaffold(
-    backgroundColor: const Color(0xFFDDF0F5),
-    appBar: AppBar(
-      title: const Text('Dispensed History'),
-      backgroundColor: _deepTeal,
-    ),
-    body: _buildDispensedTab(), // Reuse the same widget
-  );
-}
-
-  // DISPENSED HISTORY SCREEN
- 
-
-  // ALL PRESCRIPTIONS TAB
-  Widget _buildAllPrescriptionsTab() {
-    return StreamBuilder<QuerySnapshot>(
-      stream: FirebaseFirestore.instance
-          .collection('prescriptions')
-          .where('sharedPharmacies', arrayContains: widget.uid)
-          .orderBy('date', descending: true)
-          .snapshots(),
+  Widget _buildNewPrescriptionsTab() {
+    return FutureBuilder<List<Map<String, dynamic>>>(
+      future: _fetchPrescriptionsFromStorage(status: 'shared'),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return Center(child: CircularProgressIndicator(color: _deepTeal));
         }
 
-        if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+        if (!snapshot.hasData || snapshot.data!.isEmpty) {
           return Center(
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
@@ -656,7 +556,7 @@ Widget _buildDispensedHistory() {
                 Icon(Icons.assignment, size: 80, color: Colors.grey),
                 const SizedBox(height: 20),
                 Text(
-                  "No prescriptions available",
+                  "No new prescriptions available",
                   style: const TextStyle(fontSize: 16, color: Colors.grey),
                 ),
               ],
@@ -664,22 +564,70 @@ Widget _buildDispensedHistory() {
           );
         }
 
-        final prescriptions = snapshot.data!.docs;
+        final prescriptions = snapshot.data!;
 
-        return ListView.builder(
-          padding: const EdgeInsets.all(16),
-          itemCount: prescriptions.length,
-          itemBuilder: (context, index) {
-            final prescription = prescriptions[index].data() as Map<String, dynamic>;
-            final prescriptionId = prescriptions[index].id;
-            return _buildPrescriptionCard(prescription, prescriptionId);
-          },
+        return RefreshIndicator(
+          onRefresh: _loadPrescriptionsCounts,
+          child: ListView.builder(
+            padding: const EdgeInsets.all(16),
+            itemCount: prescriptions.length,
+            itemBuilder: (context, index) {
+              final prescription = prescriptions[index];
+              final storagePath = prescription['storagePath'] ?? '';
+              final fileName = prescription['fileName'] ?? '';
+              return _buildPrescriptionCard(prescription, storagePath, fileName);
+            },
+          ),
         );
       },
     );
   }
 
-  Widget _buildPrescriptionCard(Map<String, dynamic> prescription, String prescriptionId) {
+  Widget _buildDispensedTab() {
+    return FutureBuilder<List<Map<String, dynamic>>>(
+      future: _fetchPrescriptionsFromStorage(status: 'dispensed'),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return Center(child: CircularProgressIndicator(color: _deepTeal));
+        }
+
+        if (!snapshot.hasData || snapshot.data!.isEmpty) {
+          return Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.history, size: 80, color: Colors.grey),
+                const SizedBox(height: 20),
+                Text(
+                  "No dispensed prescriptions yet",
+                  style: const TextStyle(fontSize: 16, color: Colors.grey),
+                ),
+              ],
+            ),
+          );
+        }
+
+        final prescriptions = snapshot.data!;
+
+        return RefreshIndicator(
+          onRefresh: _loadPrescriptionsCounts,
+          child: ListView.builder(
+            padding: const EdgeInsets.all(16),
+            itemCount: prescriptions.length,
+            itemBuilder: (context, index) {
+              final prescription = prescriptions[index];
+              final storagePath = prescription['storagePath'] ?? '';
+              final fileName = prescription['fileName'] ?? '';
+              return _buildDispensedPrescriptionCard(prescription, storagePath, fileName);
+            },
+          ),
+        );
+      },
+    );
+  }
+
+  // PRESCRIPTION CARD WIDGETS
+  Widget _buildPrescriptionCard(Map<String, dynamic> prescription, String storagePath, String fileName) {
     final medicines = List<Map<String, dynamic>>.from(prescription['medicines'] ?? []);
     
     return Card(
@@ -727,6 +675,11 @@ Widget _buildDispensedHistory() {
             ),
             const SizedBox(height: 8),
             Text(
+              'Doctor: ${prescription['doctorName'] ?? 'Unknown'}',
+              style: TextStyle(color: Colors.grey[600]),
+            ),
+            const SizedBox(height: 8),
+            Text(
               'Medicines: ${medicines.length}',
               style: TextStyle(color: Colors.grey[600]),
             ),
@@ -758,7 +711,7 @@ Widget _buildDispensedHistory() {
                   Expanded(
                     child: ElevatedButton.icon(
                       icon: const Icon(Icons.check_circle),
-                      onPressed: () => _markAsDispensed(prescriptionId),
+                      onPressed: () => _markAsDispensed(storagePath, fileName, prescription),
                       style: ElevatedButton.styleFrom(
                         backgroundColor: Colors.green,
                       ),
@@ -776,7 +729,7 @@ Widget _buildDispensedHistory() {
     );
   }
 
-  Widget _buildDispensedPrescriptionCard(Map<String, dynamic> prescription, String prescriptionId) {
+  Widget _buildDispensedPrescriptionCard(Map<String, dynamic> prescription, String storagePath, String fileName) {
     final medicines = List<Map<String, dynamic>>.from(prescription['medicines'] ?? []);
     
     return Card(
@@ -828,6 +781,11 @@ Widget _buildDispensedHistory() {
               ),
               const SizedBox(height: 8),
               Text(
+                'Doctor: ${prescription['doctorName'] ?? 'Unknown'}',
+                style: TextStyle(color: Colors.grey[600]),
+              ),
+              const SizedBox(height: 8),
+              Text(
                 'Medicines: ${medicines.length}',
                 style: TextStyle(color: Colors.grey[600]),
               ),
@@ -836,6 +794,13 @@ Widget _buildDispensedHistory() {
                 Text(
                   'Diagnosis: ${prescription['diagnosis']}',
                   style: TextStyle(color: Colors.grey[600]),
+                ),
+              ],
+              if (prescription['dispensedAt'] != null) ...[
+                const SizedBox(height: 8),
+                Text(
+                  'Dispensed: ${_formatTimestamp(prescription['dispensedAt'])}',
+                  style: TextStyle(color: Colors.green[600]),
                 ),
               ],
               const SizedBox(height: 12),
@@ -860,67 +825,15 @@ Widget _buildDispensedHistory() {
     );
   }
 
-  // UTILITY METHODS
-  Color _getStatusColor(String? status) {
-    switch (status) {
-      case 'shared':
-        return Colors.orange;
-      case 'dispensed':
-        return Colors.green;
-      case 'completed':
-        return Colors.blue;
-      default:
-        return Colors.grey;
-    }
-  }
-
-  String _formatTimestamp(dynamic timestamp) {
-    if (timestamp == null) return 'Unknown date';
-    final date = DateTime.fromMillisecondsSinceEpoch(timestamp as int);
-    return '${date.day}/${date.month}/${date.year}';
-  }
-
-  void _markAsDispensed(String prescriptionId) async {
-    try {
-      await FirebaseFirestore.instance
-          .collection('prescriptions')
-          .doc(prescriptionId)
-          .update({'status': 'dispensed'});
-
-      // Reload counts
-      _loadPrescriptionsCounts();
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Prescription marked as dispensed'),
-            backgroundColor: Colors.green,
-          ),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        _showError('Failed to update prescription status');
-      }
-    }
-  }
-
-  void _showError(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        backgroundColor: Colors.red,
+  // DISPENSED HISTORY SCREEN
+  Widget _buildDispensedHistory() {
+    return Scaffold(
+      backgroundColor: const Color(0xFFDDF0F5),
+      appBar: AppBar(
+        title: const Text('Dispensed History'),
+        backgroundColor: _deepTeal,
       ),
-    );
-  }
-
-  // PRESCRIPTION DETAILS VIEW
-  void _viewPrescriptionDetails(Map<String, dynamic> prescription) {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => PrescriptionDetailScreen(prescription: prescription),
-      ),
+      body: _buildDispensedTab(),
     );
   }
 
@@ -994,6 +907,44 @@ Widget _buildDispensedHistory() {
     );
   }
 
+  // UTILITY METHODS
+  Color _getStatusColor(String? status) {
+    switch (status) {
+      case 'shared':
+        return Colors.orange;
+      case 'dispensed':
+        return Colors.green;
+      case 'completed':
+        return Colors.blue;
+      default:
+        return Colors.grey;
+    }
+  }
+
+  String _formatTimestamp(dynamic timestamp) {
+    if (timestamp == null) return 'Unknown date';
+    final date = DateTime.fromMillisecondsSinceEpoch(timestamp as int);
+    return DateFormat('MMM dd, yyyy').format(date);
+  }
+
+  void _viewPrescriptionDetails(Map<String, dynamic> prescription) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => PrescriptionDetailScreen(prescription: prescription),
+      ),
+    );
+  }
+
+  void _showError(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: Colors.red,
+      ),
+    );
+  }
+
   Future<void> _signOut() async {
     await FirebaseAuth.instance.signOut();
     Navigator.of(context).pushAndRemoveUntil(
@@ -1003,64 +954,64 @@ Widget _buildDispensedHistory() {
   }
 
   @override
- @override
-Widget build(BuildContext context) {
-  // Simplified to 4 main tabs
-  List<Widget> screens = [
-    _buildDashboard(),
-    _buildPrescriptions(), // This now has internal tabs
-    _buildDispensedHistory(),
-    _buildSettings(),
-  ];
+  Widget build(BuildContext context) {
+    List<Widget> screens = [
+      _buildDashboard(),
+      _buildPrescriptions(),
+      _buildDispensedHistory(),
+      _buildSettings(),
+    ];
 
-  List<String> titles = [
-    'Dashboard',
-    'Prescriptions', 
-    'History',
-    'Settings',
-  ];
+    List<String> titles = [
+      'Dashboard',
+      'Prescriptions', 
+      'History',
+      'Settings',
+    ];
 
-  return Scaffold(
-    backgroundColor: const Color(0xFFDDF0F5),
-    appBar: AppBar(
-      title: Text(
-        titles[_selectedIndex],
-        style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+    return Scaffold(
+      backgroundColor: const Color(0xFFDDF0F5),
+      appBar: AppBar(
+        title: Text(
+          titles[_selectedIndex],
+          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+        ),
+        backgroundColor: _deepTeal,
+        elevation: 0,
+        automaticallyImplyLeading: false,
       ),
-      backgroundColor: _deepTeal,
-      elevation: 0,
-      automaticallyImplyLeading: false,
-    ),
-    body: screens[_selectedIndex],
-    bottomNavigationBar: BottomNavigationBar(
-      backgroundColor: Colors.white,
-      selectedItemColor: _deepTeal,
-      unselectedItemColor: Colors.grey,
-      currentIndex: _selectedIndex,
-      onTap: (index) => setState(() => _selectedIndex = index),
-      type: BottomNavigationBarType.fixed,
-      items: const [
-        BottomNavigationBarItem(
-          icon: Icon(Icons.dashboard),
-          label: 'Home',
-        ),
-        BottomNavigationBarItem(
-          icon: Icon(Icons.assignment),
-          label: 'Prescriptions',
-        ),
-        BottomNavigationBarItem(
-          icon: Icon(Icons.history),
-          label: 'History',
-        ),
-        BottomNavigationBarItem(
-          icon: Icon(Icons.settings),
-          label: 'Settings',
-        ),
-      ],
-    ),
-  );
+      body: screens[_selectedIndex],
+      bottomNavigationBar: BottomNavigationBar(
+        backgroundColor: Colors.white,
+        selectedItemColor: _deepTeal,
+        unselectedItemColor: Colors.grey,
+        currentIndex: _selectedIndex,
+        onTap: (index) => setState(() => _selectedIndex = index),
+        type: BottomNavigationBarType.fixed,
+        items: const [
+          BottomNavigationBarItem(
+            icon: Icon(Icons.dashboard),
+            label: 'Home',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.assignment),
+            label: 'Prescriptions',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.history),
+            label: 'History',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.settings),
+            label: 'Settings',
+          ),
+        ],
+      ),
+    );
+  }
 }
-}
+
+
 
 class PrescriptionDetailScreen extends StatelessWidget {
   final Map<String, dynamic> prescription;

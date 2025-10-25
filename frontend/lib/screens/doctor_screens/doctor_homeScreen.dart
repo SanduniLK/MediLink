@@ -8,6 +8,8 @@ import 'package:frontend/screens/doctor_screens/doctor_profile.dart';
 import 'package:frontend/screens/doctor_screens/doctor_qr_scanner_screen.dart';
 import 'package:frontend/screens/doctor_screens/doctor_queue_dashboard.dart';
 import 'package:frontend/screens/doctor_screens/prescription_screen.dart';
+
+
 import 'package:frontend/screens/doctor_screens/settings_screen.dart';
 import 'package:frontend/screens/doctor_screens/telemedicine_appointments_screen.dart';
 import 'package:frontend/screens/patient_screens/notifications.dart';
