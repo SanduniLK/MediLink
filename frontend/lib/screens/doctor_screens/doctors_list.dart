@@ -1,9 +1,10 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+
 import 'package:frontend/screens/patient_screens/book_appointment_page.dart';
 import 'package:intl/intl.dart';
-
+import 'package:frontend/screens/patient_screens/doctor_profile_screen.dart';
 class DoctorsListScreen extends StatefulWidget {
   const DoctorsListScreen({super.key});
 
@@ -71,6 +72,7 @@ class _DoctorsListScreenState extends State<DoctorsListScreen> {
           'medicalCenterId': medicalCenterId,
           'experience': data['experience'] ?? 'Not specified',
           'fees': (data['fees'] ?? 0.0).toDouble(),
+          'profileImage': data['profileImage'], 
           'medicalCenters': medicalCenters,
         });
       }
@@ -164,10 +166,7 @@ class _DoctorsListScreenState extends State<DoctorsListScreen> {
       margin: const EdgeInsets.only(bottom: 12),
       elevation: 2,
       child: ListTile(
-        leading: const CircleAvatar(
-          backgroundColor: Color(0xFF18A3B6),
-          child: Icon(Icons.person, color: Colors.white),
-        ),
+        leading: _buildClickableDoctorAvatar(doctor),
         title: Text(
           doctor['fullname'] ?? 'Dr. Unknown',
           style: const TextStyle(fontWeight: FontWeight.bold),
@@ -202,7 +201,81 @@ class _DoctorsListScreenState extends State<DoctorsListScreen> {
       ),
     );
   }
+ Widget _buildClickableDoctorAvatar(Map<String, dynamic> doctor) {
+  final String? profileImageUrl = doctor['profileImage'];
+  
+  return GestureDetector(
+    onTap: () {
+      _viewDoctorProfile(doctor);
+    },
+    child: CircleAvatar(
+      radius: 25,
+      backgroundColor: profileImageUrl != null && profileImageUrl.isNotEmpty
+          ? Colors.grey[200]
+          : const Color(0xFF18A3B6),
+      backgroundImage: profileImageUrl != null && profileImageUrl.isNotEmpty
+          ? NetworkImage(profileImageUrl)
+          : null,
+      // Remove onBackgroundImageError when backgroundImage is null
+      onBackgroundImageError: profileImageUrl != null && profileImageUrl.isNotEmpty
+          ? (exception, stackTrace) {
+              // Error handled silently - only called when image exists but fails to load
+            }
+          : null, // Set to null when no backgroundImage
+      child: profileImageUrl != null && profileImageUrl.isNotEmpty
+          ? null
+          : const Icon(Icons.person, color: Colors.white, size: 20),
+    ),
+  );
+}
+void _viewDoctorProfile(Map<String, dynamic> doctor) {
+  final String doctorId = doctor['uid'] ?? '';
+  
+  if (doctorId.isEmpty) {
+    print('❌ Doctor ID is empty');
+    return;
+  }
 
+  print('👨‍⚕️ Navigating to doctor profile: ${doctor['fullname']}');
+  print('   🆔 Doctor ID: $doctorId');
+  
+  Navigator.push(
+    context,
+    MaterialPageRoute(
+      builder: (context) => DoctorProfileScreen(
+        doctorId: doctorId,
+        doctorData: doctor,
+      ),
+    ),
+  );
+}
+Widget _buildDoctorAvatar(Map<String, dynamic> doctor) {
+  final String? profileImageUrl = doctor['profileImage'];
+  
+  print('🔄 Building doctor avatar:');
+  print('   - Doctor: ${doctor['fullname']}');
+  print('   - Profile Image URL: $profileImageUrl');
+  print('   - URL valid: ${profileImageUrl != null && profileImageUrl.isNotEmpty}');
+
+  if (profileImageUrl != null && profileImageUrl.isNotEmpty) {
+    return CircleAvatar(
+      radius: 25,
+      backgroundColor: Colors.grey[200],
+      backgroundImage: NetworkImage(profileImageUrl),
+      onBackgroundImageError: (exception, stackTrace) {
+        print('❌ Error loading doctor profile image: $exception');
+        print('❌ URL that failed: $profileImageUrl');
+      },
+    );
+  } else {
+    print('ℹ️ No profile image found for ${doctor['fullname']}, using default');
+    return const CircleAvatar(
+      radius: 25,
+      backgroundColor: Color(0xFF18A3B6),
+      child: Icon(Icons.person, color: Colors.white, size: 20),
+    );
+  }
+}
 Future<void> _fetchAndShowAvailableSchedules(Map<String, dynamic> doctor) async {
   try {
     setState(() {

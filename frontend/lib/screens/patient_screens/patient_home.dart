@@ -6,6 +6,7 @@ import 'package:frontend/screens/patient_screens/PatientProfileScreen.dart';
 import 'package:frontend/screens/patient_screens/ai_predications.dart';
 import 'package:frontend/screens/patient_screens/analysis_report.dart';
 import 'package:frontend/screens/patient_screens/information.dart';
+import 'package:frontend/screens/patient_screens/medical_records_screen.dart';
 import 'package:frontend/screens/patient_screens/my_appointments_page.dart';
 import 'package:frontend/screens/patient_screens/patient_prescriptions.dart';
 import 'package:frontend/screens/patient_screens/patient_queue_status.dart';
@@ -396,6 +397,17 @@ Widget _buildGridButtons() {
             const Color(0xFF32BACD),
           ),
         ),
+        GestureDetector(
+          onTap: () {
+            Navigator.push(context, 
+            MaterialPageRoute(builder: (_)=> MedicalRecordsScreen()),
+            );
+          },
+          child: _buildActionButton(Icons.upload_file_outlined,
+          "Upload past\nrecords",const Color(0xFF32BACD)), 
+          ),
+            
+        
       ],
     ),
   );

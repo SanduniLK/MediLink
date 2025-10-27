@@ -5,7 +5,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:firebase_storage/firebase_storage.dart';
-import 'package:file_picker/file_picker.dart'; // ← ADD THIS IMPORT
+import 'package:file_picker/file_picker.dart';
 
 class EditProfileScreen extends StatefulWidget {
   const EditProfileScreen({super.key});
@@ -34,6 +34,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   String? _profileImageUrl;
   File? _pickedImage;
   bool _isUploadingImage = false;
+  bool _isSaving = false;
 
   @override
   void initState() {
@@ -108,72 +109,65 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     }
   }
 
-  // ← PASTE THIS NEW IMAGE PICKER METHOD HERE
+  // FIXED: Image Picker Method
   Future<void> _pickImage() async {
-  try {
-    FilePickerResult? result = await FilePicker.platform.pickFiles(
-      type: FileType.image, // Remove allowedExtensions when using FileType.image
-      allowMultiple: false,
-      // Remove this line: allowedExtensions: ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp'],
-    );
-
-    if (result != null && result.files.isNotEmpty) {
-      PlatformFile file = result.files.first;
-      
-      print('📄 Selected file: ${file.name}');
-      print('📁 File size: ${file.size} bytes');
-      print('🔤 File extension: ${file.extension}');
-      
-      if (file.size > 10 * 1024 * 1024) {
-        _showErrorSnackBar('Image size too large. Please select image less than 10MB.');
-        return;
-      }
-      
-      // Check if the file is actually an image
-      final validExtensions = ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp'];
-      if (file.extension != null && !validExtensions.contains(file.extension!.toLowerCase())) {
-        _showErrorSnackBar('Please select a valid image file (JPG, PNG, GIF, etc.)');
-        return;
-      }
-      
-      // For web platform
-      if (file.bytes != null) {
-        await _uploadImageWeb(file.bytes!, file.name);
+    try {
+      // For mobile - use image_picker
+      if (Platform.isAndroid || Platform.isIOS) {
+        final XFile? pickedFile = await _imagePicker.pickImage(
+          source: ImageSource.gallery,
+          maxWidth: 800,
+          maxHeight: 800,
+          imageQuality: 85,
+        );
+        
+        if (pickedFile != null) {
+          final imageFile = File(pickedFile.path);
+          await _uploadImageMobile(imageFile);
+        }
       } 
-      // For mobile/desktop platforms
-      else if (file.path != null) {
-        final imageFile = File(file.path!);
-        setState(() {
-          _pickedImage = imageFile;
-          _isUploadingImage = true;
-        });
-        
-        final imageUrl = await _uploadImage(imageFile, file.extension ?? 'jpg');
-        
-        setState(() {
-          _profileImageUrl = imageUrl;
-          _isUploadingImage = false;
-        });
-        
-        if (imageUrl != null) {
-          _showSuccessSnackBar('Profile image updated successfully!');
+      // For web - use file_picker
+      else {
+        FilePickerResult? result = await FilePicker.platform.pickFiles(
+          type: FileType.image,
+          allowMultiple: false,
+        );
+
+        if (result != null && result.files.isNotEmpty) {
+          PlatformFile file = result.files.first;
+          
+          if (file.bytes != null) {
+            await _uploadImageWeb(file.bytes!, file.name);
+          } else if (file.path != null) {
+            final imageFile = File(file.path!);
+            await _uploadImageMobile(imageFile);
+          }
         }
       }
-    } else {
-      print('👤 User canceled image selection');
+    } catch (e) {
+      print('❌ Image picker error: $e');
+      _showErrorSnackBar('Error selecting image: ${e.toString()}');
     }
-  } catch (e) {
-    print('❌ File picker error: $e');
-    _showErrorSnackBar('Error selecting image: ${e.toString()}');
   }
-}
 
-  // ← PASTE THIS UPLOAD METHOD FOR MOBILE/DESKTOP
-  Future<String?> _uploadImage(File image, String fileExtension) async {
+  // FIXED: Upload for Mobile/Desktop
+  Future<void> _uploadImageMobile(File imageFile) async {
     try {
-      final timestamp = DateTime.now().millisecondsSinceEpoch;
-      final fileName = 'profile_$timestamp.${fileExtension.toLowerCase()}';
+      setState(() => _isUploadingImage = true);
       
+      // Check file size
+      final fileSize = await imageFile.length();
+      if (fileSize > 10 * 1024 * 1024) {
+        _showErrorSnackBar('Image size too large. Please select image less than 10MB.');
+        setState(() => _isUploadingImage = false);
+        return;
+      }
+
+      final timestamp = DateTime.now().millisecondsSinceEpoch;
+      final fileExtension = imageFile.path.split('.').last.toLowerCase();
+      final fileName = 'profile_$timestamp.$fileExtension';
+      
+      // FIXED: Correct Firebase Storage reference
       final Reference storageRef = FirebaseStorage.instance
           .ref()
           .child('doctor_profile_images')
@@ -182,27 +176,41 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
       
       final SettableMetadata metadata = SettableMetadata(
         contentType: _getMimeType(fileExtension),
+        customMetadata: {
+          'uploadedBy': user!.uid,
+          'uploadedAt': DateTime.now().toIso8601String(),
+        },
       );
       
-      final UploadTask uploadTask = storageRef.putFile(image, metadata);
+      print('📤 Uploading image to: doctor_profile_images/${user!.uid}/$fileName');
+      
+      final UploadTask uploadTask = storageRef.putFile(imageFile, metadata);
       final TaskSnapshot snapshot = await uploadTask;
       
       if (snapshot.state == TaskState.success) {
         final String downloadUrl = await storageRef.getDownloadURL();
-        print('✅ Image uploaded successfully!');
-        return downloadUrl;
-      } else {
-        _showErrorSnackBar('Upload failed. Please try again.');
-        return null;
+        
+        print('✅ Image uploaded successfully! URL: $downloadUrl');
+        
+        setState(() {
+          _profileImageUrl = downloadUrl;
+          _pickedImage = imageFile;
+          _isUploadingImage = false;
+        });
+        
+        _showSuccessSnackBar('Profile image updated successfully!');
+        
+        // Auto-save the profile image URL to Firestore
+        await _saveProfileImageToFirestore(downloadUrl);
       }
     } catch (e) {
-      print('❌ Upload error: $e');
+      print('❌ Mobile upload error: $e');
+      setState(() => _isUploadingImage = false);
       _showErrorSnackBar('Upload failed: ${e.toString()}');
-      return null;
     }
   }
 
-  // ← PASTE THIS UPLOAD METHOD FOR WEB
+  // FIXED: Upload for Web
   Future<void> _uploadImageWeb(Uint8List bytes, String fileName) async {
     try {
       setState(() => _isUploadingImage = true);
@@ -219,7 +227,13 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
       
       final SettableMetadata metadata = SettableMetadata(
         contentType: _getMimeType(fileExtension),
+        customMetadata: {
+          'uploadedBy': user!.uid,
+          'uploadedAt': DateTime.now().toIso8601String(),
+        },
       );
+      
+      print('📤 Uploading web image to: doctor_profile_images/${user!.uid}/$newFileName');
       
       final UploadTask uploadTask = storageRef.putData(bytes, metadata);
       final TaskSnapshot snapshot = await uploadTask;
@@ -227,17 +241,38 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
       if (snapshot.state == TaskState.success) {
         final String downloadUrl = await storageRef.getDownloadURL();
         
+        print('✅ Web image uploaded successfully! URL: $downloadUrl');
+        
         setState(() {
           _profileImageUrl = downloadUrl;
           _isUploadingImage = false;
         });
         
         _showSuccessSnackBar('Profile image updated successfully!');
+        
+        // Auto-save the profile image URL to Firestore
+        await _saveProfileImageToFirestore(downloadUrl);
       }
     } catch (e) {
       print('❌ Web upload error: $e');
       setState(() => _isUploadingImage = false);
       _showErrorSnackBar('Upload failed: ${e.toString()}');
+    }
+  }
+
+  // NEW: Save profile image URL to Firestore immediately
+  Future<void> _saveProfileImageToFirestore(String imageUrl) async {
+    try {
+      await FirebaseFirestore.instance
+          .collection('doctors')
+          .doc(user!.uid)
+          .update({
+            'profileImage': imageUrl,
+            'profileImageUpdatedAt': FieldValue.serverTimestamp(),
+          });
+      print('✅ Profile image URL saved to Firestore');
+    } catch (e) {
+      print('❌ Error saving image URL to Firestore: $e');
     }
   }
 
@@ -270,6 +305,10 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
       return;
     }
 
+    if (_isSaving) return;
+
+    setState(() => _isSaving = true);
+
     try {
       _showLoadingSnackBar('Saving profile...');
 
@@ -286,6 +325,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
         'dob': _dobController.text.trim(),
         'profileImage': _profileImageUrl ?? '',
         'updatedAt': FieldValue.serverTimestamp(),
+        'isProfileComplete': _isProfileComplete(),
       };
 
       await FirebaseFirestore.instance
@@ -306,7 +346,19 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
       print('❌ Error saving profile: $e');
       ScaffoldMessenger.of(context).hideCurrentSnackBar();
       _showErrorSnackBar('Error saving profile: $e');
+    } finally {
+      setState(() => _isSaving = false);
     }
+  }
+
+  bool _isProfileComplete() {
+    return _fullnameController.text.isNotEmpty &&
+        _specializationController.text.isNotEmpty &&
+        _qualificationController.text.isNotEmpty &&
+        _hospitalController.text.isNotEmpty &&
+        _licenseController.text.isNotEmpty &&
+        _emailController.text.isNotEmpty &&
+        _phoneController.text.isNotEmpty;
   }
 
   void _showErrorSnackBar(String message) {
@@ -361,8 +413,17 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
         foregroundColor: Colors.white,
         actions: [
           IconButton(
-            icon: const Icon(Icons.save),
-            onPressed: _saveProfile,
+            icon: _isSaving 
+                ? const SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                    ),
+                  )
+                : const Icon(Icons.save),
+            onPressed: _isSaving ? null : _saveProfile,
             tooltip: 'Save Profile',
           )
         ],
@@ -373,55 +434,8 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
           key: _formKey,
           child: Column(
             children: [
-              // Profile Image
-              Stack(
-                children: [
-                  GestureDetector(
-                    onTap: _isUploadingImage ? null : _pickImage,
-                    child: CircleAvatar(
-                      radius: 60,
-                      backgroundColor: Colors.grey[200],
-                      backgroundImage: _buildProfileImageProvider(),
-                      child: _buildProfileImagePlaceholder(),
-                    ),
-                  ),
-                  if (_isUploadingImage)
-                    Positioned.fill(
-                      child: Container(
-                        decoration: BoxDecoration(
-                          color: Colors.black54,
-                          borderRadius: BorderRadius.circular(60),
-                        ),
-                        child: const Center(
-                          child: CircularProgressIndicator(
-                            valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                          ),
-                        ),
-                      ),
-                    ),
-                  if (!_isUploadingImage)
-                    Positioned(
-                      bottom: 0,
-                      right: 0,
-                      child: Container(
-                        padding: const EdgeInsets.all(6),
-                        decoration: const BoxDecoration(
-                          color: Color(0xFF18A3B6),
-                          shape: BoxShape.circle,
-                        ),
-                        child: const Icon(Icons.camera_alt, size: 20, color: Colors.white),
-                      ),
-                    ),
-                ],
-              ),
-              const SizedBox(height: 8),
-              Text(
-                _isUploadingImage ? 'Uploading...' : 'Tap to change photo',
-                style: TextStyle(
-                  color: _isUploadingImage ? Colors.orange : Colors.grey[600], 
-                  fontSize: 12
-                ),
-              ),
+              // Profile Image Section
+              _buildProfileImageSection(),
               
               const SizedBox(height: 24),
               
@@ -440,29 +454,97 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
               const SizedBox(height: 30),
               
               // Save Button
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton(
-                  onPressed: _saveProfile,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF18A3B6),
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 16),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                  ),
-                  child: const Text(
-                    'Save Profile',
-                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                  ),
-                ),
-              ),
+              _buildSaveButton(),
               
               const SizedBox(height: 20),
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _buildProfileImageSection() {
+    return Column(
+      children: [
+        Stack(
+          children: [
+            GestureDetector(
+              onTap: _isUploadingImage ? null : _pickImage,
+              child: CircleAvatar(
+                radius: 60,
+                backgroundColor: Colors.grey[200],
+                backgroundImage: _buildProfileImageProvider(),
+                child: _buildProfileImagePlaceholder(),
+              ),
+            ),
+            if (_isUploadingImage)
+              Positioned.fill(
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: Colors.black54,
+                    borderRadius: BorderRadius.circular(60),
+                  ),
+                  child: const Center(
+                    child: CircularProgressIndicator(
+                      valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                    ),
+                  ),
+                ),
+              ),
+            if (!_isUploadingImage)
+              Positioned(
+                bottom: 0,
+                right: 0,
+                child: Container(
+                  padding: const EdgeInsets.all(6),
+                  decoration: const BoxDecoration(
+                    color: Color(0xFF18A3B6),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(Icons.camera_alt, size: 20, color: Colors.white),
+                ),
+              ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        Text(
+          _isUploadingImage ? 'Uploading...' : 'Tap to change photo',
+          style: TextStyle(
+            color: _isUploadingImage ? Colors.orange : Colors.grey[600], 
+            fontSize: 12
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildSaveButton() {
+    return SizedBox(
+      width: double.infinity,
+      child: ElevatedButton(
+        onPressed: _isSaving ? null : _saveProfile,
+        style: ElevatedButton.styleFrom(
+          backgroundColor: const Color(0xFF18A3B6),
+          foregroundColor: Colors.white,
+          padding: const EdgeInsets.symmetric(vertical: 16),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+        ),
+        child: _isSaving
+            ? const SizedBox(
+                width: 20,
+                height: 20,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                ),
+              )
+            : const Text(
+                'Save Profile',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              ),
       ),
     );
   }

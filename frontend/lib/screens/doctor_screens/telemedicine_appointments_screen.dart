@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:frontend/screens/doctor_screens/prescription_screen.dart';
 import 'package:frontend/services/video_call_service.dart';
 import 'package:frontend/telemedicine/audio_call_screen.dart';
 import 'package:frontend/telemedicine/video_call_screen.dart';
@@ -166,6 +167,17 @@ class _TelemedicineAppointmentsScreenState
               ),
               onPressed: () => _startConsultation(sessionId, data, videoLink),
             ),
+            SizedBox(height:10,),
+             if (status == 'In-Progress')
+                  ElevatedButton.icon(
+                    icon: const Icon(Icons.medical_services),
+                    label: const Text('write Prescription'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.green,
+                      foregroundColor: Colors.white,
+                    ),
+                    onPressed: () => _writePrescription(sessionId, data),
+                  ),
           ],
         ),
       ),
@@ -245,7 +257,29 @@ void _startConsultation(String sessionId, Map<String, dynamic> data, String vide
     );
   }
 }
-
+void _writePrescription(String sessionId, Map<String, dynamic> data) {
+  final patientId = data['patientId'] ?? '';
+  final patientName = data['patientName'] ?? 'Patient';
+  
+  try {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => PrescriptionScreen(
+          
+        ),
+      ),
+    );
+  } catch (e) {
+    debugPrint('❌ Error navigating to prescription screen: $e');
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Error opening prescription: $e'),
+        backgroundColor: Colors.red,
+      ),
+    );
+  }
+}
   Widget _buildEmptyState() {
     return Center(
       child: Column(

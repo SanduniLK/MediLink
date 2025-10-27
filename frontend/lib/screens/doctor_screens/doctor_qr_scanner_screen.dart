@@ -1,8 +1,13 @@
-// screens/doctor_screens/doctor_qr_scanner_screen.dart
+// screens/doctor_screens/doctor_qr_scanner_screen.dart - FIXED VERSION
 import 'package:flutter/material.dart';
+import 'package:frontend/screens/doctor_screens/doctor_medical_history_screen.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'dart:convert';
+import 'package:permission_handler/permission_handler.dart';
+
+// Import your patient profile screen
+import 'doctor_patient_profile_screen.dart';
 
 class DoctorQRScannerScreen extends StatefulWidget {
   const DoctorQRScannerScreen({super.key});
@@ -14,6 +19,43 @@ class DoctorQRScannerScreen extends StatefulWidget {
 class _DoctorQRScannerScreenState extends State<DoctorQRScannerScreen> {
   MobileScannerController cameraController = MobileScannerController();
   bool isScanning = false;
+  bool _isTorchOn = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _checkCameraPermission();
+  }
+
+  Future<void> _checkCameraPermission() async {
+    final status = await Permission.camera.status;
+    if (!status.isGranted) {
+      final result = await Permission.camera.request();
+      if (!result.isGranted) {
+        _showPermissionDialog();
+      }
+    }
+  }
+
+  void _showPermissionDialog() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Camera Permission Required'),
+        content: const Text('This app needs camera access to scan QR codes'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => openAppSettings(),
+            child: const Text('Open Settings'),
+          ),
+        ],
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -24,8 +66,13 @@ class _DoctorQRScannerScreenState extends State<DoctorQRScannerScreen> {
         foregroundColor: Colors.white,
         actions: [
           IconButton(
-            icon: const Icon(Icons.flash_on),
-            onPressed: () => cameraController.toggleTorch(),
+            icon: Icon(_isTorchOn ? Icons.flash_on : Icons.flash_off),
+            onPressed: () {
+              setState(() {
+                _isTorchOn = !_isTorchOn;
+              });
+              cameraController.toggleTorch();
+            },
           ),
         ],
       ),
@@ -47,6 +94,27 @@ class _DoctorQRScannerScreenState extends State<DoctorQRScannerScreen> {
                 ),
                 // Scanner overlay
                 _buildScannerOverlay(),
+                
+                // Scanning indicator
+                if (isScanning)
+                  Positioned.fill(
+                    child: Container(
+                      color: Colors.black.withOpacity(0.7),
+                      child: const Center(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            CircularProgressIndicator(color: Colors.white),
+                            SizedBox(height: 16),
+                            Text(
+                              'Processing QR Code...',
+                              style: TextStyle(color: Colors.white, fontSize: 16),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
               ],
             ),
           ),
@@ -58,7 +126,7 @@ class _DoctorQRScannerScreenState extends State<DoctorQRScannerScreen> {
                 Icon(Icons.qr_code_scanner, size: 40, color: Colors.white),
                 SizedBox(height: 10),
                 Text(
-                  'Scan patient QR code for check-in/check-out',
+                  'Scan patient QR code to access medical profile',
                   style: TextStyle(color: Colors.white, fontSize: 16),
                   textAlign: TextAlign.center,
                 ),
@@ -155,132 +223,130 @@ class _DoctorQRScannerScreenState extends State<DoctorQRScannerScreen> {
 
   void _handleScannedData(String? rawValue) async {
     if (rawValue == null) return;
+    if (isScanning) return;
 
     setState(() => isScanning = true);
 
     try {
-      final scannedData = jsonDecode(rawValue);
-      final appointmentId = scannedData['appointmentId'];
-      final patientId = scannedData['patientId'];
-      final tokenNumber = scannedData['tokenNumber'];
-      final scanType = scannedData['type']; // 'checkin' or 'checkout'
-
-      // Update appointment status
-      await _updateAppointmentStatus(appointmentId, scanType);
+      String patientId;
       
-      // Show success message
-      _showSuccessDialog(tokenNumber, scanType);
+      debugPrint('📱 Raw QR data: $rawValue');
       
-    } catch (e) {
-      _showErrorDialog('Invalid QR code: $e');
-    } finally {
-      setState(() => isScanning = false);
-    }
-  }
+      // Try to parse as JSON first (enhanced QR)
+      try {
+        final scannedData = jsonDecode(rawValue);
+        patientId = scannedData['uid'] ?? scannedData['patientId'] ?? scannedData['id'] ?? rawValue;
+        debugPrint('🔍 Parsed JSON - Patient ID: $patientId');
+      } catch (e) {
+        // If not JSON, use raw value as patient ID
+        patientId = rawValue;
+        debugPrint('🔍 Using raw value as Patient ID: $patientId');
+      }
 
-  Future<void> _updateAppointmentStatus(String appointmentId, String scanType) async {
-    final appointmentRef = FirebaseFirestore.instance
-        .collection('appointments')
-        .doc(appointmentId);
+      // Clean the patient ID - remove any invalid characters
+      patientId = _cleanPatientId(patientId);
+      debugPrint('🧹 Cleaned Patient ID: $patientId');
 
-    final now = FieldValue.serverTimestamp();
+      // Validate patient ID
+      if (patientId.isEmpty || patientId.contains('//')) {
+        throw Exception('Invalid patient ID format');
+      }
 
-    if (scanType == 'checkin') {
-      await appointmentRef.update({
-        'checkedIn': true,
-        'checkInTime': now,
-        'queueStatus': 'waiting',
-      });
-      
-      // Update patient position in queue
-      await _updatePatientPosition(appointmentId);
-      
-    } else if (scanType == 'checkout') {
-      await appointmentRef.update({
-        'consultationEndTime': now,
-        'queueStatus': 'completed',
-      });
-    }
-  }
+      // Try multiple collection names since we don't know the exact structure
+      String? patientName;
+      Map<String, dynamic>? patientData;
 
-  Future<void> _updatePatientPosition(String appointmentId) async {
-    final appointment = await FirebaseFirestore.instance
-        .collection('appointments')
-        .doc(appointmentId)
-        .get();
-
-    if (appointment.exists) {
-      final data = appointment.data()!;
-      final doctorId = data['doctorId'];
-      final date = data['date'];
-
-      // Get all waiting patients for this doctor today
-      final waitingPatients = await FirebaseFirestore.instance
-          .collection('appointments')
-          .where('doctorId', isEqualTo: doctorId)
-          .where('date', isEqualTo: date)
-          .where('queueStatus', isEqualTo: 'waiting')
-          .where('checkedIn', isEqualTo: true)
-          .orderBy('tokenNumber')
+      // Try 'users' collection first (common for Firebase Auth users)
+      final userDoc = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(patientId)
           .get();
 
-      // Update positions
-      int position = 1;
-      for (var doc in waitingPatients.docs) {
-        await doc.reference.update({
-          'currentPosition': position,
-        });
-        position++;
+      if (userDoc.exists) {
+        patientData = userDoc.data();
+        patientName = patientData?['name'] ?? patientData?['displayName'] ?? 'Patient';
+        debugPrint('✅ Found patient in "users" collection: $patientName');
+      } else {
+        // Try 'patients' collection
+        final patientDoc = await FirebaseFirestore.instance
+            .collection('patients')
+            .doc(patientId)
+            .get();
+
+        if (patientDoc.exists) {
+          patientData = patientDoc.data();
+          patientName = patientData?['name'] ?? patientData?['patientName'] ?? 'Patient';
+          debugPrint('✅ Found patient in "patients" collection: $patientName');
+        } else {
+          throw Exception('Patient not found in database. ID: $patientId');
+        }
       }
+
+      // Navigate to patient profile
+      _navigateToPatientProfile(patientId, patientName ?? 'Patient', patientData ?? {});
+      
+    } catch (e) {
+      debugPrint('❌ QR Scan Error: $e');
+      _showErrorDialog('Failed to process QR code: ${e.toString()}');
+    } finally {
+      _resumeScanning();
     }
   }
 
-  void _showSuccessDialog(int tokenNumber, String scanType) {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Icon(Icons.check_circle, color: Colors.green, size: 50),
-        content: Text(
-          'Token #$tokenNumber ${scanType == 'checkin' ? 'checked in' : 'checked out'} successfully!',
-          textAlign: TextAlign.center,
-          style: const TextStyle(fontSize: 16),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () {
-              Navigator.pop(context);
-              // Resume scanning after a delay
-              Future.delayed(const Duration(seconds: 2), () {
-                setState(() => isScanning = false);
-              });
-            },
-            child: const Text('CONTINUE SCANNING'),
-          ),
-        ],
-      ),
-    );
+  String _cleanPatientId(String patientId) {
+    // Remove any invalid characters for Firestore document IDs
+    return patientId
+        .replaceAll('//', '/') // Remove double slashes
+        .replaceAll(RegExp(r'[/*[]{}]'), '') // Remove other invalid chars
+        .trim();
   }
 
+// In your QR scanner screen, ensure it navigates to Patient Profile
+void _navigateToPatientProfile(String patientId, String patientName, Map<String, dynamic> patientData) {
+  Future.delayed(Duration(milliseconds: 500), () {
+    if (mounted) {
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(
+          builder: (context) => DoctorPatientProfileScreen(
+            patientId: patientId,
+            patientName: patientName,
+            patientData: patientData,
+          ),
+        ),
+      );
+    }
+  });
+}
   void _showErrorDialog(String message) {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Icon(Icons.error, color: Colors.red, size: 50),
-        content: Text(
-          message,
-          textAlign: TextAlign.center,
+        title: const Row(
+          children: [
+            Icon(Icons.error, color: Colors.red),
+            SizedBox(width: 8),
+            Text('Scan Error'),
+          ],
         ),
+        content: Text(message),
         actions: [
           TextButton(
             onPressed: () {
               Navigator.pop(context);
-              setState(() => isScanning = false);
+              _resumeScanning();
             },
             child: const Text('TRY AGAIN'),
           ),
         ],
       ),
     );
+  }
+
+  void _resumeScanning() {
+    if (mounted) {
+      setState(() => isScanning = false);
+    }
   }
 
   @override

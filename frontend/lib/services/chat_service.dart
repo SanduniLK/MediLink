@@ -1,13 +1,24 @@
-// services/chat_service.dart
+// services/chat_service.dart - COMPLETE CORRECTED VERSION
 import 'package:firebase_database/firebase_database.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_storage/firebase_storage.dart';
+import 'package:http/http.dart' as http;
+import 'package:image_picker/image_picker.dart';
+import 'package:file_picker/file_picker.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:permission_handler/permission_handler.dart';
+import 'package:open_file/open_file.dart';
+import 'package:url_launcher/url_launcher.dart';
+import 'dart:io';
 import 'package:flutter/foundation.dart';
 
 class ChatService {
   late final FirebaseDatabase _database;
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final FirebaseAuth _auth = FirebaseAuth.instance;
+  final FirebaseStorage _storage = FirebaseStorage.instance;
+  final ImagePicker _imagePicker = ImagePicker();
 
   ChatService() {
     _database = FirebaseDatabase.instanceFor(
@@ -21,14 +32,12 @@ class ChatService {
   Future<bool> testDatabaseConnection() async {
     try {
       debugPrint('🔌 Testing Realtime Database connection...');
-      debugPrint('📡 Database URL: https://medilink-c7499-default-rtdb.asia-southeast1.firebasedatabase.app/');
       
       final testRef = _database.ref('connection_test');
       await testRef.set({
         'timestamp': DateTime.now().millisecondsSinceEpoch,
         'status': 'connected',
-        'message': 'Database is working!',
-        'test': 'success'
+        'message': 'Database is working!'
       });
       
       final snapshot = await testRef.get();
@@ -132,6 +141,329 @@ class ChatService {
     }
   }
 
+  // ========== FILE UPLOAD METHODS ==========
+
+  Future<String> uploadFile({
+    required File file,
+    required String chatRoomId,
+    required String fileName,
+    required String senderId,
+  }) async {
+    try {
+      debugPrint('📤 Uploading file: $fileName to chat: $chatRoomId');
+      
+      final String fileExtension = fileName.split('.').last.toLowerCase();
+      final String storagePath = 'chat_files/$chatRoomId/${DateTime.now().millisecondsSinceEpoch}_$fileName';
+      final Reference storageRef = _storage.ref().child(storagePath);
+
+      final String contentType = _getContentType(fileExtension);
+
+      final UploadTask uploadTask = storageRef.putFile(
+        file,
+        SettableMetadata(contentType: contentType),
+      );
+
+      final TaskSnapshot snapshot = await uploadTask;
+      final String downloadUrl = await snapshot.ref.getDownloadURL();
+
+      debugPrint('✅ File uploaded successfully: $downloadUrl');
+      return downloadUrl;
+    } catch (e) {
+      debugPrint('❌ Error uploading file: $e');
+      rethrow;
+    }
+  }
+
+  String _getContentType(String extension) {
+    switch (extension) {
+      case 'jpg':
+      case 'jpeg':
+        return 'image/jpeg';
+      case 'png':
+        return 'image/png';
+      case 'gif':
+        return 'image/gif';
+      case 'pdf':
+        return 'application/pdf';
+      case 'doc':
+        return 'application/msword';
+      case 'docx':
+        return 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+      case 'txt':
+        return 'text/plain';
+      default:
+        return 'application/octet-stream';
+    }
+  }
+
+  // ========== FILE PICKER METHODS ==========
+
+ Future<File?> pickImage() async {
+  try {
+    // Check and request permission
+    if (!kIsWeb) {
+      final PermissionStatus status = await Permission.photos.status;
+      if (!status.isGranted) {
+        final PermissionStatus requestedStatus = await Permission.photos.request();
+        if (!requestedStatus.isGranted) {
+          throw Exception('Photo library permission denied. Please enable it in settings.');
+        }
+      }
+    }
+
+    final XFile? pickedFile = await _imagePicker.pickImage(
+      source: ImageSource.gallery,
+      imageQuality: 70,
+    );
+
+    if (pickedFile != null) {
+      return File(pickedFile.path);
+    }
+    return null;
+  } catch (e) {
+    debugPrint('❌ Error picking image: $e');
+    rethrow;
+  }
+}
+
+
+Future<File?> pickDocument() async {
+  try {
+    // For document picking, we don't need storage permission on newer Android versions
+    // FilePicker handles permissions internally
+    final FilePickerResult? result = await FilePicker.platform.pickFiles(
+      type: FileType.custom,
+      allowedExtensions: ['pdf', 'doc', 'docx', 'txt', 'jpg', 'jpeg', 'png'],
+      allowMultiple: false,
+    );
+
+    if (result != null && result.files.single.path != null) {
+      final file = File(result.files.single.path!);
+      
+      // Check file size (limit to 10MB)
+      if (await file.length() > 10 * 1024 * 1024) {
+        throw Exception('File size too large. Please select a file smaller than 10MB.');
+      }
+      
+      return file;
+    }
+    return null;
+  } catch (e) {
+    debugPrint('❌ Error picking document: $e');
+    rethrow;
+  }
+}
+
+
+  Future<File?> pickCameraImage() async {
+  try {
+    // Check and request camera permission
+    if (!kIsWeb) {
+      final PermissionStatus cameraStatus = await Permission.camera.status;
+      if (!cameraStatus.isGranted) {
+        final PermissionStatus requestedStatus = await Permission.camera.request();
+        if (!requestedStatus.isGranted) {
+          throw Exception('Camera permission denied. Please enable it in settings.');
+        }
+      }
+    }
+
+    final XFile? pickedFile = await _imagePicker.pickImage(
+      source: ImageSource.camera,
+      imageQuality: 70,
+    );
+
+    if (pickedFile != null) {
+      return File(pickedFile.path);
+    }
+    return null;
+  } catch (e) {
+    debugPrint('❌ Error taking photo: $e');
+    rethrow;
+  }
+}
+  // ========== SEND FILE MESSAGE ==========
+
+  Future<void> sendFileMessage({
+    required String chatRoomId,
+    required File file,
+    required String fileName,
+    required String senderId,
+    required String senderName,
+    required String senderRole,
+  }) async {
+    try {
+      debugPrint('📨 Sending file message: $fileName');
+
+      final String fileUrl = await uploadFile(
+        file: file,
+        chatRoomId: chatRoomId,
+        fileName: fileName,
+        senderId: senderId,
+      );
+
+      final String fileExtension = fileName.split('.').last.toLowerCase();
+      final String fileType = _getFileType(fileExtension);
+
+      final messagesRef = _database.ref('chatRooms/$chatRoomId/messages').push();
+      final messageId = messagesRef.key!;
+
+      await messagesRef.set({
+        'id': messageId,
+        'type': 'file',
+        'fileUrl': fileUrl,
+        'fileName': fileName,
+        'fileType': fileType,
+        'fileSize': await file.length(),
+        'text': 'Sent a file: $fileName',
+        'senderId': senderId,
+        'senderName': senderName,
+        'senderRole': senderRole,
+        'timestamp': DateTime.now().millisecondsSinceEpoch,
+        'read': false,
+      });
+
+      await _database.ref('chatRooms/$chatRoomId').update({
+        'lastMessage': '📎 $fileName',
+        'lastMessageTime': DateTime.now().millisecondsSinceEpoch,
+        'lastMessageSender': senderName,
+      });
+
+      debugPrint('✅ File message sent successfully');
+    } catch (e) {
+      debugPrint('❌ Error sending file message: $e');
+      rethrow;
+    }
+  }
+
+  String _getFileType(String extension) {
+    if (['jpg', 'jpeg', 'png', 'gif'].contains(extension)) {
+      return 'image';
+    } else if (extension == 'pdf') {
+      return 'pdf';
+    } else if (['doc', 'docx'].contains(extension)) {
+      return 'document';
+    } else if (extension == 'txt') {
+      return 'text';
+    } else {
+      return 'file';
+    }
+  }
+
+  // ========== DOWNLOAD AND OPEN FILES ==========
+
+ Future<void> downloadAndOpenFile(String fileUrl, String fileName) async {
+  try {
+    debugPrint('📥 Downloading file: $fileName from: $fileUrl');
+
+    // For web, just open the URL in new tab
+    if (kIsWeb) {
+      if (await canLaunchUrl(Uri.parse(fileUrl))) {
+        await launchUrl(
+          Uri.parse(fileUrl),
+          mode: LaunchMode.externalApplication,
+        );
+      } else {
+        throw Exception('Could not launch $fileUrl');
+      }
+      return;
+    }
+
+    // For Android/iOS - download and open
+    try {
+      // Get the download directory
+      final Directory tempDir = await getTemporaryDirectory();
+      final File tempFile = File('${tempDir.path}/$fileName');
+
+      debugPrint('💾 Saving file to: ${tempFile.path}');
+
+      // Download the file
+      final http.Response response = await http.get(Uri.parse(fileUrl));
+      
+      if (response.statusCode == 200) {
+        // Write to file
+        await tempFile.writeAsBytes(response.bodyBytes);
+        debugPrint('✅ File downloaded successfully: ${tempFile.path}');
+
+        // Open the file
+        final OpenResult result = await OpenFile.open(tempFile.path);
+        
+        if (result.type != ResultType.done) {
+          debugPrint('❌ Error opening file: ${result.message}');
+          
+          // If opening fails, try to save to downloads folder
+          await _saveToDownloads(tempFile, fileName);
+        } else {
+          debugPrint('✅ File opened successfully');
+        }
+      } else {
+        throw Exception('Failed to download file: ${response.statusCode}');
+      }
+    } catch (e) {
+      debugPrint('❌ Error with file operations: $e');
+      // Fallback: try to open the URL directly
+      if (await canLaunchUrl(Uri.parse(fileUrl))) {
+        await launchUrl(Uri.parse(fileUrl));
+      } else {
+        rethrow;
+      }
+    }
+  } catch (e) {
+    debugPrint('❌ Error downloading/opening file: $e');
+    rethrow;
+  }
+}
+Future<void> _saveToDownloads(File tempFile, String fileName) async {
+  try {
+    if (Platform.isAndroid) {
+      final Directory? downloadsDir = await getDownloadsDirectory();
+      if (downloadsDir != null) {
+        final File newFile = File('${downloadsDir.path}/$fileName');
+        await tempFile.copy(newFile.path);
+        debugPrint('✅ File saved to downloads: ${newFile.path}');
+        
+        // Try to open the saved file
+        final OpenResult result = await OpenFile.open(newFile.path);
+        if (result.type != ResultType.done) {
+          throw Exception('Could not open file even after saving to downloads');
+        }
+      } else {
+        throw Exception('Could not access downloads directory');
+      }
+    } else {
+      throw Exception('File opening not supported on this platform');
+    }
+  } catch (e) {
+    debugPrint('❌ Error saving to downloads: $e');
+    rethrow;
+  }
+}
+
+  // ========== GET FILE SIZE FORMAT ==========
+
+  String getFileSizeString(int bytes) {
+    if (bytes < 1024) {
+      return '$bytes B';
+    } else if (bytes < 1048576) {
+      return '${(bytes / 1024).toStringAsFixed(1)} KB';
+    } else {
+      return '${(bytes / 1048576).toStringAsFixed(1)} MB';
+    }
+  }
+
+  // ========== DELETE FILE ==========
+
+  Future<void> deleteFile(String fileUrl) async {
+    try {
+      final Reference ref = _storage.refFromURL(fileUrl);
+      await ref.delete();
+      debugPrint('✅ File deleted successfully');
+    } catch (e) {
+      debugPrint('❌ Error deleting file: $e');
+      rethrow;
+    }
+  }
+
   // ========== STREAMS FOR REAL-TIME UPDATES ==========
 
   Stream<List<Map<String, dynamic>>> getMessages(String chatRoomId) {
@@ -151,7 +483,6 @@ class ChatService {
         }
       }
       
-      // Sort by timestamp (oldest first)
       messages.sort((a, b) => (a['timestamp'] ?? 0).compareTo(b['timestamp'] ?? 0));
       return messages;
     });
@@ -176,7 +507,6 @@ class ChatService {
         }
       }
       
-      // Sort by last message time (newest first)
       chatRooms.sort((a, b) => (b['lastMessageTime'] ?? 0).compareTo(a['lastMessageTime'] ?? 0));
       return chatRooms;
     });
@@ -201,7 +531,6 @@ class ChatService {
         }
       }
       
-      // Sort by last message time (newest first)
       chatRooms.sort((a, b) => (b['lastMessageTime'] ?? 0).compareTo(a['lastMessageTime'] ?? 0));
       return chatRooms;
     });
@@ -345,7 +674,6 @@ class ChatService {
           doctorName: 'Dr. Reshika',
         );
 
-        // Add welcome message
         await sendMessage(
           chatRoomId: chatRoomId,
           message: 'Hello ${patient['patientName']}! How can I help you today?',
@@ -354,7 +682,6 @@ class ChatService {
           senderRole: 'doctor',
         );
 
-        // Add sample patient response
         await Future.delayed(Duration(milliseconds: 500));
         await sendMessage(
           chatRoomId: chatRoomId,
@@ -377,14 +704,12 @@ class ChatService {
     try {
       debugPrint('🔄 Syncing chat rooms for user: $userId');
       
-      // Test connection first
       final isConnected = await testDatabaseConnection();
       if (!isConnected) {
         debugPrint('❌ Database not available, skipping sync');
         return;
       }
 
-      // Check user role
       final userDoc = await _firestore.collection('users').doc(userId).get();
       final userData = userDoc.data();
       final role = userData?['role'] ?? '';
@@ -394,7 +719,6 @@ class ChatService {
         await createChatRoomsFromRealAppointments(userId);
       } else if (role == 'patient') {
         debugPrint('👤 User is patient, chat rooms will be created from doctor side');
-        // For patients, we just ensure existing chat rooms are accessible
       }
       
       debugPrint('✅ Chat rooms synced successfully');
@@ -429,55 +753,54 @@ class ChatService {
       debugPrint('❌ Error debugging chat rooms: $e');
     }
   }
-Future<void> markMessagesAsRead(String chatRoomId, String userId) async {
-  try {
-    final messagesRef = _database.ref('chatRooms/$chatRoomId/messages');
-    final snapshot = await messagesRef.get();
-    
-    if (snapshot.exists) {
-      final updates = <String, dynamic>{};
-      final data = snapshot.value as Map<dynamic, dynamic>;
-      
-      data.forEach((key, value) {
-        final message = Map<String, dynamic>.from(value as Map);
-        if (message['senderId'] != userId && (message['read'] == false || message['read'] == null)) {
-          updates['$key/read'] = true;
-        }
-      });
-      
-      if (updates.isNotEmpty) {
-        await messagesRef.update(updates);
-        debugPrint('✅ Marked messages as read in $chatRoomId');
-      }
-    }
-  } catch (e) {
-    debugPrint('❌ Error marking messages as read: $e');
-  }
-}
 
-// Get unread message count
-Stream<int> getUnreadMessageCount(String chatRoomId, String userId) {
-  return _database.ref('chatRooms/$chatRoomId/messages')
-      .onValue
-      .map((event) {
-    int unreadCount = 0;
-    
-    if (event.snapshot.exists) {
-      final data = event.snapshot.value as Map<dynamic, dynamic>?;
-      if (data != null) {
+  Future<void> markMessagesAsRead(String chatRoomId, String userId) async {
+    try {
+      final messagesRef = _database.ref('chatRooms/$chatRoomId/messages');
+      final snapshot = await messagesRef.get();
+      
+      if (snapshot.exists) {
+        final updates = <String, dynamic>{};
+        final data = snapshot.value as Map<dynamic, dynamic>;
+        
         data.forEach((key, value) {
           final message = Map<String, dynamic>.from(value as Map);
           if (message['senderId'] != userId && (message['read'] == false || message['read'] == null)) {
-            unreadCount++;
+            updates['$key/read'] = true;
           }
         });
+        
+        if (updates.isNotEmpty) {
+          await messagesRef.update(updates);
+          debugPrint('✅ Marked messages as read in $chatRoomId');
+        }
       }
+    } catch (e) {
+      debugPrint('❌ Error marking messages as read: $e');
     }
-    
-    return unreadCount;
-  });
-}
-  
+  }
+
+  Stream<int> getUnreadMessageCount(String chatRoomId, String userId) {
+    return _database.ref('chatRooms/$chatRoomId/messages')
+        .onValue
+        .map((event) {
+      int unreadCount = 0;
+      
+      if (event.snapshot.exists) {
+        final data = event.snapshot.value as Map<dynamic, dynamic>?;
+        if (data != null) {
+          data.forEach((key, value) {
+            final message = Map<String, dynamic>.from(value as Map);
+            if (message['senderId'] != userId && (message['read'] == false || message['read'] == null)) {
+              unreadCount++;
+            }
+          });
+        }
+      }
+      
+      return unreadCount;
+    });
+  }
 
   // Get doctor name from Firestore
   Future<String> getDoctorName(String doctorId) async {
