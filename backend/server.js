@@ -1006,6 +1006,446 @@ app.get('/api/webrtc/call/:appointmentId', async (req, res) => {
   }
 });
 
+// FEEDBACK ROUTES
+
+// Submit feedback
+app.post('/api/feedback/submit', async (req, res) => {
+  try {
+    const {
+      patientId,
+      patientName,
+      patientEmail,
+      medicalCenterId,
+      medicalCenterName,
+      doctorId,
+      doctorName,
+      appointmentId,
+      rating,
+      comment,
+      wouldRecommend,
+      categories = [],
+      anonymous = false
+    } = req.body;
+
+    console.log('📝 New feedback submission:', { patientName, doctorName, rating });
+
+    // Validate required fields
+    if (!patientId || !medicalCenterId || !doctorId || !rating) {
+      return res.status(400).json({
+        success: false,
+        error: 'Missing required fields: patientId, medicalCenterId, doctorId, rating'
+      });
+    }
+
+    // Create feedback document
+    const feedbackRef = db.collection('feedback').doc();
+    const feedbackData = {
+      feedbackId: feedbackRef.id,
+      patientId,
+      patientName: anonymous ? 'Anonymous' : patientName,
+      patientEmail: anonymous ? '' : patientEmail,
+      medicalCenterId,
+      medicalCenterName,
+      doctorId,
+      doctorName,
+      appointmentId: appointmentId || null,
+      rating: parseInt(rating),
+      comment: comment || '',
+      wouldRecommend: wouldRecommend || false,
+      categories: categories || [],
+      anonymous: anonymous || false,
+      status: 'approved', // Auto-approve for now, can change to 'pending' for moderation
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      updatedAt: admin.firestore.FieldValue.serverTimestamp()
+    };
+
+    await feedbackRef.set(feedbackData);
+
+    // Update doctor and medical center ratings
+    await updateDoctorRatings(doctorId);
+    await updateMedicalCenterRatings(medicalCenterId);
+
+    console.log('✅ Feedback submitted successfully:', feedbackRef.id);
+
+    res.json({
+      success: true,
+      message: 'Thank you for your feedback!',
+      feedbackId: feedbackRef.id
+    });
+
+  } catch (error) {
+    console.error('❌ Error submitting feedback:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to submit feedback: ' + error.message
+    });
+  }
+});
+
+// Get feedback for a doctor
+app.get('/api/feedback/doctor/:doctorId', async (req, res) => {
+  try {
+    const { doctorId } = req.params;
+    const { limit = 10, page = 1 } = req.query;
+
+    console.log(`📊 Getting feedback for doctor: ${doctorId}`);
+
+    const limitNum = parseInt(limit);
+    const pageNum = parseInt(page);
+    const offset = (pageNum - 1) * limitNum;
+
+    // Get feedback with pagination
+    let query = db.collection('feedback')
+      .where('doctorId', '==', doctorId)
+      .where('status', '==', 'approved')
+      .orderBy('createdAt', 'desc');
+
+    // Get total count
+    const countSnapshot = await query.get();
+    const total = countSnapshot.size;
+
+    // Apply pagination
+    const snapshot = await query.limit(limitNum).offset(offset).get();
+
+    const feedback = [];
+    snapshot.forEach(doc => {
+      const data = doc.data();
+      feedback.push({
+        id: doc.id,
+        ...data,
+        createdAt: data.createdAt?.toDate?.()?.toISOString() || data.createdAt
+      });
+    });
+
+    // Get doctor rating summary
+    const doctorRatingDoc = await db.collection('doctorRatings').doc(doctorId).get();
+    const ratingSummary = doctorRatingDoc.exists ? doctorRatingDoc.data() : null;
+
+    res.json({
+      success: true,
+      data: {
+        feedback,
+        pagination: {
+          page: pageNum,
+          limit: limitNum,
+          total,
+          pages: Math.ceil(total / limitNum)
+        },
+        ratingSummary
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Error getting doctor feedback:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to get feedback: ' + error.message
+    });
+  }
+});
+
+// Get feedback for a medical center
+app.get('/api/feedback/medical-center/:medicalCenterId', async (req, res) => {
+  try {
+    const { medicalCenterId } = req.params;
+    const { limit = 10, page = 1 } = req.query;
+
+    console.log(`📊 Getting feedback for medical center: ${medicalCenterId}`);
+
+    const limitNum = parseInt(limit);
+    const pageNum = parseInt(page);
+    const offset = (pageNum - 1) * limitNum;
+
+    let query = db.collection('feedback')
+      .where('medicalCenterId', '==', medicalCenterId)
+      .where('status', '==', 'approved')
+      .orderBy('createdAt', 'desc');
+
+    const countSnapshot = await query.get();
+    const total = countSnapshot.size;
+
+    const snapshot = await query.limit(limitNum).offset(offset).get();
+
+    const feedback = [];
+    snapshot.forEach(doc => {
+      const data = doc.data();
+      feedback.push({
+        id: doc.id,
+        ...data,
+        createdAt: data.createdAt?.toDate?.()?.toISOString() || data.createdAt
+      });
+    });
+
+    // Get medical center rating summary
+    const centerRatingDoc = await db.collection('medicalCenterRatings').doc(medicalCenterId).get();
+    const ratingSummary = centerRatingDoc.exists ? centerRatingDoc.data() : null;
+
+    res.json({
+      success: true,
+      data: {
+        feedback,
+        pagination: {
+          page: pageNum,
+          limit: limitNum,
+          total,
+          pages: Math.ceil(total / limitNum)
+        },
+        ratingSummary
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Error getting medical center feedback:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to get feedback: ' + error.message
+    });
+  }
+});
+
+// Get patient's previous feedback
+app.get('/api/feedback/patient/:patientId', async (req, res) => {
+  try {
+    const { patientId } = req.params;
+
+    console.log(`📝 Getting feedback history for patient: ${patientId}`);
+
+    const snapshot = await db.collection('feedback')
+      .where('patientId', '==', patientId)
+      .orderBy('createdAt', 'desc')
+      .get();
+
+    const feedback = [];
+    snapshot.forEach(doc => {
+      const data = doc.data();
+      feedback.push({
+        id: doc.id,
+        ...data,
+        createdAt: data.createdAt?.toDate?.()?.toISOString() || data.createdAt
+      });
+    });
+
+    res.json({
+      success: true,
+      data: feedback
+    });
+
+  } catch (error) {
+    console.error('❌ Error getting patient feedback:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to get feedback history: ' + error.message
+    });
+  }
+});
+
+// Get overall ratings for doctor
+app.get('/api/ratings/doctor/:doctorId', async (req, res) => {
+  try {
+    const { doctorId } = req.params;
+
+    const ratingDoc = await db.collection('doctorRatings').doc(doctorId).get();
+
+    if (!ratingDoc.exists) {
+      return res.json({
+        success: true,
+        data: {
+          averageRating: 0,
+          totalReviews: 0,
+          ratingDistribution: { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 }
+        }
+      });
+    }
+
+    res.json({
+      success: true,
+      data: ratingDoc.data()
+    });
+
+  } catch (error) {
+    console.error('❌ Error getting doctor ratings:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to get ratings: ' + error.message
+    });
+  }
+});
+
+// ADMIN: Get all feedback for moderation
+app.get('/api/admin/feedback', async (req, res) => {
+  try {
+    const { status = 'pending', limit = 20, page = 1 } = req.query;
+
+    console.log(`🛠️ Admin getting feedback with status: ${status}`);
+
+    const limitNum = parseInt(limit);
+    const pageNum = parseInt(page);
+    const offset = (pageNum - 1) * limitNum;
+
+    let query = db.collection('feedback')
+      .where('status', '==', status)
+      .orderBy('createdAt', 'desc');
+
+    const countSnapshot = await query.get();
+    const total = countSnapshot.size;
+
+    const snapshot = await query.limit(limitNum).offset(offset).get();
+
+    const feedback = [];
+    snapshot.forEach(doc => {
+      const data = doc.data();
+      feedback.push({
+        id: doc.id,
+        ...data,
+        createdAt: data.createdAt?.toDate?.()?.toISOString() || data.createdAt
+      });
+    });
+
+    res.json({
+      success: true,
+      data: {
+        feedback,
+        pagination: {
+          page: pageNum,
+          limit: limitNum,
+          total,
+          pages: Math.ceil(total / limitNum)
+        }
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Error getting admin feedback:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to get feedback: ' + error.message
+    });
+  }
+});
+
+// ADMIN: Update feedback status
+app.put('/api/admin/feedback/:feedbackId/status', async (req, res) => {
+  try {
+    const { feedbackId } = req.params;
+    const { status } = req.body;
+
+    if (!['approved', 'rejected'].includes(status)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid status. Must be "approved" or "rejected"'
+      });
+    }
+
+    console.log(`🛠️ Admin updating feedback ${feedbackId} to status: ${status}`);
+
+    const feedbackRef = db.collection('feedback').doc(feedbackId);
+    const feedbackDoc = await feedbackRef.get();
+
+    if (!feedbackDoc.exists) {
+      return res.status(404).json({
+        success: false,
+        error: 'Feedback not found'
+      });
+    }
+
+    const feedbackData = feedbackDoc.data();
+
+    await feedbackRef.update({
+      status: status,
+      updatedAt: admin.firestore.FieldValue.serverTimestamp()
+    });
+
+    // Update ratings if approved
+    if (status === 'approved') {
+      await updateDoctorRatings(feedbackData.doctorId);
+      await updateMedicalCenterRatings(feedbackData.medicalCenterId);
+    }
+
+    res.json({
+      success: true,
+      message: `Feedback ${status} successfully`
+    });
+
+  } catch (error) {
+    console.error('❌ Error updating feedback status:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to update feedback status: ' + error.message
+    });
+  }
+});
+
+// HELPER FUNCTIONS
+async function updateDoctorRatings(doctorId) {
+  try {
+    const snapshot = await db.collection('feedback')
+      .where('doctorId', '==', doctorId)
+      .where('status', '==', 'approved')
+      .get();
+
+    let totalRating = 0;
+    let totalReviews = 0;
+    const ratingDistribution = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
+
+    snapshot.forEach(doc => {
+      const data = doc.data();
+      const rating = data.rating;
+      totalRating += rating;
+      totalReviews++;
+      ratingDistribution[rating]++;
+    });
+
+    const averageRating = totalReviews > 0 ? totalRating / totalReviews : 0;
+
+    await db.collection('doctorRatings').doc(doctorId).set({
+      averageRating: parseFloat(averageRating.toFixed(1)),
+      totalReviews,
+      ratingDistribution,
+      lastUpdated: admin.firestore.FieldValue.serverTimestamp()
+    });
+
+    console.log(`✅ Updated doctor ratings for ${doctorId}: ${averageRating.toFixed(1)} stars`);
+
+  } catch (error) {
+    console.error('❌ Error updating doctor ratings:', error);
+  }
+}
+
+async function updateMedicalCenterRatings(medicalCenterId) {
+  try {
+    const snapshot = await db.collection('feedback')
+      .where('medicalCenterId', '==', medicalCenterId)
+      .where('status', '==', 'approved')
+      .get();
+
+    let totalRating = 0;
+    let totalReviews = 0;
+    const ratingDistribution = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
+
+    snapshot.forEach(doc => {
+      const data = doc.data();
+      const rating = data.rating;
+      totalRating += rating;
+      totalReviews++;
+      ratingDistribution[rating]++;
+    });
+
+    const averageRating = totalReviews > 0 ? totalRating / totalReviews : 0;
+
+    await db.collection('medicalCenterRatings').doc(medicalCenterId).set({
+      averageRating: parseFloat(averageRating.toFixed(1)),
+      totalReviews,
+      ratingDistribution,
+      lastUpdated: admin.firestore.FieldValue.serverTimestamp()
+    });
+
+    console.log(`✅ Updated medical center ratings for ${medicalCenterId}: ${averageRating.toFixed(1)} stars`);
+
+  } catch (error) {
+    console.error('❌ Error updating medical center ratings:', error);
+  }
+}
+
 // Start server
 server.listen(PORT, '0.0.0.0', () => {
   console.log('🚀 QUEUE BACKEND + WEBRTC running on PORT 5001');

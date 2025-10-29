@@ -1,7 +1,8 @@
-// screens/doctor_screens/doctor_patient_profile_screen.dart - BEAUTIFUL UI
+// screens/doctor_screens/doctor_patient_profile_screen.dart - FIXED IMAGE LOADING
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:intl/intl.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:intl/intl.dart';
 import '../../services/patient_services.dart';
 import 'doctor_medical_history_screen.dart';
 
@@ -41,7 +42,9 @@ class _DoctorPatientProfileScreenState extends State<DoctorPatientProfileScreen>
       // Get medical stats
       _medicalStats = await _patientService.getPatientMedicalStats(widget.patientId);
     } catch (e) {
-      debugPrint('Error loading patient data: $e');
+      if (kDebugMode) {
+        print('Error loading patient data: $e');
+      }
       _patientDetails = widget.patientData;
       _medicalStats = {
         'labResultsCount': 0,
@@ -75,7 +78,7 @@ class _DoctorPatientProfileScreenState extends State<DoctorPatientProfileScreen>
     return Scaffold(
       backgroundColor: Colors.grey[50],
       appBar: AppBar(
-        title: Text('Patient Profile'),
+        title: const Text('Patient Profile'),
         backgroundColor: const Color(0xFF18A3B6),
         foregroundColor: Colors.white,
         elevation: 0,
@@ -96,14 +99,14 @@ class _DoctorPatientProfileScreenState extends State<DoctorPatientProfileScreen>
             // Medical Records Quick Access
             _buildMedicalRecordsSection(),
             
-            // Patient Information
-            _buildPatientInfoSection(),
+            // Personal Information
+            _buildPersonalInfoSection(),
             
             // Health Metrics
             _buildHealthMetricsSection(),
             
-            // Quick Actions
-            _buildQuickActionsSection(),
+            // Contact Information
+            _buildContactInfoSection(),
             
             const SizedBox(height: 20),
           ],
@@ -113,70 +116,49 @@ class _DoctorPatientProfileScreenState extends State<DoctorPatientProfileScreen>
   }
 
   Widget _buildHeaderSection() {
+    final fullName = _patientDetails['fullname'] ?? _patientDetails['name'] ?? widget.patientName;
+    final profilePic = _patientDetails['profilePic'];
+    
+    if (kDebugMode) {
+      print('🎯 Building header with profilePic: $profilePic');
+    }
+    
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(24),
-      decoration: BoxDecoration(
+      decoration: const BoxDecoration(
         gradient: LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
           colors: [
-            const Color(0xFF18A3B6),
-            const Color(0xFF18A3B6).withOpacity(0.8),
+            Color(0xFF18A3B6),
+            Color(0xFF18A3B6),
           ],
         ),
-        borderRadius: const BorderRadius.only(
+        borderRadius: BorderRadius.only(
           bottomLeft: Radius.circular(30),
           bottomRight: Radius.circular(30),
         ),
       ),
       child: Column(
         children: [
-          // Patient Photo
+          // Patient Photo with FIXED image loading
           Container(
-            width: 100,
-            height: 100,
+            width: 120,
+            height: 120,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
-              border: Border.all(color: Colors.white, width: 3),
+              border: Border.all(color: Colors.white, width: 4),
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withOpacity(0.1),
+                  color: Colors.black.withAlpha(100),
                   blurRadius: 10,
                   offset: const Offset(0, 5),
                 ),
               ],
             ),
             child: ClipOval(
-              child: _patientDetails['photoUrl'] != null
-                  ? CachedNetworkImage(
-                      imageUrl: _patientDetails['photoUrl'],
-                      fit: BoxFit.cover,
-                      placeholder: (context, url) => Container(
-                        color: Colors.white,
-                        child: const Icon(
-                          Icons.person,
-                          size: 40,
-                          color: Color(0xFF18A3B6),
-                        ),
-                      ),
-                      errorWidget: (context, url, error) => Container(
-                        color: Colors.white,
-                        child: const Icon(
-                          Icons.person,
-                          size: 40,
-                          color: Color(0xFF18A3B6),
-                        ),
-                      ),
-                    )
-                  : Container(
-                      color: Colors.white,
-                      child: const Icon(
-                        Icons.person,
-                        size: 40,
-                        color: Color(0xFF18A3B6),
-                      ),
-                    ),
+              child: _buildProfileImage(profilePic),
             ),
           ),
           
@@ -184,30 +166,32 @@ class _DoctorPatientProfileScreenState extends State<DoctorPatientProfileScreen>
           
           // Patient Name
           Text(
-            _patientDetails['name'] ?? widget.patientName,
+            fullName,
             style: const TextStyle(
               fontSize: 24,
               fontWeight: FontWeight.bold,
               color: Colors.white,
             ),
+            textAlign: TextAlign.center,
           ),
           
           const SizedBox(height: 8),
           
           // Patient ID
           Text(
-            'ID: ${widget.patientId}',
-            style: TextStyle(
+            'Patient ID: ${widget.patientId}',
+            style: const TextStyle(
               fontSize: 14,
-              color: Colors.white.withOpacity(0.8),
+              color: Colors.white70,
             ),
           ),
           
           const SizedBox(height: 16),
           
           // Basic Info Row
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
             children: [
               if (_patientDetails['age'] != null)
                 _buildInfoChip('${_patientDetails['age']} Years', Icons.cake),
@@ -216,7 +200,10 @@ class _DoctorPatientProfileScreenState extends State<DoctorPatientProfileScreen>
                 _buildInfoChip(_patientDetails['gender'], Icons.person),
               
               if (_patientDetails['bloodGroup'] != null)
-                _buildInfoChip('${_patientDetails['bloodGroup']}', Icons.bloodtype),
+                _buildInfoChip('Blood ${_patientDetails['bloodGroup']}', Icons.bloodtype),
+              
+              if (_patientDetails['lifestyle'] != null)
+                _buildInfoChip(_patientDetails['lifestyle'], Icons.fitness_center),
             ],
           ),
         ],
@@ -224,12 +211,88 @@ class _DoctorPatientProfileScreenState extends State<DoctorPatientProfileScreen>
     );
   }
 
+  Widget _buildProfileImage(String? profilePic) {
+    if (profilePic == null || profilePic.isEmpty) {
+      return _buildDefaultProfileIcon();
+    }
+
+    if (kDebugMode) {
+      print('🖼️ Loading profile image from: $profilePic');
+    }
+
+    // Try multiple approaches to load the image
+    return _buildImageWithFallback(profilePic);
+  }
+
+  Widget _buildImageWithFallback(String imageUrl) {
+    return CachedNetworkImage(
+      imageUrl: imageUrl,
+      fit: BoxFit.cover,
+      progressIndicatorBuilder: (context, url, downloadProgress) => 
+          Container(
+            color: Colors.white,
+            child: Center(
+              child: CircularProgressIndicator(
+                value: downloadProgress.progress,
+                valueColor: AlwaysStoppedAnimation<Color>(const Color(0xFF18A3B6)),
+              ),
+            ),
+          ),
+      errorWidget: (context, url, error) {
+        if (kDebugMode) {
+          print('❌ CachedNetworkImage failed: $error');
+          print('❌ Trying alternative approach...');
+        }
+        
+        // Try alternative image loading approach
+        return _buildAlternativeImageLoader(url);
+      },
+    );
+  }
+
+  Widget _buildAlternativeImageLoader(String imageUrl) {
+    return Image.network(
+      imageUrl,
+      fit: BoxFit.cover,
+      loadingBuilder: (context, child, loadingProgress) {
+        if (loadingProgress == null) return child;
+        return Container(
+          color: Colors.white,
+          child: Center(
+            child: CircularProgressIndicator(
+              value: loadingProgress.expectedTotalBytes != null
+                  ? loadingProgress.cumulativeBytesLoaded / loadingProgress.expectedTotalBytes!
+                  : null,
+              valueColor: AlwaysStoppedAnimation<Color>(const Color(0xFF18A3B6)),
+            ),
+          ),
+        );
+      },
+      errorBuilder: (context, error, stackTrace) {
+        if (kDebugMode) {
+          print('❌ Image.network also failed: $error');
+        }
+        return _buildDefaultProfileIcon();
+      },
+    );
+  }
+
+  Widget _buildDefaultProfileIcon() {
+    return Container(
+      color: Colors.white,
+      child: const Icon(
+        Icons.person,
+        size: 50,
+        color: Color(0xFF18A3B6),
+      ),
+    );
+  }
+
   Widget _buildInfoChip(String text, IconData icon) {
     return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 4),
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
       decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.2),
+        color: Colors.white.withAlpha(50),
         borderRadius: BorderRadius.circular(20),
       ),
       child: Row(
@@ -293,7 +356,7 @@ class _DoctorPatientProfileScreenState extends State<DoctorPatientProfileScreen>
               const SizedBox(height: 20),
               
               // View Medical History Button
-              Container(
+              SizedBox(
                 width: double.infinity,
                 child: ElevatedButton.icon(
                   onPressed: () {
@@ -302,7 +365,7 @@ class _DoctorPatientProfileScreenState extends State<DoctorPatientProfileScreen>
                       MaterialPageRoute(
                         builder: (context) => DoctorMedicalHistoryScreen(
                           patientId: widget.patientId,
-                          patientName: _patientDetails['name'] ?? widget.patientName,
+                          patientName: _patientDetails['fullname'] ?? widget.patientName,
                         ),
                       ),
                     );
@@ -337,7 +400,7 @@ class _DoctorPatientProfileScreenState extends State<DoctorPatientProfileScreen>
           width: 60,
           height: 60,
           decoration: BoxDecoration(
-            color: const Color(0xFF18A3B6).withOpacity(0.1),
+            color: const Color(0xFF18A3B6).withAlpha(25),
             shape: BoxShape.circle,
           ),
           child: Icon(icon, color: const Color(0xFF18A3B6), size: 24),
@@ -363,7 +426,7 @@ class _DoctorPatientProfileScreenState extends State<DoctorPatientProfileScreen>
     );
   }
 
-  Widget _buildPatientInfoSection() {
+  Widget _buildPersonalInfoSection() {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16),
       child: Card(
@@ -381,7 +444,7 @@ class _DoctorPatientProfileScreenState extends State<DoctorPatientProfileScreen>
                   Icon(Icons.person_outline, color: Color(0xFF18A3B6), size: 24),
                   SizedBox(width: 8),
                   Text(
-                    'Patient Information',
+                    'Personal Information',
                     style: TextStyle(
                       fontSize: 18,
                       fontWeight: FontWeight.bold,
@@ -393,13 +456,15 @@ class _DoctorPatientProfileScreenState extends State<DoctorPatientProfileScreen>
               
               const SizedBox(height: 16),
               
-              _buildInfoRow('Email', _patientDetails['email'], Icons.email),
-              _buildInfoRow('Phone', _patientDetails['phone'], Icons.phone),
-              _buildInfoRow('Age', _patientDetails['age']?.toString(), Icons.cake),
-              _buildInfoRow('Gender', _patientDetails['gender'], Icons.person),
-              _buildInfoRow('Blood Group', _patientDetails['bloodGroup'], Icons.bloodtype),
-              if (_patientDetails['emergencyContact'] != null)
-                _buildInfoRow('Emergency Contact', _patientDetails['emergencyContact'], Icons.emergency),
+              _buildDetailRow('Full Name', _patientDetails['fullname']),
+              _buildDetailRow('Date of Birth', _patientDetails['dob']),
+              _buildDetailRow('Age', _patientDetails['age']?.toString()),
+              _buildDetailRow('Gender', _patientDetails['gender']),
+              _buildDetailRow('Lifestyle', _patientDetails['lifestyle']),
+              _buildDetailRow('Address', _patientDetails['address'] ?? 'Katharagama'),
+              _buildDetailRow('Blood Group', _patientDetails['bloodGroup']),
+              if (_patientDetails['allergies'] != null)
+                _buildDetailRow('Allergies', _patientDetails['allergies'], isImportant: true),
             ],
           ),
         ),
@@ -407,45 +472,10 @@ class _DoctorPatientProfileScreenState extends State<DoctorPatientProfileScreen>
     );
   }
 
-  Widget _buildInfoRow(String label, String? value, IconData icon) {
-    if (value == null) return const SizedBox();
-    
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8),
-      child: Row(
-        children: [
-          Icon(icon, color: Colors.grey[600], size: 20),
-          const SizedBox(width: 12),
-          Expanded(
-            flex: 2,
-            child: Text(
-              '$label:',
-              style: TextStyle(
-                fontWeight: FontWeight.w500,
-                color: Colors.grey[600],
-              ),
-            ),
-          ),
-          Expanded(
-            flex: 3,
-            child: Text(
-              value,
-              style: const TextStyle(
-                fontWeight: FontWeight.w500,
-                color: Colors.black87,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
   Widget _buildHealthMetricsSection() {
     final weight = _patientDetails['weight'];
     final height = _patientDetails['height'];
-    
-    if (weight == null && height == null) return const SizedBox();
+    final bmi = _patientDetails['bmi'];
     
     return Padding(
       padding: const EdgeInsets.all(16),
@@ -483,13 +513,138 @@ class _DoctorPatientProfileScreenState extends State<DoctorPatientProfileScreen>
                     _buildMetricCard('Weight', '$weight kg', Icons.fitness_center),
                   if (height != null)
                     _buildMetricCard('Height', '$height cm', Icons.height),
-                  if (weight != null && height != null)
-                    _buildBMICard(weight, height),
+                  if (bmi != null)
+                    _buildBMICard(bmi),
                 ],
               ),
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _buildContactInfoSection() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: Card(
+        elevation: 4,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Row(
+                children: [
+                  Icon(Icons.contact_phone, color: Color(0xFF18A3B6), size: 24),
+                  SizedBox(width: 8),
+                  Text(
+                    'Contact Information',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                      color: Color(0xFF18A3B6),
+                    ),
+                  ),
+                ],
+              ),
+              
+              const SizedBox(height: 16),
+              
+              _buildContactRow('Email', _patientDetails['email'], Icons.email),
+              _buildContactRow('Mobile', _patientDetails['mobile'], Icons.phone),
+              if (_patientDetails['isEmailVerified'] == true)
+                const Padding(
+                  padding: EdgeInsets.only(top: 8),
+                  child: Row(
+                    children: [
+                      Icon(Icons.verified, color: Colors.green, size: 16),
+                      SizedBox(width: 8),
+                      Text(
+                        'Email Verified',
+                        style: TextStyle(
+                          color: Colors.green,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDetailRow(String label, String? value, {bool isImportant = false}) {
+    if (value == null || value.isEmpty) return const SizedBox();
+    
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(
+            flex: 2,
+            child: Text(
+              '$label:',
+              style: TextStyle(
+                fontWeight: FontWeight.w500,
+                color: Colors.grey[600],
+              ),
+            ),
+          ),
+          Expanded(
+            flex: 3,
+            child: Text(
+              value,
+              style: TextStyle(
+                fontWeight: isImportant ? FontWeight.bold : FontWeight.w500,
+                color: isImportant ? Colors.red : Colors.black87,
+                fontStyle: isImportant ? FontStyle.italic : FontStyle.normal,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildContactRow(String label, String? value, IconData icon) {
+    if (value == null || value.isEmpty) return const SizedBox();
+    
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Row(
+        children: [
+          Icon(icon, color: Colors.grey[600], size: 20),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Colors.grey[600],
+                  ),
+                ),
+                Text(
+                  value,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w500,
+                    color: Colors.black87,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -501,7 +656,7 @@ class _DoctorPatientProfileScreenState extends State<DoctorPatientProfileScreen>
           width: 70,
           height: 70,
           decoration: BoxDecoration(
-            color: const Color(0xFF18A3B6).withOpacity(0.1),
+            color: const Color(0xFF18A3B6).withAlpha(25),
             borderRadius: BorderRadius.circular(12),
           ),
           child: Icon(icon, color: const Color(0xFF18A3B6), size: 30),
@@ -526,8 +681,7 @@ class _DoctorPatientProfileScreenState extends State<DoctorPatientProfileScreen>
     );
   }
 
-  Widget _buildBMICard(double weight, double height) {
-    final bmi = weight / ((height / 100) * (height / 100));
+  Widget _buildBMICard(double bmi) {
     String category;
     Color color;
     
@@ -551,7 +705,7 @@ class _DoctorPatientProfileScreenState extends State<DoctorPatientProfileScreen>
           width: 70,
           height: 70,
           decoration: BoxDecoration(
-            color: color.withOpacity(0.1),
+            color: color.withAlpha(25),
             borderRadius: BorderRadius.circular(12),
           ),
           child: Icon(Icons.scale, color: color, size: 30),
@@ -581,97 +735,6 @@ class _DoctorPatientProfileScreenState extends State<DoctorPatientProfileScreen>
           ),
         ),
       ],
-    );
-  }
-
-  Widget _buildQuickActionsSection() {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16),
-      child: Card(
-        elevation: 4,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(16),
-        ),
-        child: Padding(
-          padding: const EdgeInsets.all(20),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Row(
-                children: [
-                  Icon(Icons.quick_contacts_dialer, color: Color(0xFF18A3B6), size: 24),
-                  SizedBox(width: 8),
-                  Text(
-                    'Quick Actions',
-                    style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                      color: Color(0xFF18A3B6),
-                    ),
-                  ),
-                ],
-              ),
-              
-              const SizedBox(height: 16),
-              
-              Wrap(
-                spacing: 12,
-                runSpacing: 12,
-                children: [
-                  _buildActionButton('Start Consultation', Icons.video_call, Colors.green),
-                  _buildActionButton('Add Notes', Icons.note_add, Colors.orange),
-                  _buildActionButton('Send Message', Icons.message, Colors.blue),
-                  _buildActionButton('Schedule', Icons.calendar_today, Colors.purple),
-                ],
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildActionButton(String text, IconData icon, Color color) {
-    return GestureDetector(
-      onTap: () => _showComingSoon(text),
-      child: Container(
-        width: 100,
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          color: color.withOpacity(0.1),
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: color.withOpacity(0.3)),
-        ),
-        child: Column(
-          children: [
-            Icon(icon, color: color, size: 24),
-            const SizedBox(height: 8),
-            Text(
-              text,
-              style: TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.w500,
-                color: color,
-              ),
-              textAlign: TextAlign.center,
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  void _showComingSoon(String feature) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('$feature - Coming Soon!'),
-        backgroundColor: const Color(0xFF18A3B6),
-        duration: const Duration(seconds: 2),
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(10),
-        ),
-      ),
     );
   }
 }

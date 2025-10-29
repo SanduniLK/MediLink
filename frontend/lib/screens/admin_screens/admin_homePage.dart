@@ -1,16 +1,16 @@
+// lib/screens/admin_screens/admin_home_page.dart
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:frontend/screens/admin_screens/admin_appoinment_mng.dart'; // Add this import
+import 'package:frontend/screens/admin_screens/admin_appoinment_mng.dart';
 import 'package:frontend/screens/admin_screens/admin_appoinment_mng.dart' as appointment_mng;
 import 'package:frontend/screens/admin_screens/admin_doctor_manegment.dart' as doctor_management;
 import 'package:frontend/enroll_screnns/sign_in_page.dart';
 import 'package:frontend/screens/admin_screens/admin_schedule_approval_screen.dart';
-import 'package:frontend/screens/admin_screens/appoinment_management.dart'; // This might be the wrong one
 import 'package:frontend/screens/admin_screens/admin_appointment_management.dart';
+import 'package:frontend/screens/admin_screens/admin_test_reports_screen.dart';
+import 'admin_feedback_management.dart'; // Import the new feedback management
 
-// If AdminAppointmentManagement is in a different file, import it:
-// import 'package:frontend/screens/admin_screens/admin_appointment_management.dart';
 class AdminHomePage extends StatefulWidget {
   const AdminHomePage({super.key});
 
@@ -36,7 +36,6 @@ class _AdminHomePageState extends State<AdminHomePage> {
       if (currentUser != null) {
         final email = currentUser.email;
         
-        // Query medical_centers collection by email
         final querySnapshot = await FirebaseFirestore.instance
             .collection('medical_centers')
             .where('email', isEqualTo: email)
@@ -47,11 +46,10 @@ class _AdminHomePageState extends State<AdminHomePage> {
           final doc = querySnapshot.docs.first;
           setState(() {
             _medicalCenterName = doc['name'];
-            _medicalCenterId = doc.id; // Get the document ID as medicalCenterId
+            _medicalCenterId = doc.id;
             _isLoading = false;
           });
         } else {
-          // If not found in medical_centers, check if it's a regular admin
           final adminDoc = await FirebaseFirestore.instance
               .collection('admin')
               .doc(currentUser.uid)
@@ -65,7 +63,7 @@ class _AdminHomePageState extends State<AdminHomePage> {
             });
           } else {
             setState(() {
-               _medicalCenterId = 'default_medical_center_id';
+              _medicalCenterId = 'default_medical_center_id';
               _medicalCenterName = 'Medical Center';
               _isLoading = false;
             });
@@ -74,7 +72,7 @@ class _AdminHomePageState extends State<AdminHomePage> {
       }
     } catch (e) {
       setState(() {
-         _medicalCenterId = 'default_medical_center_id';
+        _medicalCenterId = 'default_medical_center_id';
         _medicalCenterName = 'Medical Center';
         _isLoading = false;
       });
@@ -106,77 +104,322 @@ class _AdminHomePageState extends State<AdminHomePage> {
     );
   }
 
-  // Main actions on home page - FIXED: No parameters needed
+  // Feedback Management Screen - Now uses the separate file
+  Widget _buildFeedbackManagementScreen() {
+    return AdminFeedbackManagement(
+      medicalCenterId: _medicalCenterId ?? '',
+      medicalCenterName: _medicalCenterName ?? 'Medical Center',
+    );
+  }
+
+  // Main actions on home page
   Widget _buildMainActions() {
     return Padding(
       padding: const EdgeInsets.all(20),
-      child: GridView.count(
-        shrinkWrap: true,
-        physics: const NeverScrollableScrollPhysics(),
-        crossAxisCount: 2,
-        crossAxisSpacing: 15,
-        mainAxisSpacing: 15,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _buildActionButton(
-            icon: Icons.calendar_today_outlined,
-            label: 'Manage Appointments',
-            onTap: () {
-              if (_medicalCenterId != null && _medicalCenterName != null) {
-                if (_medicalCenterId != null && _medicalCenterName != null) {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    // Use the prefix to specify which one you want
-                    builder: (context) => AdminAppointmentManagement(medicalCenterId: _medicalCenterId!, medicalCenterName: _medicalCenterName!)
+          // Welcome Header
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  const Color(0xFF18A3B6),
+                  const Color(0xFF18A3B6).withOpacity(0.8),
+                ],
+              ),
+              borderRadius: BorderRadius.circular(15),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Welcome, Admin!',
+                  style: const TextStyle(
+                    fontSize: 24,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.white,
                   ),
-                );
-                }
-              } else {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Loading medical center information...')),
-                );
-              }
-            }, 
-          ),
-          _buildActionButton(
-            icon: Icons.person,
-            label: 'Manage Doctors',
-            onTap: () {
-              if (_medicalCenterName != null) {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (context) => doctor_management.DoctorManagementScreen(
-                      medicalCenterName: _medicalCenterName!,
-                    ),
+                ),
+                const SizedBox(height: 5),
+                Text(
+                  _medicalCenterName ?? 'Medical Center',
+                  style: TextStyle(
+                    fontSize: 16,
+                    color: Colors.white.withOpacity(0.9),
                   ),
-                );
-              } else {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Loading medical center information...')),
-                );
-              }
-            },
+                ),
+                const SizedBox(height: 10),
+                Text(
+                  'Manage your medical center efficiently',
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: Colors.white.withOpacity(0.8),
+                  ),
+                ),
+              ],
+            ),
           ),
-          _buildActionButton(
-            icon: Icons.people,
-            label: 'Manage Patients',
-            onTap: () {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Manage Patients - Coming Soon')),
-              );
-            },
+          const SizedBox(height: 20),
+          
+          // Quick Stats
+          _buildQuickStats(),
+          const SizedBox(height: 20),
+          
+          // Main Actions Grid
+          Expanded(
+            child: GridView.count(
+              crossAxisCount: 2,
+              crossAxisSpacing: 15,
+              mainAxisSpacing: 15,
+              children: [
+                _buildActionButton(
+                  icon: Icons.calendar_today_outlined,
+                  label: 'Manage Appointments',
+                  color: Colors.blue,
+                  onTap: () {
+                    if (_medicalCenterId != null && _medicalCenterName != null) {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => AdminAppointmentManagement(
+                            medicalCenterId: _medicalCenterId!,
+                            medicalCenterName: _medicalCenterName!
+                          ),
+                        ),
+                      );
+                    } else {
+                      _showSnackBar('Loading medical center information...');
+                    }
+                  }, 
+                ),
+                _buildActionButton(
+                  icon: Icons.person,
+                  label: 'Manage Doctors',
+                  color: Colors.green,
+                  onTap: () {
+                    if (_medicalCenterName != null) {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => doctor_management.DoctorManagementScreen(
+                            medicalCenterName: _medicalCenterName!,
+                          ),
+                        ),
+                      );
+                    } else {
+                      _showSnackBar('Loading medical center information...');
+                    }
+                  },
+                ),
+                _buildActionButton(
+                  icon: Icons.feedback,
+                  label: 'Feedback Management',
+                  color: Colors.orange,
+                  onTap: () {
+                    if (_medicalCenterId != null && _medicalCenterName != null) {
+                      setState(() {
+                        _selectedIndex = 2;
+                      });
+                    } else {
+                      _showSnackBar('Loading medical center information...');
+                    }
+                  },
+                ),
+                _buildActionButton(
+                  icon: Icons.people,
+                  label: 'Manage Patients',
+                  color: Colors.purple,
+                  onTap: () {
+                    _showSnackBar('Manage Patients - Coming Soon');
+                  },
+                ),
+                _buildActionButton(
+                  icon: Icons.schedule,
+                  label: 'Schedule Approval',
+                  color: Colors.teal,
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => AdminScheduleApprovalScreen(
+                          medicalCenterId: _medicalCenterId!,
+                            medicalCenterName: _medicalCenterName!
+
+                        ),
+                      ),
+                    );
+                  },
+                ),
+                _buildActionButton(
+                  icon: Icons.settings,
+                  label: 'Settings',
+                  color: Colors.grey,
+                  onTap: () {
+                    setState(() {
+                      _selectedIndex = 1;
+                    });
+                  },
+                ),
+                // Add to the main actions grid in admin_home_page.dart
+_buildActionButton(
+  icon: Icons.assignment,
+  label: 'Test Reports',
+  color: Colors.teal,
+  onTap: () {
+    if (_medicalCenterId != null && _medicalCenterName != null) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => AdminTestReportsScreen(
+            medicalCenterId: _medicalCenterId!,
+            medicalCenterName: _medicalCenterName!,
           ),
-          _buildActionButton(
-            icon: Icons.settings,
-            label: 'Settings',
-            onTap: () {
-              setState(() {
-                _selectedIndex = 1;
-              });
-            },
+        ),
+      );
+    } else {
+      _showSnackBar('Loading medical center information...');
+    }
+  },
+),
+              ],
+            ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildQuickStats() {
+    return FutureBuilder(
+      future: _getQuickStats(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        }
+
+        final stats = snapshot.data as Map<String, dynamic>? ?? {
+          'totalPatientFeedback': 0,
+          'totalDoctorFeedback': 0,
+          'patientAvgRating': 0.0,
+          'doctorAvgRating': 0.0,
+        };
+
+        return Row(
+          children: [
+            _buildStatItem('Patient Reviews', stats['totalPatientFeedback'].toString(), Icons.person, Colors.blue),
+            const SizedBox(width: 10),
+            _buildStatItem('Doctor Reviews', stats['totalDoctorFeedback'].toString(), Icons.medical_services, Colors.purple),
+            const SizedBox(width: 10),
+            _buildStatItem('Patient Rating', stats['patientAvgRating'].toStringAsFixed(1), Icons.star, Colors.amber),
+            const SizedBox(width: 10),
+            _buildStatItem('Doctor Rating', stats['doctorAvgRating'].toStringAsFixed(1), Icons.rate_review, Colors.green),
+          ],
+        );
+      },
+    );
+  }
+
+  Future<Map<String, dynamic>> _getQuickStats() async {
+    try {
+      // Get all patient feedback
+      final patientFeedbackQuery = await FirebaseFirestore.instance
+          .collection('feedback')
+          .get();
+
+      final patientFeedbackForCenter = patientFeedbackQuery.docs
+          .where((doc) => doc['medicalCenterId'] == _medicalCenterId)
+          .toList();
+
+      // Get doctor feedback
+      final doctorFeedbackQuery = await FirebaseFirestore.instance
+          .collection('doctorMedicalCenterFeedback')
+          .where('medicalCenterId', isEqualTo: _medicalCenterId)
+          .get();
+
+      // Calculate average ratings
+      double patientAvgRating = 0.0;
+      if (patientFeedbackForCenter.isNotEmpty) {
+        double totalRating = 0;
+        int ratedCount = 0;
+        for (final doc in patientFeedbackForCenter) {
+          final rating = doc['rating'] ?? 0;
+          if (rating > 0) {
+            totalRating += rating;
+            ratedCount++;
+          }
+        }
+        patientAvgRating = ratedCount > 0 ? totalRating / ratedCount : 0.0;
+      }
+
+      double doctorAvgRating = 0.0;
+      if (doctorFeedbackQuery.docs.isNotEmpty) {
+        double totalRating = 0;
+        for (final doc in doctorFeedbackQuery.docs) {
+          final rating = doc['rating'] ?? 0;
+          totalRating += rating;
+        }
+        doctorAvgRating = totalRating / doctorFeedbackQuery.docs.length;
+      }
+
+      return {
+        'totalPatientFeedback': patientFeedbackForCenter.length,
+        'totalDoctorFeedback': doctorFeedbackQuery.docs.length,
+        'patientAvgRating': patientAvgRating,
+        'doctorAvgRating': doctorAvgRating,
+      };
+    } catch (e) {
+      debugPrint('Error getting quick stats: $e');
+      return {
+        'totalPatientFeedback': 0,
+        'totalDoctorFeedback': 0,
+        'patientAvgRating': 0.0,
+        'doctorAvgRating': 0.0,
+      };
+    }
+  }
+
+  Widget _buildStatItem(String title, String value, IconData icon, Color color) {
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(10),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.05),
+              blurRadius: 5,
+              offset: const Offset(0, 3),
+            ),
+          ],
+        ),
+        child: Column(
+          children: [
+            Icon(icon, size: 20, color: color),
+            const SizedBox(height: 5),
+            Text(
+              value,
+              style: const TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.bold,
+                color: Colors.black87,
+              ),
+            ),
+            Text(
+              title,
+              style: const TextStyle(
+                fontSize: 10,
+                color: Colors.grey,
+              ),
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -184,6 +427,7 @@ class _AdminHomePageState extends State<AdminHomePage> {
   Widget _buildActionButton({
     required IconData icon,
     required String label,
+    required Color color,
     required VoidCallback onTap,
   }) {
     return GestureDetector(
@@ -203,19 +447,37 @@ class _AdminHomePageState extends State<AdminHomePage> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(icon, color: const Color(0xFF32BACD), size: 35),
-            const SizedBox(height: 8),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: color.withOpacity(0.1),
+                shape: BoxShape.circle,
+              ),
+              child: Icon(icon, color: color, size: 30),
+            ),
+            const SizedBox(height: 10),
             Text(
               label,
               textAlign: TextAlign.center,
-              style: const TextStyle(
+              style: TextStyle(
                 fontSize: 14,
                 fontWeight: FontWeight.bold,
-                color: Color(0xFF32BACD),
+                color: color,
               ),
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  void _showSnackBar(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: const Color(0xFF18A3B6),
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
       ),
     );
   }
@@ -225,12 +487,13 @@ class _AdminHomePageState extends State<AdminHomePage> {
     List<Widget> widgetOptions = <Widget>[
       _isLoading 
           ? const Center(child: CircularProgressIndicator())
-          : SingleChildScrollView(child: _buildMainActions()),
+          : _buildMainActions(),
       _buildSettingsScreen(),
+      _buildFeedbackManagementScreen(),
     ];
 
     return Scaffold(
-      backgroundColor: const Color(0xFFDDF0F5),
+      backgroundColor: const Color(0xFFF8F9FA),
       appBar: AppBar(
         title: Text(
           _isLoading ? 'Loading...' : _medicalCenterName ?? 'Admin Dashboard',
@@ -238,6 +501,7 @@ class _AdminHomePageState extends State<AdminHomePage> {
         ),
         backgroundColor: const Color(0xFF18A3B6),
         automaticallyImplyLeading: false,
+        elevation: 0,
       ),
       body: IndexedStack(
         index: _selectedIndex,
@@ -245,20 +509,24 @@ class _AdminHomePageState extends State<AdminHomePage> {
       ),
       bottomNavigationBar: BottomNavigationBar(
         backgroundColor: Colors.white,
-        elevation: 5,
-        selectedItemColor: const Color(0xFF32BACD),
+        elevation: 8,
+        selectedItemColor: const Color(0xFF18A3B6),
         unselectedItemColor: Colors.grey,
         selectedLabelStyle: const TextStyle(fontWeight: FontWeight.bold),
         currentIndex: _selectedIndex,
         onTap: _onItemTapped,
         items: const [
           BottomNavigationBarItem(
-            icon: Icon(Icons.home),
-            label: 'Home',
+            icon: Icon(Icons.dashboard),
+            label: 'Dashboard',
           ),
           BottomNavigationBarItem(
             icon: Icon(Icons.settings),
             label: 'Settings',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.feedback),
+            label: 'Feedback',
           ),
         ],
       ),

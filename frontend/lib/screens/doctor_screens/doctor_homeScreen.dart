@@ -4,6 +4,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:frontend/providers/doctor_provider.dart';
 import 'package:frontend/screens/doctor_screens/create_schedule_screen.dart';
 import 'package:frontend/screens/doctor_screens/doctor_appointments_page.dart';
+import 'package:frontend/screens/doctor_screens/doctor_feedback_dashboard.dart';
 import 'package:frontend/screens/doctor_screens/doctor_profile.dart';
 import 'package:frontend/screens/doctor_screens/doctor_qr_scanner_screen.dart';
 import 'package:frontend/screens/doctor_screens/doctor_queue_dashboard.dart';
@@ -218,7 +219,11 @@ class _DoctorHomeScreenState extends State<DoctorHomeScreen> {
     ),
   );
   }
-
+void _navigateTOfeedbackscreen(){
+  Navigator.push(context,
+  MaterialPageRoute(builder: (context) => DoctorFeedbackDashboard(),)
+  );
+}
   void _showErrorSnackBar(String message) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
@@ -806,6 +811,11 @@ class _DoctorHomeScreenState extends State<DoctorHomeScreen> {
                 color: primaryDark,
                 onTap: () => _showComingSoonSnackBar('Medical Records'),
               ),
+              _buildQuickActionButton(
+                icon: Icons.star_rate, 
+                label: 'feedback Dashboard', 
+                onTap: () => _navigateTOfeedbackscreen(), 
+                color: primaryDark)
             ],
           ),
         ],

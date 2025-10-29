@@ -5,11 +5,13 @@ import 'package:frontend/screens/doctor_screens/doctors_list.dart';
 import 'package:frontend/screens/patient_screens/PatientProfileScreen.dart';
 import 'package:frontend/screens/patient_screens/ai_predications.dart';
 import 'package:frontend/screens/patient_screens/analysis_report.dart';
+import 'package:frontend/screens/patient_screens/feedback_form_screen.dart';
 import 'package:frontend/screens/patient_screens/information.dart';
 import 'package:frontend/screens/patient_screens/medical_records_screen.dart';
 import 'package:frontend/screens/patient_screens/my_appointments_page.dart';
 import 'package:frontend/screens/patient_screens/patient_prescriptions.dart';
 import 'package:frontend/screens/patient_screens/patient_queue_status.dart';
+import 'package:frontend/screens/patient_screens/patient_test_reports_screen.dart';
 import 'package:frontend/screens/patient_screens/telemedicine.dart';
 
 class MedicalHomeScreen extends StatefulWidget {
@@ -406,6 +408,33 @@ Widget _buildGridButtons() {
           child: _buildActionButton(Icons.upload_file_outlined,
           "Upload past\nrecords",const Color(0xFF32BACD)), 
           ),
+        GestureDetector(
+          onTap: () {
+            Navigator.push(context,
+             MaterialPageRoute(builder: (_) => FeedbackFormScreen(
+               patientId: patientId ?? '', )
+             
+             ));
+          },
+          child: _buildActionButton(
+            Icons.star_border,
+            "feedback", 
+           const Color(0xFF32BACD),
+        )
+        ),
+        GestureDetector(
+          onTap: () {
+            Navigator.push(context,
+             MaterialPageRoute(builder: (_) => PatientTestReportsScreen()
+             
+             ));
+          },
+          child: _buildActionButton(
+            Icons.star_border,
+            "Test Reports", 
+           const Color.fromARGB(255, 125, 17, 208),
+        )
+        )
             
         
       ],
