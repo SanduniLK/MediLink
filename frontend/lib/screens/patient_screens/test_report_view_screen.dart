@@ -4,10 +4,12 @@ import 'package:frontend/model/test_report_model.dart';
 
 class TestReportViewScreen extends StatelessWidget {
   final TestReportModel testReport;
+  final String downloadUrl;
 
   const TestReportViewScreen({
     super.key,
-    required this.testReport,
+    required this.testReport, 
+    required this.downloadUrl,
   });
 
   @override

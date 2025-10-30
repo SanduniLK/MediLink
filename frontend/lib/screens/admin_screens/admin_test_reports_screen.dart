@@ -25,6 +25,20 @@ class _AdminTestReportsScreenState extends State<AdminTestReportsScreen> with Si
   List<TestReportModel> _testReports = [];
   bool _isLoading = true;
   String? _errorMessage;
+  final TextEditingController _searchController = TextEditingController();
+
+  // Enhanced color scheme
+  final Color _primaryColor = const Color(0xFF18A3B6);
+  final Color _primaryDark = const Color(0xFF12899B);
+  final Color _secondaryColor = const Color(0xFF32BACD);
+  final Color _accentColor = const Color(0xFFB2DEE6);
+  final Color _backgroundColor = const Color(0xFFF8FBFD);
+  final Color _cardColor = Colors.white;
+  final Color _textPrimary = Color(0xFF2C3E50);
+  final Color _textSecondary = Color(0xFF7F8C8D);
+  final Color _successColor = Color(0xFF27AE60);
+  final Color _warningColor = Color(0xFFE67E22);
+  final Color _dangerColor = Color(0xFFE74C3C);
 
   @override
   void initState() {
@@ -36,6 +50,7 @@ class _AdminTestReportsScreenState extends State<AdminTestReportsScreen> with Si
   @override
   void dispose() {
     _tabController.dispose();
+    _searchController.dispose();
     super.dispose();
   }
 
@@ -62,107 +77,197 @@ class _AdminTestReportsScreenState extends State<AdminTestReportsScreen> with Si
       });
     }
   }
+Widget _buildTestReportStats() {
+  final totalReports = _testReports.length;
+  final normalReports = _testReports.where((r) => r.status == 'normal').length;
+  final abnormalReports = _testReports.where((r) => r.status == 'abnormal').length;
+  final criticalReports = _testReports.where((r) => r.status == 'critical').length;
 
-  Widget _buildTestReportStats() {
-    final totalReports = _testReports.length;
-    final normalReports = _testReports.where((r) => r.status == 'normal').length;
-    final abnormalReports = _testReports.where((r) => r.status == 'abnormal').length;
-    final criticalReports = _testReports.where((r) => r.status == 'critical').length;
-
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(15),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.05),
-            blurRadius: 10,
-            offset: const Offset(0, 5),
-          ),
-        ],
-      ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceAround,
-        children: [
-          _buildStatCircle(totalReports, 'Total Reports', Colors.blue, Icons.assignment),
-          _buildStatCircle(normalReports, 'Normal', Colors.green, Icons.check_circle),
-          _buildStatCircle(abnormalReports, 'Abnormal', Colors.orange, Icons.warning),
-          _buildStatCircle(criticalReports, 'Critical', Colors.red, Icons.error),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildStatCircle(int count, String label, Color color, IconData icon) {
-    return Column(
+  return Container(
+    padding: const EdgeInsets.all(16),
+    decoration: BoxDecoration(
+      color: _cardColor,
+      borderRadius: BorderRadius.circular(20),
+      boxShadow: [
+        BoxShadow(
+          color: Colors.black.withOpacity(0.08),
+          blurRadius: 20,
+          offset: const Offset(0, 8),
+        ),
+      ],
+    ),
+    child: Column(
       children: [
-        Container(
-          width: 60,
-          height: 60,
-          decoration: BoxDecoration(
-            color: color.withValues(alpha: 0.1),
-            shape: BoxShape.circle,
-            border: Border.all(color: color.withValues(alpha: 0.3), width: 2),
-          ),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(icon, size: 20, color: color),
-              Text(
-                count.toString(),
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
-                  color: color,
-                ),
-              ),
-            ],
+        const Text(
+          'Reports Summary',
+          style: TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.bold,
+            color: Colors.black87,
           ),
         ),
-        const SizedBox(height: 5),
+        const SizedBox(height: 16),
+        GridView.count(
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          crossAxisCount: 4, // 4 items in one row
+          crossAxisSpacing: 8,
+          mainAxisSpacing: 8,
+          childAspectRatio: 0.7, // Wider than tall
+          children: [
+            _buildCompactStatCard(totalReports, 'Total', Icons.assignment_outlined, _primaryColor),
+            _buildCompactStatCard(normalReports, 'Normal', Icons.check_circle_outlined, _successColor),
+            _buildCompactStatCard(abnormalReports, 'Abnormal', Icons.warning_amber_outlined, _warningColor),
+            _buildCompactStatCard(criticalReports, 'Critical', Icons.error_outline, _dangerColor),
+          ],
+        ),
+      ],
+    ),
+  );
+}
+
+Widget _buildCompactStatCard(int count, String title, IconData icon, Color color) {
+  return Container(
+    padding: const EdgeInsets.all(8),
+    decoration: BoxDecoration(
+      color: color.withOpacity(0.08),
+      borderRadius: BorderRadius.circular(10),
+      border: Border.all(color: color.withOpacity(0.2)),
+    ),
+    child: Column(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        Icon(icon, size: 20, color: color),
+        const SizedBox(height: 6),
         Text(
-          label,
+          count.toString(),
+          style: TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.bold,
+            color: color,
+          ),
+        ),
+        const SizedBox(height: 2),
+        Text(
+          title,
           style: const TextStyle(
-            fontSize: 12,
+            fontSize: 10,
             fontWeight: FontWeight.w500,
-            color: Colors.grey,
+            color: Colors.black54,
           ),
         ),
       ],
-    );
-  }
-
+    ),
+  );
+}
   Widget _buildUploadTestReportSection() {
     return SingleChildScrollView(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(24),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
-            'Upload New Test Report',
-            style: TextStyle(
-              fontSize: 20,
-              fontWeight: FontWeight.bold,
-              color: Color(0xFF18A3B6),
+          // Header
+          Container(
+            padding: const EdgeInsets.only(bottom: 16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: _primaryColor.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Icon(Icons.upload_file, color: _primaryColor, size: 24),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Upload New Test Report',
+                            style: TextStyle(
+                              fontSize: 22,
+                              fontWeight: FontWeight.bold,
+                              color: _textPrimary,
+                            ),
+                          ),
+                          Text(
+                            'Select a patient and upload their test results',
+                            style: TextStyle(
+                              fontSize: 14,
+                              color: _textSecondary,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ],
             ),
           ),
-          const SizedBox(height: 16),
+
+          const SizedBox(height: 8),
+
+          // Search Section
           _buildPatientSearch(),
-          const SizedBox(height: 16),
+
+          const SizedBox(height: 24),
+
+          // Patient Selection
           _buildPatientSelection(),
-          const SizedBox(height: 16),
+
+          const SizedBox(height: 32),
+
+          // Upload Button
           Center(
-            child: ElevatedButton.icon(
-              onPressed: () {
-                _showUploadTestReportDialog();
-              },
-              icon: const Icon(Icons.upload_file),
-              label: const Text('Upload Test Report'),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF18A3B6),
-                foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+            child: Container(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [_primaryColor, _primaryDark],
+                  begin: Alignment.centerLeft,
+                  end: Alignment.centerRight,
+                ),
+                borderRadius: BorderRadius.circular(16),
+                boxShadow: [
+                  BoxShadow(
+                    color: _primaryColor.withOpacity(0.3),
+                    blurRadius: 15,
+                    offset: const Offset(0, 5),
+                  ),
+                ],
+              ),
+              child: ElevatedButton(
+                onPressed: () {
+                  _showUploadTestReportDialog();
+                },
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.transparent,
+                  shadowColor: Colors.transparent,
+                  padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.cloud_upload, color: Colors.white, size: 20),
+                    const SizedBox(width: 8),
+                    Text(
+                      'Upload Test Report',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.white,
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
           ),
@@ -174,26 +279,48 @@ class _AdminTestReportsScreenState extends State<AdminTestReportsScreen> with Si
   Widget _buildPatientSelection() {
     if (_patients.isEmpty) {
       return Container(
-        padding: const EdgeInsets.all(16),
+        width: double.infinity,
+        padding: const EdgeInsets.all(32),
         decoration: BoxDecoration(
-          color: Colors.grey.shade50,
-          borderRadius: BorderRadius.circular(10),
-          border: Border.all(color: Colors.grey.shade300),
+          color: _cardColor,
+          borderRadius: BorderRadius.circular(20),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.05),
+              blurRadius: 15,
+              offset: const Offset(0, 5),
+            ),
+          ],
         ),
-        child: const Column(
+        child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.people_outline, size: 48, color: Colors.grey),
-            SizedBox(height: 8),
+            Container(
+              width: 80,
+              height: 80,
+              decoration: BoxDecoration(
+                color: _accentColor,
+                shape: BoxShape.circle,
+              ),
+              child: Icon(Icons.people_outline, size: 40, color: _primaryColor),
+            ),
+            const SizedBox(height: 16),
             Text(
               'No Patients Found',
-              style: TextStyle(fontSize: 16, color: Colors.grey),
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+                color: _textPrimary,
+              ),
             ),
-            SizedBox(height: 8),
+            const SizedBox(height: 8),
             Text(
               'Patients will appear here once they register in the system',
               textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 12, color: Colors.grey),
+              style: TextStyle(
+                fontSize: 14,
+                color: _textSecondary,
+              ),
             ),
           ],
         ),
@@ -201,79 +328,168 @@ class _AdminTestReportsScreenState extends State<AdminTestReportsScreen> with Si
     }
 
     return Container(
-      padding: const EdgeInsets.all(16),
+      width: double.infinity,
+      padding: const EdgeInsets.all(24),
       decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: Colors.grey.shade300),
+        color: _cardColor,
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 15,
+            offset: const Offset(0, 5),
+          ),
+        ],
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
-            'Select Patient for Test Report',
-            style: TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.bold,
-            ),
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(6),
+                decoration: BoxDecoration(
+                  color: _primaryColor.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Icon(Icons.people, size: 20, color: _primaryColor),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Select Patient',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                        color: _textPrimary,
+                      ),
+                    ),
+                    Text(
+                      '${_patients.length} patients available in system',
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: _textSecondary,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ),
-          const SizedBox(height: 8),
-          Text(
-            '${_patients.length} patients found in system',
-            style: TextStyle(
-              fontSize: 14,
-              color: Colors.grey.shade600,
-            ),
-          ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 20),
           
-          // Show limited patient preview with fixed height
+          // Patient List
           ConstrainedBox(
-            constraints: const BoxConstraints(maxHeight: 200),
+            constraints: const BoxConstraints(maxHeight: 240),
             child: ListView.builder(
               shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              itemCount: _patients.length > 3 ? 3 : _patients.length,
+              physics: const BouncingScrollPhysics(),
+              itemCount: _patients.length > 5 ? 5 : _patients.length,
               itemBuilder: (context, index) {
                 final patient = _patients[index];
-                return ListTile(
-                  contentPadding: const EdgeInsets.symmetric(vertical: 4),
-                  leading: CircleAvatar(
-                    backgroundColor: const Color(0xFF18A3B6),
-                    radius: 20,
-                    child: Text(
-                      patient['fullname']?.toString().substring(0, 1) ?? 'P',
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 12,
-                        fontWeight: FontWeight.bold,
+                return Container(
+                  margin: const EdgeInsets.only(bottom: 12),
+                  decoration: BoxDecoration(
+                    color: _backgroundColor,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: Colors.grey.shade200),
+                  ),
+                  child: ListTile(
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                    leading: Container(
+                      width: 44,
+                      height: 44,
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          colors: [_primaryColor, _secondaryColor],
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                        ),
+                        shape: BoxShape.circle,
+                      ),
+                      child: Center(
+                        child: Text(
+                          patient['fullname']?.toString().substring(0, 1) ?? 'P',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    ),
+                    title: Text(
+                      patient['fullname'] ?? 'Unknown Patient',
+                      style: TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w600,
+                        color: _textPrimary,
+                      ),
+                    ),
+                    subtitle: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const SizedBox(height: 2),
+                        Text(
+                          patient['mobile'] ?? 'No phone number',
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: _textSecondary,
+                          ),
+                        ),
+                        if (patient['age'] != null)
+                          Text(
+                            '${patient['age']} years old',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: _textSecondary,
+                            ),
+                          ),
+                      ],
+                    ),
+                    trailing: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: _primaryColor.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Text(
+                        'Select',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: _primaryColor,
+                        ),
                       ),
                     ),
                   ),
-                  title: Text(
-                    patient['fullname'] ?? 'Unknown',
-                    style: const TextStyle(fontSize: 14),
-                  ),
-                  subtitle: Text(
-                    '${patient['mobile'] ?? 'No phone'} • ${patient['age'] ?? '?'} years',
-                    style: const TextStyle(fontSize: 12),
-                  ),
-                  dense: true,
                 );
               },
             ),
           ),
           
-          if (_patients.length > 3)
+          if (_patients.length > 5)
             Padding(
-              padding: const EdgeInsets.only(top: 8),
-              child: Text(
-                '... and ${_patients.length - 3} more patients',
-                style: TextStyle(
-                  fontSize: 12,
-                  color: Colors.grey.shade500,
-                  fontStyle: FontStyle.italic,
+              padding: const EdgeInsets.only(top: 12),
+              child: Center(
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: _accentColor,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Text(
+                    '... and ${_patients.length - 5} more patients',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: _primaryColor,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
                 ),
               ),
             ),
@@ -283,15 +499,29 @@ class _AdminTestReportsScreenState extends State<AdminTestReportsScreen> with Si
   }
 
   Widget _buildPatientSearch() {
-    return Padding(
+    return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      decoration: BoxDecoration(
+        color: _cardColor,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 10,
+            offset: const Offset(0, 3),
+          ),
+        ],
+      ),
       child: TextField(
+        controller: _searchController,
         decoration: InputDecoration(
           hintText: 'Search patients by name, email, or mobile...',
-          prefixIcon: const Icon(Icons.search),
-          border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(10),
-          ),
+          hintStyle: TextStyle(color: _textSecondary),
+          prefixIcon: Icon(Icons.search, color: _primaryColor),
+          border: InputBorder.none,
+          focusedBorder: InputBorder.none,
+          enabledBorder: InputBorder.none,
+          contentPadding: const EdgeInsets.symmetric(vertical: 16),
         ),
         onChanged: (query) async {
           if (query.length >= 2) {
@@ -310,7 +540,12 @@ class _AdminTestReportsScreenState extends State<AdminTestReportsScreen> with Si
   void _showUploadTestReportDialog() {
     if (_patients.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('No patients available to upload test reports')),
+        SnackBar(
+          content: Text('No patients available to upload test reports'),
+          backgroundColor: _warningColor,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        ),
       );
       return;
     }
@@ -333,7 +568,25 @@ class _AdminTestReportsScreenState extends State<AdminTestReportsScreen> with Si
       stream: TestReportService.getMedicalCenterTestReports(widget.medicalCenterId),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Center(child: CircularProgressIndicator());
+          return Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                CircularProgressIndicator(
+                  valueColor: AlwaysStoppedAnimation<Color>(_primaryColor),
+                  strokeWidth: 3,
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  'Loading test reports...',
+                  style: TextStyle(
+                    color: _textSecondary,
+                    fontSize: 16,
+                  ),
+                ),
+              ],
+            ),
+          );
         }
 
         if (snapshot.hasError) {
@@ -341,17 +594,35 @@ class _AdminTestReportsScreenState extends State<AdminTestReportsScreen> with Si
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                const Icon(Icons.error, size: 64, color: Colors.red),
+                Container(
+                  width: 80,
+                  height: 80,
+                  decoration: BoxDecoration(
+                    color: _dangerColor.withOpacity(0.1),
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(Icons.error_outline, size: 40, color: _dangerColor),
+                ),
                 const SizedBox(height: 16),
-                const Text(
+                Text(
                   'Error Loading Test Reports',
-                  style: TextStyle(fontSize: 18, color: Colors.red),
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: _dangerColor,
+                  ),
                 ),
                 const SizedBox(height: 8),
-                Text(
-                  snapshot.error.toString(),
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(color: Colors.grey),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 32),
+                  child: Text(
+                    snapshot.error.toString(),
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: _textSecondary,
+                      fontSize: 14,
+                    ),
+                  ),
                 ),
               ],
             ),
@@ -369,20 +640,31 @@ class _AdminTestReportsScreenState extends State<AdminTestReportsScreen> with Si
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Icon(Icons.assignment, size: 64, color: Colors.grey.shade300),
-                const SizedBox(height: 16),
-                const Text(
+                Container(
+                  width: 100,
+                  height: 100,
+                  decoration: BoxDecoration(
+                    color: _accentColor,
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(Icons.assignment, size: 50, color: _primaryColor),
+                ),
+                const SizedBox(height: 20),
+                Text(
                   'No Test Reports',
                   style: TextStyle(
-                    fontSize: 18,
-                    color: Colors.grey,
+                    fontSize: 20,
                     fontWeight: FontWeight.bold,
+                    color: _textPrimary,
                   ),
                 ),
                 const SizedBox(height: 8),
-                const Text(
+                Text(
                   'Upload test reports to see them here',
-                  style: TextStyle(color: Colors.grey),
+                  style: TextStyle(
+                    color: _textSecondary,
+                    fontSize: 14,
+                  ),
                 ),
               ],
             ),
@@ -391,6 +673,7 @@ class _AdminTestReportsScreenState extends State<AdminTestReportsScreen> with Si
 
         return ListView.builder(
           padding: const EdgeInsets.all(16),
+          physics: const BouncingScrollPhysics(),
           itemCount: reports.length,
           itemBuilder: (context, index) {
             return _buildTestReportCard(reports[index]);
@@ -401,12 +684,21 @@ class _AdminTestReportsScreenState extends State<AdminTestReportsScreen> with Si
   }
 
   Widget _buildTestReportCard(TestReportModel report) {
-    return Card(
-      elevation: 3,
-      margin: const EdgeInsets.only(bottom: 12),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+    return Container(
+      margin: const EdgeInsets.only(bottom: 16),
+      decoration: BoxDecoration(
+        color: _cardColor,
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.08),
+            blurRadius: 15,
+            offset: const Offset(0, 5),
+          ),
+        ],
+      ),
       child: Padding(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(20),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -415,40 +707,57 @@ class _AdminTestReportsScreenState extends State<AdminTestReportsScreen> with Si
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Container(
-                  width: 50,
-                  height: 50,
+                  width: 60,
+                  height: 60,
                   decoration: BoxDecoration(
-                    color: report.statusColor.withValues(alpha: 0.1),
-                    borderRadius: BorderRadius.circular(10),
+                    gradient: LinearGradient(
+                      colors: [
+                        report.statusColor.withOpacity(0.15),
+                        report.statusColor.withOpacity(0.05)
+                      ],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                    borderRadius: BorderRadius.circular(15),
+                    border: Border.all(color: report.statusColor.withOpacity(0.3), width: 2),
                   ),
-                  child: Icon(report.statusIcon, color: report.statusColor, size: 24),
+                  child: Icon(report.statusIcon, color: report.statusColor, size: 28),
                 ),
-                const SizedBox(width: 12),
+                const SizedBox(width: 16),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
                         report.testName,
-                        style: const TextStyle(
-                          fontSize: 16,
+                        style: TextStyle(
+                          fontSize: 18,
                           fontWeight: FontWeight.bold,
+                          color: _textPrimary,
                         ),
                       ),
-                      const SizedBox(height: 4),
+                      const SizedBox(height: 6),
                       Text(
                         report.patientName,
                         style: TextStyle(
-                          color: Colors.grey[600],
-                          fontSize: 14,
+                          color: _textSecondary,
+                          fontSize: 15,
+                          fontWeight: FontWeight.w500,
                         ),
                       ),
-                      Text(
-                        'Test Date: ${report.formattedTestDate}',
-                        style: TextStyle(
-                          color: Colors.grey[500],
-                          fontSize: 12,
-                        ),
+                      const SizedBox(height: 4),
+                      Row(
+                        children: [
+                          Icon(Icons.calendar_today, size: 14, color: _textSecondary),
+                          const SizedBox(width: 4),
+                          Text(
+                            'Test Date: ${report.formattedTestDate}',
+                            style: TextStyle(
+                              color: _textSecondary,
+                              fontSize: 13,
+                            ),
+                          ),
+                        ],
                       ),
                     ],
                   ),
@@ -457,27 +766,27 @@ class _AdminTestReportsScreenState extends State<AdminTestReportsScreen> with Si
                   crossAxisAlignment: CrossAxisAlignment.end,
                   children: [
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                       decoration: BoxDecoration(
-                        color: report.statusColor.withValues(alpha: 0.1),
+                        color: report.statusColor.withOpacity(0.1),
                         borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: report.statusColor),
+                        border: Border.all(color: report.statusColor.withOpacity(0.3)),
                       ),
                       child: Text(
                         report.status.toUpperCase(),
                         style: TextStyle(
-                          fontSize: 10,
+                          fontSize: 11,
                           fontWeight: FontWeight.bold,
                           color: report.statusColor,
                         ),
                       ),
                     ),
-                    const SizedBox(height: 4),
+                    const SizedBox(height: 6),
                     Text(
                       report.fileSize,
                       style: TextStyle(
-                        color: Colors.grey[500],
-                        fontSize: 11,
+                        color: _textSecondary,
+                        fontSize: 12,
                       ),
                     ),
                   ],
@@ -485,86 +794,163 @@ class _AdminTestReportsScreenState extends State<AdminTestReportsScreen> with Si
               ],
             ),
             
-            const SizedBox(height: 12),
+            const SizedBox(height: 16),
             
             // Description
             if (report.description.isNotEmpty) ...[
-              Text(
-                report.description,
-                style: const TextStyle(fontSize: 14, height: 1.4),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: _backgroundColor,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Text(
+                  report.description,
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: _textPrimary,
+                    height: 1.5,
+                  ),
+                ),
               ),
-              const SizedBox(height: 8),
+              const SizedBox(height: 12),
             ],
             
             // Lab Findings
             if (report.labFindings.isNotEmpty) ...[
               Container(
                 width: double.infinity,
-                padding: const EdgeInsets.all(12),
+                padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
-                  color: Colors.grey.shade50,
-                  borderRadius: BorderRadius.circular(8),
+                  color: _accentColor.withOpacity(0.3),
+                  borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: _accentColor.withOpacity(0.5)),
                 ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text(
-                      'Lab Findings:',
-                      style: TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.bold,
-                      ),
+                    Row(
+                      children: [
+                        Icon(Icons.science, size: 18, color: _primaryColor),
+                        const SizedBox(width: 8),
+                        Text(
+                          'Lab Findings',
+                          style: TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.bold,
+                            color: _textPrimary,
+                          ),
+                        ),
+                      ],
                     ),
-                    const SizedBox(height: 4),
+                    const SizedBox(height: 8),
                     ...report.labFindings.entries.map((entry) {
-                      return Text(
-                        '• ${entry.key}: ${entry.value}',
-                        style: const TextStyle(fontSize: 12),
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: 4),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Container(
+                              margin: const EdgeInsets.only(top: 6, right: 8),
+                              width: 6,
+                              height: 6,
+                              decoration: BoxDecoration(
+                                color: _primaryColor,
+                                shape: BoxShape.circle,
+                              ),
+                            ),
+                            Expanded(
+                              child: Text(
+                                '${entry.key}: ${entry.value}',
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  color: _textPrimary,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
                       );
                     }),
                   ],
                 ),
               ),
-              const SizedBox(height: 8),
+              const SizedBox(height: 12),
             ],
             
             // Notes
             if (report.notes.isNotEmpty) ...[
               Container(
                 width: double.infinity,
-                padding: const EdgeInsets.all(12),
+                padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
-                  color: Colors.blue.shade50,
-                  borderRadius: BorderRadius.circular(8),
+                  color: _primaryColor.withOpacity(0.05),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: _primaryColor.withOpacity(0.2)),
                 ),
-                child: Text(
-                  'Notes: ${report.notes}',
-                  style: const TextStyle(fontSize: 12),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Icon(Icons.note, size: 18, color: _primaryColor),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Notes: ${report.notes}',
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: _textPrimary,
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ),
-              const SizedBox(height: 8),
+              const SizedBox(height: 16),
             ],
             
             // Actions
+            Container(
+              height: 1,
+              color: Colors.grey.shade200,
+            ),
+            const SizedBox(height: 16),
             Row(
               mainAxisAlignment: MainAxisAlignment.end,
               children: [
-                TextButton(
-                  onPressed: () => _viewTestReport(report),
-                  child: const Text('View Report'),
-                ),
+                _buildActionButton('View Report', Icons.visibility, _primaryColor, () => _viewTestReport(report)),
                 const SizedBox(width: 8),
-                IconButton(
-                  icon: const Icon(Icons.download, size: 18),
-                  onPressed: () => _downloadTestReport(report),
-                  tooltip: 'Download',
-                ),
-                IconButton(
-                  icon: const Icon(Icons.delete_outline, size: 18),
-                  onPressed: () => _deleteTestReport(report),
-                  tooltip: 'Delete',
-                ),
+                _buildActionButton('Download', Icons.download, _secondaryColor, () => _downloadTestReport(report)),
+                const SizedBox(width: 8),
+                _buildActionButton('Delete', Icons.delete_outline, _dangerColor, () => _deleteTestReport(report)),
               ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildActionButton(String text, IconData icon, Color color, VoidCallback onPressed) {
+    return Container(
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: IconButton(
+        onPressed: onPressed,
+        icon: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 18, color: color),
+            const SizedBox(width: 4),
+            Text(
+              text,
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: color,
+              ),
             ),
           ],
         ),
@@ -575,14 +961,24 @@ class _AdminTestReportsScreenState extends State<AdminTestReportsScreen> with Si
   void _viewTestReport(TestReportModel report) {
     // TODO: Implement view test report functionality
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Viewing ${report.testName}')),
+      SnackBar(
+        content: Text('Viewing ${report.testName}'),
+        backgroundColor: _primaryColor,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      ),
     );
   }
 
   void _downloadTestReport(TestReportModel report) {
     // TODO: Implement download functionality
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Downloading ${report.fileName}')),
+      SnackBar(
+        content: Text('Downloading ${report.fileName}'),
+        backgroundColor: _secondaryColor,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      ),
     );
   }
 
@@ -590,17 +986,50 @@ class _AdminTestReportsScreenState extends State<AdminTestReportsScreen> with Si
     bool confirm = await showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Delete Test Report'),
-        content: const Text('Are you sure you want to delete this test report? This action cannot be undone.'),
+        title: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: _dangerColor.withOpacity(0.1),
+                shape: BoxShape.circle,
+              ),
+              child: Icon(Icons.delete, color: _dangerColor),
+            ),
+            const SizedBox(width: 12),
+            Text(
+              'Delete Test Report',
+              style: TextStyle(
+                fontWeight: FontWeight.bold,
+                color: _textPrimary,
+              ),
+            ),
+          ],
+        ),
+        content: Text(
+          'Are you sure you want to delete the test report for "${report.testName}"? This action cannot be undone.',
+          style: TextStyle(color: _textSecondary),
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancel'),
+            child: Text(
+              'Cancel',
+              style: TextStyle(color: _textSecondary),
+            ),
           ),
-          TextButton(
-            onPressed: () => Navigator.pop(context, true),
-            style: TextButton.styleFrom(foregroundColor: Colors.red),
-            child: const Text('Delete'),
+          Container(
+            decoration: BoxDecoration(
+              color: _dangerColor,
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: TextButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: Text(
+                'Delete Report',
+                style: TextStyle(color: Colors.white),
+              ),
+            ),
           ),
         ],
       ),
@@ -611,13 +1040,23 @@ class _AdminTestReportsScreenState extends State<AdminTestReportsScreen> with Si
         await TestReportService.deleteTestReport(report.id);
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Test report deleted successfully')),
+            SnackBar(
+              content: Text('Test report deleted successfully'),
+              backgroundColor: _successColor,
+              behavior: SnackBarBehavior.floating,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            ),
           );
         }
       } catch (e) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Failed to delete test report: $e')),
+            SnackBar(
+              content: Text('Failed to delete test report: $e'),
+              backgroundColor: _dangerColor,
+              behavior: SnackBarBehavior.floating,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            ),
           );
         }
       }
@@ -627,97 +1066,172 @@ class _AdminTestReportsScreenState extends State<AdminTestReportsScreen> with Si
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF8F9FA),
+      backgroundColor: _backgroundColor,
       body: Column(
         children: [
           // Header
           Container(
             width: double.infinity,
-            padding: const EdgeInsets.all(20),
+            padding: const EdgeInsets.fromLTRB(24, 48, 24, 24),
             decoration: BoxDecoration(
-              color: Colors.white,
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [_primaryColor, _primaryDark],
+              ),
+              borderRadius: const BorderRadius.only(
+                bottomLeft: Radius.circular(30),
+                bottomRight: Radius.circular(30),
+              ),
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.05),
-                  blurRadius: 10,
-                  offset: const Offset(0, 5),
+                  color: _primaryColor.withOpacity(0.3),
+                  blurRadius: 20,
+                  offset: const Offset(0, 10),
                 ),
               ],
             ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'Test Reports Management',
-                  style: TextStyle(
-                    fontSize: 24,
-                    fontWeight: FontWeight.bold,
-                    color: Color(0xFF18A3B6),
+            child: SafeArea(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withOpacity(0.2),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Icon(Icons.medical_services, color: Colors.white, size: 24),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Test Reports Management',
+                              style: TextStyle(
+                                fontSize: 24,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.white,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              widget.medicalCenterName,
+                              style: TextStyle(
+                                fontSize: 16,
+                                color: Colors.white.withOpacity(0.9),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
                   ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  widget.medicalCenterName,
-                  style: TextStyle(
-                    fontSize: 16,
-                    color: Colors.grey[600],
-                  ),
-                ),
-                if (_errorMessage != null) ...[
-                  const SizedBox(height: 8),
-                  Container(
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      color: Colors.orange.withValues(alpha: 0.1),
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: Colors.orange),
-                    ),
-                    child: Row(
-                      children: [
-                        const Icon(Icons.warning, color: Colors.orange, size: 16),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            _errorMessage!,
-                            style: const TextStyle(
-                              fontSize: 12,
-                              color: Colors.orange,
+                  if (_errorMessage != null) ...[
+                    const SizedBox(height: 16),
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withOpacity(0.15),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: Colors.white.withOpacity(0.3)),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(Icons.warning, color: Colors.white, size: 18),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              _errorMessage!,
+                              style: TextStyle(
+                                fontSize: 13,
+                                color: Colors.white,
+                              ),
                             ),
                           ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
-                  ),
+                  ],
                 ],
-              ],
+              ),
             ),
           ),
           
           // Stats
-          Padding(
-            padding: const EdgeInsets.all(16),
-            child: _buildTestReportStats(),
+          Transform.translate(
+            offset: const Offset(0, -20),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 24),
+              child: _buildTestReportStats(),
+            ),
           ),
           
           // Tabs
           Container(
-            color: Colors.white,
-            child: TabBar(
-              controller: _tabController,
-              labelColor: const Color(0xFF18A3B6),
-              unselectedLabelColor: Colors.grey,
-              indicatorColor: const Color(0xFF18A3B6),
-              tabs: const [
-                Tab(text: 'Upload Reports'),
-                Tab(text: 'All Reports'),
-              ],
+            margin: const EdgeInsets.only(top: 8),
+            padding: const EdgeInsets.symmetric(horizontal: 24),
+            child: Container(
+              decoration: BoxDecoration(
+                color: _cardColor,
+                borderRadius: BorderRadius.circular(15),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.05),
+                    blurRadius: 10,
+                    offset: const Offset(0, 3),
+                  ),
+                ],
+              ),
+              child: TabBar(
+                controller: _tabController,
+                labelColor: _primaryColor,
+                unselectedLabelColor: _textSecondary,
+                indicatorColor: _primaryColor,
+                indicatorWeight: 3,
+                indicatorSize: TabBarIndicatorSize.tab,
+                labelStyle: TextStyle(
+                  fontWeight: FontWeight.w600,
+                  fontSize: 14,
+                ),
+                unselectedLabelStyle: TextStyle(
+                  fontWeight: FontWeight.w500,
+                  fontSize: 14,
+                ),
+                tabs: const [
+                  Tab(text: 'Upload Reports'),
+                  Tab(text: 'All Reports'),
+                ],
+              ),
             ),
           ),
           
           // Content
           Expanded(
             child: _isLoading
-                ? const Center(child: CircularProgressIndicator())
+                ? Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        CircularProgressIndicator(
+                          valueColor: AlwaysStoppedAnimation<Color>(_primaryColor),
+                          strokeWidth: 3,
+                        ),
+                        const SizedBox(height: 16),
+                        Text(
+                          'Loading dashboard...',
+                          style: TextStyle(
+                            color: _textSecondary,
+                            fontSize: 16,
+                          ),
+                        ),
+                      ],
+                    ),
+                  )
                 : TabBarView(
                     controller: _tabController,
                     children: [

@@ -16,24 +16,40 @@ class _LabReportsManagementScreenState extends State<LabReportsManagementScreen>
       'patientName': 'Sarah Johnson',
       'reportName': 'Blood Test Report',
       'uploadDate': '2025-10-27',
+      'status': 'Completed',
     },
     {
       'id': 'L-002',
       'patientName': 'Michael Brown',
       'reportName': 'Urine Analysis',
       'uploadDate': '2025-10-25',
+      'status': 'Pending',
     },
     {
       'id': 'L-003',
       'patientName': 'Emily Davis',
       'reportName': 'X-Ray Report',
       'uploadDate': '2025-10-20',
+      'status': 'Completed',
     },
   ];
 
   // Variables for the upload form
   final TextEditingController _patientNameController = TextEditingController();
   String? _selectedFile;
+
+  // Enhanced color scheme
+  final Color _primaryColor = const Color(0xFF18A3B6);
+  final Color _primaryDark = const Color(0xFF12899B);
+  final Color _secondaryColor = const Color(0xFF32BACD);
+  final Color _accentColor = const Color(0xFFB2DEE6);
+  final Color _backgroundColor = const Color(0xFFF8FBFD);
+  final Color _cardColor = Colors.white;
+  final Color _textPrimary = Color(0xFF2C3E50);
+  final Color _textSecondary = Color(0xFF7F8C8D);
+  final Color _successColor = Color(0xFF27AE60);
+  final Color _warningColor = Color(0xFFE67E22);
+  final Color _dangerColor = Color(0xFFE74C3C);
 
   @override
   void dispose() {
@@ -45,9 +61,11 @@ class _LabReportsManagementScreenState extends State<LabReportsManagementScreen>
   void _uploadReport() {
     if (_patientNameController.text.isEmpty || _selectedFile == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
+        SnackBar(
           content: Text('Please select a patient and a file to upload.'),
-          backgroundColor: Colors.red,
+          backgroundColor: _dangerColor,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
         ),
       );
       return;
@@ -61,13 +79,16 @@ class _LabReportsManagementScreenState extends State<LabReportsManagementScreen>
         'patientName': _patientNameController.text,
         'reportName': _selectedFile!.split('/').last, // Get the filename from the path
         'uploadDate': DateTime.now().toString().substring(0, 10),
+        'status': 'Completed',
       });
     });
 
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
+      SnackBar(
         content: Text('Lab report uploaded successfully!'),
-        backgroundColor: Colors.green,
+        backgroundColor: _successColor,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       ),
     );
     _patientNameController.clear();
@@ -81,6 +102,9 @@ class _LabReportsManagementScreenState extends State<LabReportsManagementScreen>
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text('Viewing report with ID: $reportId'),
+        backgroundColor: _primaryColor,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       ),
     );
   }
@@ -90,24 +114,69 @@ class _LabReportsManagementScreenState extends State<LabReportsManagementScreen>
       context: context,
       builder: (BuildContext context) {
         return AlertDialog(
-          title: const Text('Delete Report'),
-          content: const Text('Are you sure you want to delete this report?'),
+          title: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: _dangerColor.withOpacity(0.1),
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(Icons.delete, color: _dangerColor, size: 24),
+              ),
+              const SizedBox(width: 12),
+              Text(
+                'Delete Report',
+                style: TextStyle(
+                  fontWeight: FontWeight.bold,
+                  color: _textPrimary,
+                  fontSize: 18,
+                ),
+              ),
+            ],
+          ),
+          content: Text(
+            'Are you sure you want to delete this report? This action cannot be undone.',
+            style: TextStyle(
+              color: _textSecondary,
+              fontSize: 14,
+            ),
+          ),
           actions: [
             TextButton(
-              child: const Text('Cancel'),
+              child: Text(
+                'Cancel',
+                style: TextStyle(color: _textSecondary),
+              ),
               onPressed: () {
                 Navigator.of(context).pop();
               },
             ),
-            ElevatedButton(
-              style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-              child: const Text('Delete', style: TextStyle(color: Colors.white)),
-              onPressed: () {
-                setState(() {
-                  _labReports.removeWhere((report) => report['id'] == reportId);
-                });
-                Navigator.of(context).pop();
-              },
+            Container(
+              decoration: BoxDecoration(
+                color: _dangerColor,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: TextButton(
+                child: Text(
+                  'Delete Report',
+                  style: TextStyle(color: Colors.white),
+                ),
+                onPressed: () {
+                  setState(() {
+                    _labReports.removeWhere((report) => report['id'] == reportId);
+                  });
+                  Navigator.of(context).pop();
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('Report deleted successfully'),
+                      backgroundColor: _successColor,
+                      behavior: SnackBarBehavior.floating,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    ),
+                  );
+                },
+              ),
             ),
           ],
         );
@@ -115,56 +184,46 @@ class _LabReportsManagementScreenState extends State<LabReportsManagementScreen>
     );
   }
 
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.grey[200],
-      body: Column(
+  Widget _buildStatusChip(String status) {
+    Color backgroundColor;
+    Color textColor;
+    IconData icon;
+
+    switch (status.toLowerCase()) {
+      case 'completed':
+        backgroundColor = _successColor.withOpacity(0.1);
+        textColor = _successColor;
+        icon = Icons.check_circle;
+        break;
+      case 'pending':
+        backgroundColor = _warningColor.withOpacity(0.1);
+        textColor = _warningColor;
+        icon = Icons.pending;
+        break;
+      default:
+        backgroundColor = _textSecondary.withOpacity(0.1);
+        textColor = _textSecondary;
+        icon = Icons.help;
+    }
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      decoration: BoxDecoration(
+        color: backgroundColor,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: textColor.withOpacity(0.3)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
         children: [
-          const Padding(
-            padding: EdgeInsets.all(16.0),
-            child: Text(
-              'Lab Reports Management',
-              style: TextStyle(
-                fontSize: 24,
-                fontWeight: FontWeight.bold,
-                color: Color(0xFF18A3B6),
-              ),
-            ),
-          ),
-          _buildUploadForm(),
-          const SizedBox(height: 20),
-          Expanded(
-            child: ListView.builder(
-              itemCount: _labReports.length,
-              itemBuilder: (context, index) {
-                final report = _labReports[index];
-                return Card(
-                  elevation: 2,
-                  margin: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
-                  child: ListTile(
-                    leading: const Icon(Icons.file_copy, color: Color(0xFF18A3B6)),
-                    title: Text(
-                      '${report['patientName']!} - ${report['reportName']!}',
-                      style: const TextStyle(fontWeight: FontWeight.bold),
-                    ),
-                    subtitle: Text('Uploaded: ${report['uploadDate']}'),
-                    trailing: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        IconButton(
-                          icon: const Icon(Icons.visibility, color: Colors.blue),
-                          onPressed: () => _viewReport(report['id']!),
-                        ),
-                        IconButton(
-                          icon: const Icon(Icons.delete, color: Colors.red),
-                          onPressed: () => _deleteReport(report['id']!),
-                        ),
-                      ],
-                    ),
-                  ),
-                );
-              },
+          Icon(icon, size: 14, color: textColor),
+          const SizedBox(width: 4),
+          Text(
+            status,
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              color: textColor,
             ),
           ),
         ],
@@ -172,56 +231,516 @@ class _LabReportsManagementScreenState extends State<LabReportsManagementScreen>
     );
   }
 
-  Widget _buildUploadForm() {
-    return Card(
-      elevation: 2,
-      margin: const EdgeInsets.symmetric(horizontal: 16.0),
-      child: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          children: [
-            const Text(
-              'Upload New Report',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 10),
-            TextField(
-              controller: _patientNameController,
-              decoration: const InputDecoration(
-                labelText: 'Patient Name',
-                border: OutlineInputBorder(),
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: _backgroundColor,
+      body: Column(
+        children: [
+          // Header
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.fromLTRB(24, 48, 24, 24),
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [_primaryColor, _primaryDark],
               ),
-            ),
-            const SizedBox(height: 10),
-            Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    _selectedFile ?? 'No file selected',
-                    style: TextStyle(color: _selectedFile == null ? Colors.grey : Colors.black),
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-                TextButton.icon(
-                  onPressed: () {
-                    // Simulate file browsing
-                    setState(() {
-                      _selectedFile = '/path/to/report.pdf'; // Placeholder file path
-                    });
-                  },
-                  icon: const Icon(Icons.file_upload),
-                  label: const Text('Browse'),
+              borderRadius: const BorderRadius.only(
+                bottomLeft: Radius.circular(30),
+                bottomRight: Radius.circular(30),
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: _primaryColor.withOpacity(0.3),
+                  blurRadius: 20,
+                  offset: const Offset(0, 10),
                 ),
               ],
             ),
-            const SizedBox(height: 10),
-            ElevatedButton(
-              onPressed: _uploadReport,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF32BACD),
-                minimumSize: const Size(double.infinity, 50),
+            child: SafeArea(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withOpacity(0.2),
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                        child: Icon(Icons.medical_services, color: Colors.white, size: 32),
+                      ),
+                      const SizedBox(width: 16),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Lab Reports Management',
+                              style: TextStyle(
+                                fontSize: 28,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.white,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              'Manage and upload patient lab reports',
+                              style: TextStyle(
+                                fontSize: 16,
+                                color: Colors.white.withOpacity(0.9),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  // Stats
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceAround,
+                    children: [
+                      _buildStatItem(_labReports.length.toString(), 'Total Reports', Icons.assignment),
+                      _buildStatItem(
+                        _labReports.where((r) => r['status'] == 'Completed').length.toString(),
+                        'Completed',
+                        Icons.check_circle,
+                      ),
+                      _buildStatItem(
+                        _labReports.where((r) => r['status'] == 'Pending').length.toString(),
+                        'Pending',
+                        Icons.pending,
+                      ),
+                    ],
+                  ),
+                ],
               ),
-              child: const Text('Upload Report', style: TextStyle(color: Colors.white)),
+            ),
+          ),
+
+          // Upload Form
+          Transform.translate(
+            offset: const Offset(0, -20),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 24),
+              child: _buildUploadForm(),
+            ),
+          ),
+
+          // Reports List Header
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
+            child: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: _primaryColor.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Icon(Icons.list_alt, color: _primaryColor, size: 20),
+                ),
+                const SizedBox(width: 12),
+                Text(
+                  'Recent Lab Reports',
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: _textPrimary,
+                  ),
+                ),
+                const Spacer(),
+                Text(
+                  '${_labReports.length} reports',
+                  style: TextStyle(
+                    color: _textSecondary,
+                    fontSize: 14,
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          // Reports List
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 24),
+              child: ListView.builder(
+                physics: const BouncingScrollPhysics(),
+                itemCount: _labReports.length,
+                itemBuilder: (context, index) {
+                  final report = _labReports[index];
+                  return _buildReportCard(report);
+                },
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildStatItem(String count, String label, IconData icon) {
+    return Column(
+      children: [
+        Container(
+          width: 60,
+          height: 60,
+          decoration: BoxDecoration(
+            color: Colors.white.withOpacity(0.2),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: Colors.white.withOpacity(0.3)),
+          ),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(icon, size: 20, color: Colors.white),
+              const SizedBox(height: 4),
+              Text(
+                count,
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.white,
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: 12,
+            color: Colors.white.withOpacity(0.9),
+            fontWeight: FontWeight.w500,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildUploadForm() {
+    return Container(
+      decoration: BoxDecoration(
+        color: _cardColor,
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.08),
+            blurRadius: 20,
+            offset: const Offset(0, 8),
+          ),
+        ],
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: _primaryColor.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Icon(Icons.cloud_upload, color: _primaryColor, size: 24),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Upload New Report',
+                        style: TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.bold,
+                          color: _textPrimary,
+                        ),
+                      ),
+                      Text(
+                        'Select patient and upload lab report',
+                        style: TextStyle(
+                          fontSize: 14,
+                          color: _textSecondary,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 20),
+            TextField(
+              controller: _patientNameController,
+              decoration: InputDecoration(
+                labelText: 'Patient Name',
+                labelStyle: TextStyle(color: _textSecondary),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide(color: Colors.grey.shade300),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide(color: _primaryColor, width: 2),
+                ),
+                prefixIcon: Icon(Icons.person, color: _primaryColor),
+                filled: true,
+                fillColor: _backgroundColor,
+              ),
+            ),
+            const SizedBox(height: 16),
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: _backgroundColor,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.grey.shade300),
+              ),
+              child: Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: _primaryColor.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Icon(Icons.insert_drive_file, color: _primaryColor, size: 20),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          _selectedFile ?? 'No file selected',
+                          style: TextStyle(
+                            color: _selectedFile == null ? _textSecondary : _textPrimary,
+                            fontWeight: FontWeight.w500,
+                          ),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        if (_selectedFile != null)
+                          Text(
+                            'PDF Document',
+                            style: TextStyle(
+                              color: _textSecondary,
+                              fontSize: 12,
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                  Container(
+                    decoration: BoxDecoration(
+                      color: _primaryColor,
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: TextButton.icon(
+                      onPressed: () {
+                        // Simulate file browsing
+                        setState(() {
+                          _selectedFile = '/path/to/report.pdf'; // Placeholder file path
+                        });
+                      },
+                      icon: Icon(Icons.file_upload, color: Colors.white, size: 16),
+                      label: Text(
+                        'Browse',
+                        style: TextStyle(color: Colors.white, fontSize: 14),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 20),
+            Container(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [_primaryColor, _primaryDark],
+                  begin: Alignment.centerLeft,
+                  end: Alignment.centerRight,
+                ),
+                borderRadius: BorderRadius.circular(16),
+                boxShadow: [
+                  BoxShadow(
+                    color: _primaryColor.withOpacity(0.3),
+                    blurRadius: 15,
+                    offset: const Offset(0, 5),
+                  ),
+                ],
+              ),
+              child: ElevatedButton(
+                onPressed: _uploadReport,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.transparent,
+                  shadowColor: Colors.transparent,
+                  minimumSize: const Size(double.infinity, 56),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(Icons.cloud_upload, color: Colors.white, size: 20),
+                    const SizedBox(width: 8),
+                    Text(
+                      'Upload Report',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.white,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildReportCard(Map<String, String> report) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 16),
+      decoration: BoxDecoration(
+        color: _cardColor,
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.08),
+            blurRadius: 15,
+            offset: const Offset(0, 5),
+          ),
+        ],
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(
+                  width: 50,
+                  height: 50,
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: [_primaryColor, _secondaryColor],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Icon(Icons.description, color: Colors.white, size: 24),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        report['reportName']!,
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                          color: _textPrimary,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        report['patientName']!,
+                        style: TextStyle(
+                          fontSize: 14,
+                          color: _textSecondary,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Row(
+                        children: [
+                          Icon(Icons.calendar_today, size: 14, color: _textSecondary),
+                          const SizedBox(width: 4),
+                          Text(
+                            'Uploaded: ${report['uploadDate']}',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: _textSecondary,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    _buildStatusChip(report['status']!),
+                    const SizedBox(height: 8),
+                    Text(
+                      report['id']!,
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: _textSecondary,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            Container(
+              height: 1,
+              color: Colors.grey.shade200,
+            ),
+            const SizedBox(height: 12),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                _buildActionButton('View', Icons.visibility, _primaryColor, () => _viewReport(report['id']!)),
+                const SizedBox(width: 8),
+                _buildActionButton('Delete', Icons.delete_outline, _dangerColor, () => _deleteReport(report['id']!)),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildActionButton(String text, IconData icon, Color color, VoidCallback onPressed) {
+    return Container(
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: IconButton(
+        onPressed: onPressed,
+        icon: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 18, color: color),
+            const SizedBox(width: 4),
+            Text(
+              text,
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: color,
+              ),
             ),
           ],
         ),

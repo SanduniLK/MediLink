@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cached_network_image/cached_network_image.dart';
+import 'package:intl/intl.dart';
 
 class PatientPrescriptionsScreen extends StatefulWidget {
   final String patientId;
@@ -12,405 +14,386 @@ class PatientPrescriptionsScreen extends StatefulWidget {
 
 class _PatientPrescriptionsScreenState extends State<PatientPrescriptionsScreen> {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
-  String _selectedFilter = 'all'; // 'all', 'dispensed', 'not_dispensed'
+  List<Map<String, dynamic>> _prescriptions = [];
+  bool _isLoading = true;
+  String _errorMessage = '';
+
+  @override
+  void initState() {
+    super.initState();
+    _loadPrescriptions();
+  }
+
+  Future<void> _loadPrescriptions() async {
+    try {
+      print('Loading prescriptions for patient: ${widget.patientId}');
+      
+      setState(() {
+        _isLoading = true;
+        _errorMessage = '';
+      });
+
+      final querySnapshot = await _firestore
+          .collection('prescriptions')
+          .where('patientId', isEqualTo: widget.patientId)
+          .get();
+
+      print('Query returned ${querySnapshot.docs.length} documents');
+
+      final prescriptions = <Map<String, dynamic>>[];
+
+      for (final doc in querySnapshot.docs) {
+        final data = doc.data();
+        
+        // Check if it has prescriptionImageUrl
+        if (data['prescriptionImageUrl'] != null && 
+            data['prescriptionImageUrl'].toString().isNotEmpty) {
+          final imageUrl = data['prescriptionImageUrl'].toString();
+          print('Found image URL: $imageUrl');
+          
+          // Test if URL is accessible
+          try {
+            // Just add the prescription, we'll handle image loading in the UI
+            prescriptions.add({
+              'id': doc.id,
+              ...data,
+              'createdAt': _parseTimestamp(data['createdAt']),
+            });
+          } catch (e) {
+            print('Error with image URL $imageUrl: $e');
+          }
+        } else {
+          print('No prescriptionImageUrl found in document ${doc.id}');
+        }
+      }
+
+      print('Total prescriptions with images: ${prescriptions.length}');
+
+      setState(() {
+        _prescriptions = prescriptions;
+        _isLoading = false;
+      });
+
+    } catch (e) {
+      print('Error: $e');
+      setState(() {
+        _errorMessage = 'Error: $e';
+        _isLoading = false;
+      });
+    }
+  }
+
+  DateTime _parseTimestamp(dynamic timestamp) {
+    if (timestamp is int) {
+      return DateTime.fromMillisecondsSinceEpoch(timestamp);
+    } else if (timestamp is Timestamp) {
+      return timestamp.toDate();
+    } else {
+      return DateTime.now();
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFDDF0F5), // Very light blue
+      backgroundColor: const Color(0xFFDDF0F5),
       appBar: AppBar(
-        title: const Text(
-          'My Prescriptions',
-          style: TextStyle(
-            color: Colors.white,
-            fontWeight: FontWeight.bold,
-            fontSize: 20,
-          ),
-        ),
-        backgroundColor: const Color(0xFF18A3B6), // Deep teal
-        elevation: 0,
-        iconTheme: const IconThemeData(color: Colors.white),
+        title: const Text('My Prescriptions'),
+        backgroundColor: const Color(0xFF18A3B6),
       ),
-      body: Column(
-        children: [
-          // Filter Section
-          _buildFilterSection(),
-          
-          // Prescriptions List
-          Expanded(
-            child: _buildPrescriptionsList(),
-          ),
-        ],
-      ),
+      body: _buildContent(),
     );
   }
 
-  // Filter Section
-  Widget _buildFilterSection() {
-    return Container(
-      margin: const EdgeInsets.all(16),
+  Widget _buildContent() {
+    if (_isLoading) {
+      return const Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            CircularProgressIndicator(),
+            SizedBox(height: 16),
+            Text('Loading prescriptions...'),
+          ],
+        ),
+      );
+    }
+
+    if (_errorMessage.isNotEmpty) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Icon(Icons.error, size: 64, color: Colors.red),
+            const SizedBox(height: 16),
+            const Text(
+              'Error',
+              style: TextStyle(fontSize: 18, color: Colors.red),
+            ),
+            const SizedBox(height: 8),
+            Text(_errorMessage),
+            const SizedBox(height: 16),
+            ElevatedButton(
+              onPressed: _loadPrescriptions,
+              child: const Text('Retry'),
+            ),
+          ],
+        ),
+      );
+    }
+
+    if (_prescriptions.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Icon(Icons.medication, size: 64, color: Colors.grey),
+            const SizedBox(height: 16),
+            const Text(
+              'No Prescriptions Found',
+              style: TextStyle(fontSize: 18, color: Colors.grey),
+            ),
+            const SizedBox(height: 8),
+            Text('Patient ID: ${widget.patientId}'),
+            const SizedBox(height: 16),
+            ElevatedButton(
+              onPressed: _loadPrescriptions,
+              child: const Text('Refresh'),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return ListView.builder(
       padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(15),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.1),
-            blurRadius: 10,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
+      itemCount: _prescriptions.length,
+      itemBuilder: (context, index) {
+        final prescription = _prescriptions[index];
+        return _buildPrescriptionCard(prescription);
+      },
+    );
+  }
+
+  Widget _buildPrescriptionCard(Map<String, dynamic> prescription) {
+    final imageUrl = prescription['prescriptionImageUrl']?.toString() ?? '';
+    final diagnosis = prescription['diagnosis']?.toString() ?? 'No diagnosis';
+    final description = prescription['description']?.toString() ?? '';
+    final patientName = prescription['patientName']?.toString() ?? 'Unknown';
+    final createdAt = prescription['createdAt'] as DateTime;
+    final status = prescription['status']?.toString() ?? 'unknown';
+    final medicalCenter = prescription['medicalCenter']?.toString() ?? '';
+
+    return Card(
+      elevation: 3,
+      margin: const EdgeInsets.only(bottom: 16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
-            'Filter by Status',
-            style: TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.bold,
-              color: Color(0xFF18A3B6), // Deep teal
+          // Header
+          Container(
+            padding: const EdgeInsets.all(16),
+            color: const Color(0xFF18A3B6),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        patientName,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 16,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        'Status: ${status.toUpperCase()}',
+                        style: const TextStyle(color: Colors.white),
+                      ),
+                      if (medicalCenter.isNotEmpty) ...[
+                        const SizedBox(height: 4),
+                        Text(
+                          medicalCenter,
+                          style: const TextStyle(color: Colors.white, fontSize: 12),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+                Text(
+                  DateFormat('MMM dd, yyyy').format(createdAt),
+                  style: const TextStyle(color: Colors.white),
+                ),
+              ],
             ),
           ),
-          const SizedBox(height: 12),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceAround,
-            children: [
-              _buildFilterChip('All', 'all'),
-              _buildFilterChip('Dispensed', 'dispensed'),
-              _buildFilterChip('Not Dispensed', 'not_dispensed'),
-            ],
+
+          // Image Section
+          Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Prescription Image:',
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 16,
+                    color: Color(0xFF18A3B6),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                
+                // Image with better error handling
+                Container(
+                  height: 300,
+                  width: double.infinity,
+                  decoration: BoxDecoration(
+                    color: Colors.grey[100],
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: Colors.grey[300]!),
+                  ),
+                  child: _buildImageWidget(imageUrl),
+                ),
+                
+                const SizedBox(height: 8),
+                
+                // URL for debugging
+                GestureDetector(
+                  onTap: () {
+                    print('Tapped image URL: $imageUrl');
+                  },
+                  child: Text(
+                    'Image URL: ${imageUrl.length > 50 ? '${imageUrl.substring(0, 50)}...' : imageUrl}',
+                    style: const TextStyle(fontSize: 10, color: Colors.grey),
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          // Prescription Details
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Diagnosis
+                if (diagnosis.isNotEmpty && diagnosis != 'No diagnosis') ...[
+                  _buildDetailRow('Diagnosis:', diagnosis),
+                  const SizedBox(height: 12),
+                ],
+
+                // Description
+                if (description.isNotEmpty) ...[
+                  _buildDetailRow('Description:', description),
+                  const SizedBox(height: 12),
+                ],
+
+                // Medicines
+                if (prescription['medicines'] != null && (prescription['medicines'] as List).isNotEmpty) ...[
+                  const Text(
+                    'Medicines:',
+                    style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF18A3B6)),
+                  ),
+                  const SizedBox(height: 8),
+                  ..._buildMedicinesList(prescription['medicines']),
+                  const SizedBox(height: 12),
+                ],
+
+                // Notes
+                if (prescription['notes'] != null && prescription['notes'].toString().isNotEmpty) ...[
+                  _buildDetailRow('Notes:', prescription['notes'].toString()),
+                  const SizedBox(height: 12),
+                ],
+              ],
+            ),
           ),
         ],
       ),
     );
   }
 
-  Widget _buildFilterChip(String label, String value) {
-    final isSelected = _selectedFilter == value;
-    return GestureDetector(
-      onTap: () {
-        setState(() {
-          _selectedFilter = value;
-        });
-      },
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-        decoration: BoxDecoration(
-          color: isSelected ? const Color(0xFF32BACD) : const Color(0xFFB2DEE6), // Bright cyan : Soft aqua
-          borderRadius: BorderRadius.circular(20),
-        ),
-        child: Text(
-          label,
-          style: TextStyle(
-            color: isSelected ? Colors.white : const Color(0xFF18A3B6), // White : Deep teal
-            fontWeight: FontWeight.w600,
-            fontSize: 14,
-          ),
-        ),
+  Widget _buildImageWidget(String imageUrl) {
+    if (imageUrl.isEmpty) {
+      return const Center(child: Text('No image available'));
+    }
+
+    return CachedNetworkImage(
+      imageUrl: imageUrl,
+      fit: BoxFit.contain,
+      progressIndicatorBuilder: (context, url, downloadProgress) => Center(
+        child: CircularProgressIndicator(value: downloadProgress.progress),
       ),
-    );
-  }
-
-  // Prescriptions List
-  Widget _buildPrescriptionsList() {
-    return StreamBuilder<QuerySnapshot>(
-      stream: _getPrescriptionsStream(),
-      builder: (context, snapshot) {
-        if (snapshot.hasError) {
-          return Center(
-            child: Text(
-              'Error: ${snapshot.error}',
-              style: const TextStyle(color: Colors.red),
+      errorWidget: (context, url, error) {
+        print('Image load error for $url: $error');
+        return Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Icon(Icons.error, color: Colors.red, size: 40),
+            const SizedBox(height: 8),
+            const Text('Failed to load image'),
+            const SizedBox(height: 8),
+            ElevatedButton(
+              onPressed: () {
+                // Try to reload the image
+                setState(() {});
+              },
+              child: const Text('Retry'),
             ),
-          );
-        }
-
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Center(
-            child: CircularProgressIndicator(
-              valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF18A3B6)),
-            ),
-          );
-        }
-
-        if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
-          return Center(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(
-                  Icons.medication_outlined,
-                  size: 80,
-                  color: const Color(0xFF85CEDA).withOpacity(0.5), // Teal-blue
-                ),
-                const SizedBox(height: 16),
-                const Text(
-                  'No prescriptions found',
-                  style: TextStyle(
-                    fontSize: 18,
-                    color: Color(0xFF18A3B6), // Deep teal
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  _selectedFilter == 'all' 
-                    ? 'You have no prescriptions yet'
-                    : 'No ${_selectedFilter.replaceAll('_', ' ')} prescriptions',
-                  style: const TextStyle(
-                    color: Color(0xFF32BACD), // Bright cyan
-                  ),
-                  textAlign: TextAlign.center,
-                ),
-              ],
-            ),
-          );
-        }
-
-        return ListView.builder(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-          itemCount: snapshot.data!.docs.length,
-          itemBuilder: (context, index) {
-            var doc = snapshot.data!.docs[index];
-            var prescription = doc.data() as Map<String, dynamic>;
-            
-            return _buildPrescriptionCard(doc.id, prescription);
-          },
+          ],
         );
       },
     );
   }
 
-  // Firestore Query Stream
-  Stream<QuerySnapshot> _getPrescriptionsStream() {
-    Query query = _firestore
-        .collection('prescriptions')
-        .where('sharedPharmacies', arrayContains: widget.patientId)
-        .orderBy('createdAt', descending: true);
-
-    // Apply status filter
-    if (_selectedFilter == 'dispensed') {
-      query = query.where('status', isEqualTo: 'dispensed');
-    } else if (_selectedFilter == 'not_dispensed') {
-      query = query.where('status', whereIn: ['pending', 'active', 'completed']);
-    }
-
-    return query.snapshots();
-  }
-
-  // Prescription Card Widget
-  Widget _buildPrescriptionCard(String docId, Map<String, dynamic> prescription) {
-    final isDispensed = prescription['status'] == 'dispensed';
-    
-    return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(15),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.1),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Header with Status
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(
-                  'Prescription #${docId.substring(docId.length - 8)}',
-                  style: const TextStyle(
-                    fontWeight: FontWeight.bold,
-                    fontSize: 16,
-                    color: Color(0xFF18A3B6), // Deep teal
-                  ),
-                ),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                  decoration: BoxDecoration(
-                    color: isDispensed ? const Color(0xFF85CEDA) : const Color(0xFFB2DEE6), // Teal-blue : Soft aqua
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Text(
-                    prescription['status']?.toString().toUpperCase() ?? 'UNKNOWN',
-                    style: TextStyle(
-                      color: isDispensed ? Colors.white : const Color(0xFF18A3B6), // White : Deep teal
-                      fontSize: 12,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            
-            const SizedBox(height: 12),
-            
-            // Date
-            if (prescription['createdAt'] != null)
-              Row(
-                children: [
-                  Icon(Icons.calendar_today, size: 16, color: const Color(0xFF32BACD)), // Bright cyan
-                  const SizedBox(width: 8),
-                  Text(
-                    _formatDate(prescription['createdAt']),
-                    style: const TextStyle(
-                      color: Color(0xFF18A3B6), // Deep teal
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                ],
-              ),
-            
-            const SizedBox(height: 8),
-            
-            // Doctor ID (you might want to fetch doctor name instead)
-            if (prescription['doctorId'] != null)
-              Row(
-                children: [
-                  Icon(Icons.medical_services, size: 16, color: const Color(0xFF32BACD)), // Bright cyan
-                  const SizedBox(width: 8),
-                  Text(
-                    'Dr. ${_formatDoctorId(prescription['doctorId'])}',
-                    style: const TextStyle(color: Colors.black87),
-                  ),
-                ],
-              ),
-            
-            const SizedBox(height: 8),
-            
-            // Diagnosis
-            if (prescription['diagnosis'] != null && prescription['diagnosis'].isNotEmpty)
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'Diagnosis:',
-                    style: TextStyle(
-                      fontWeight: FontWeight.bold,
-                      color: Color(0xFF18A3B6), // Deep teal
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    prescription['diagnosis'],
-                    style: const TextStyle(color: Colors.black87),
-                  ),
-                ],
-              ),
-            
-            const SizedBox(height: 12),
-            
-            // Medications
-            if (prescription['medicines'] != null && (prescription['medicines'] as List).isNotEmpty)
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'Medications:',
-                    style: TextStyle(
-                      fontWeight: FontWeight.bold,
-                      color: Color(0xFF18A3B6), // Deep teal
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  ..._buildMedicationsList(prescription['medicines']),
-                ],
-              ),
-            
-            const SizedBox(height: 12),
-            
-            // Description
-            if (prescription['description'] != null && prescription['description'].isNotEmpty)
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'Notes:',
-                    style: TextStyle(
-                      fontWeight: FontWeight.bold,
-                      color: Color(0xFF18A3B6), // Deep teal
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    prescription['description'],
-                    style: const TextStyle(color: Colors.black87),
-                  ),
-                ],
-              ),
-          ],
+  Widget _buildDetailRow(String label, String value) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF18A3B6)),
         ),
-      ),
+        const SizedBox(height: 4),
+        Text(value),
+      ],
     );
   }
 
-  // Build medications list
-  List<Widget> _buildMedicationsList(dynamic medications) {
-    if (medications is List) {
-      return medications.map<Widget>((med) {
-        final medicine = med as Map<String, dynamic>;
+  List<Widget> _buildMedicinesList(dynamic medicines) {
+    if (medicines is List) {
+      return medicines.map<Widget>((medicine) {
+        final med = medicine as Map<String, dynamic>;
         return Container(
           margin: const EdgeInsets.only(bottom: 8),
-          padding: const EdgeInsets.all(8),
+          padding: const EdgeInsets.all(12),
           decoration: BoxDecoration(
-            color: const Color(0xFFDDF0F5), // Very light blue
+            color: Colors.grey[100],
             borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: Colors.grey[300]!),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                '💊 ${medicine['name'] ?? 'Unknown Medicine'}',
-                style: const TextStyle(
-                  fontWeight: FontWeight.bold,
-                  color: Color(0xFF18A3B6), // Deep teal
-                ),
+                '💊 ${med['name'] ?? 'Unknown Medicine'}',
+                style: const TextStyle(fontWeight: FontWeight.bold),
               ),
-              if (medicine['dosage'] != null) 
-                Text('Dosage: ${medicine['dosage']}'),
-              if (medicine['frequency'] != null) 
-                Text('Frequency: ${medicine['frequency']}'),
-              if (medicine['duration'] != null) 
-                Text('Duration: ${medicine['duration']}'),
-              if (medicine['instructions'] != null) 
-                Text('Instructions: ${medicine['instructions']}'),
+              const SizedBox(height: 4),
+              if (med['dosage'] != null) Text('Dosage: ${med['dosage']}'),
+              if (med['frequency'] != null) Text('Frequency: ${med['frequency']}'),
+              if (med['duration'] != null) Text('Duration: ${med['duration']}'),
+              if (med['instructions'] != null) Text('Instructions: ${med['instructions']}'),
             ],
           ),
         );
       }).toList();
     }
-    return [const Text('No medications listed')];
-  }
-
-  // Format timestamp to readable date
-  String _formatDate(dynamic timestamp) {
-    try {
-      if (timestamp is int) {
-        final date = DateTime.fromMillisecondsSinceEpoch(timestamp);
-        return '${date.day}/${date.month}/${date.year}';
-      } else if (timestamp is Timestamp) {
-        final date = timestamp.toDate();
-        return '${date.day}/${date.month}/${date.year}';
-      }
-      return 'Unknown date';
-    } catch (e) {
-      return 'Invalid date';
-    }
-  }
-
-  // Format doctor ID (you might want to fetch actual doctor name)
-  String _formatDoctorId(String doctorId) {
-    if (doctorId.length > 8) {
-      return '${doctorId.substring(0, 4)}...${doctorId.substring(doctorId.length - 4)}';
-    }
-    return doctorId;
+    return [const Text('No medicines listed')];
   }
 }

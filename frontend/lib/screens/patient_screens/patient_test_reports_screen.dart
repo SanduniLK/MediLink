@@ -3,11 +3,9 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:frontend/model/test_report_model.dart';
-import 'package:frontend/screens/admin_screens/admin_test_reports_screen.dart';
 import 'package:frontend/screens/patient_screens/test_report_view_screen.dart';
+import 'package:firebase_storage/firebase_storage.dart';
 import 'package:intl/intl.dart';
-import '../../../services/test_report_service.dart';
-
 
 class PatientTestReportsScreen extends StatefulWidget {
   const PatientTestReportsScreen({super.key});
@@ -17,21 +15,22 @@ class PatientTestReportsScreen extends StatefulWidget {
 }
 
 class _PatientTestReportsScreenState extends State<PatientTestReportsScreen> {
-  List<TestReportModel> _testReports = [];
-  bool _isLoading = true;
-  String? _errorMessage;
+  final FirebaseStorage _storage = FirebaseStorage.instance;
 
   @override
   void initState() {
     super.initState();
-    _loadTestReports();
   }
 
-  void _loadTestReports() {
-    setState(() {
-      _isLoading = true;
-      _errorMessage = null;
-    });
+  // Function to get download URL from storage path
+  Future<String?> _getDownloadUrl(String storagePath) async {
+    try {
+      final ref = _storage.ref().child(storagePath);
+      return await ref.getDownloadURL();
+    } catch (e) {
+      debugPrint('Error getting download URL: $e');
+      return null;
+    }
   }
 
   Widget _buildTestReportsList() {
@@ -43,7 +42,11 @@ class _PatientTestReportsScreenState extends State<PatientTestReportsScreen> {
     }
 
     return StreamBuilder<QuerySnapshot>(
-      stream: TestReportService.getPatientTestReports(currentUser.uid),
+      stream: FirebaseFirestore.instance
+          .collection('test_reports')
+          .where('patientId', isEqualTo: currentUser.uid)
+          .orderBy('uploadedAt', descending: true)
+          .snapshots(),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator());
@@ -75,8 +78,6 @@ class _PatientTestReportsScreenState extends State<PatientTestReportsScreen> {
             .map((doc) => TestReportModel.fromFirestore(doc))
             .toList() ?? [];
 
-        _testReports = reports;
-
         if (reports.isEmpty) {
           return Center(
             child: Column(
@@ -107,14 +108,17 @@ class _PatientTestReportsScreenState extends State<PatientTestReportsScreen> {
           padding: const EdgeInsets.all(16),
           itemCount: reports.length,
           itemBuilder: (context, index) {
-            return _buildTestReportCard(reports[index]);
+            return _buildTestReportCard(context, reports[index]);
           },
         );
       },
     );
   }
 
-  Widget _buildTestReportCard(TestReportModel report) {
+  Widget _buildTestReportCard(BuildContext context, TestReportModel report) {
+    final Color statusColor = report.statusColor;
+    final IconData statusIcon = report.statusIcon;
+
     return Card(
       elevation: 3,
       margin: const EdgeInsets.only(bottom: 12),
@@ -132,10 +136,10 @@ class _PatientTestReportsScreenState extends State<PatientTestReportsScreen> {
                   width: 50,
                   height: 50,
                   decoration: BoxDecoration(
-                    color: report.statusColor.withValues(alpha: 0.1),
+                    color: statusColor.withValues(alpha: 0.1),
                     borderRadius: BorderRadius.circular(10),
                   ),
-                  child: Icon(report.statusIcon, color: report.statusColor, size: 24),
+                  child: Icon(statusIcon, color: statusColor, size: 24),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
@@ -173,22 +177,22 @@ class _PatientTestReportsScreenState extends State<PatientTestReportsScreen> {
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                       decoration: BoxDecoration(
-                        color: report.statusColor.withValues(alpha: 0.1),
+                        color: statusColor.withValues(alpha: 0.1),
                         borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: report.statusColor),
+                        border: Border.all(color: statusColor),
                       ),
                       child: Text(
                         report.status.toUpperCase(),
                         style: TextStyle(
                           fontSize: 10,
                           fontWeight: FontWeight.bold,
-                          color: report.statusColor,
+                          color: statusColor,
                         ),
                       ),
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      report.formattedUploadDate,
+                      'Uploaded: ${DateFormat('MMM dd').format(report.uploadedAt)}',
                       style: TextStyle(
                         color: Colors.grey[500],
                         fontSize: 10,
@@ -201,14 +205,32 @@ class _PatientTestReportsScreenState extends State<PatientTestReportsScreen> {
             
             const SizedBox(height: 12),
             
+            // Test Type and Description
+            if (report.testType.isNotEmpty || report.description.isNotEmpty) ...[
+              Wrap(
+                spacing: 8,
+                runSpacing: 4,
+                children: [
+                  if (report.testType.isNotEmpty)
+                    Chip(
+                      label: Text(report.testType),
+                      labelStyle: const TextStyle(fontSize: 12),
+                      backgroundColor: Colors.blue.shade50,
+                      visualDensity: VisualDensity.compact,
+                    ),
+                ],
+              ),
+              const SizedBox(height: 8),
+            ],
+            
             // Quick Status
             Container(
               width: double.infinity,
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                color: report.statusColor.withValues(alpha: 0.05),
+                color: statusColor.withValues(alpha: 0.05),
                 borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: report.statusColor.withValues(alpha: 0.3)),
+                border: Border.all(color: statusColor.withValues(alpha: 0.3)),
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -218,7 +240,7 @@ class _PatientTestReportsScreenState extends State<PatientTestReportsScreen> {
                     style: TextStyle(
                       fontSize: 14,
                       fontWeight: FontWeight.bold,
-                      color: report.statusColor,
+                      color: statusColor,
                     ),
                   ),
                   if (report.notes.isNotEmpty) ...[
@@ -260,19 +282,56 @@ class _PatientTestReportsScreenState extends State<PatientTestReportsScreen> {
               const SizedBox(height: 12),
             ],
             
+            // File information
+            if (report.fileUrl.isNotEmpty) ...[
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: Colors.grey[50],
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.grey[300]!),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.picture_as_pdf, color: Colors.red[600], size: 24),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            report.fileName.isNotEmpty 
+                                ? report.fileName 
+                                : 'Test Report.pdf',
+                            style: const TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          if (report.fileSize.isNotEmpty) ...[
+                            Text(
+                              report.fileSize,
+                              style: TextStyle(
+                                fontSize: 10,
+                                color: Colors.grey[600],
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 12),
+            ],
+            
             // Actions
             Row(
               mainAxisAlignment: MainAxisAlignment.end,
               children: [
                 ElevatedButton(
-                  onPressed: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) => TestReportViewScreen(testReport: report),
-                      ),
-                    );
-                  },
+                  onPressed: () => _viewFullReport(context, report),
                   child: const Text('View Full Report'),
                 ),
               ],
@@ -281,6 +340,75 @@ class _PatientTestReportsScreenState extends State<PatientTestReportsScreen> {
         ),
       ),
     );
+  }
+
+  Future<void> _viewFullReport(BuildContext context, TestReportModel report) async {
+    // Show loading indicator
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => const Center(
+        child: CircularProgressIndicator(),
+      ),
+    );
+
+    try {
+      String downloadUrl;
+      
+      if (report.fileUrl.isNotEmpty) {
+        // If fileUrl is already a direct URL, use it
+        if (report.fileUrl.startsWith('http')) {
+          downloadUrl = report.fileUrl;
+        } else {
+          // If it's a storage path, get download URL
+          final url = await _getDownloadUrl(report.fileUrl);
+          if (url == null) {
+            if (!mounted) return;
+            Navigator.pop(context); // Close loading dialog
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Unable to load test report file'),
+                backgroundColor: Colors.red,
+              ),
+            );
+            return;
+          }
+          downloadUrl = url;
+        }
+      } else {
+        if (!mounted) return;
+        Navigator.pop(context); // Close loading dialog
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('No file available for this report'),
+            backgroundColor: Colors.red,
+          ),
+        );
+        return;
+      }
+
+      if (!mounted) return;
+      Navigator.pop(context); // Close loading dialog
+
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => TestReportViewScreen(
+            testReport: report,
+            downloadUrl: downloadUrl, // Now this is guaranteed to be non-null
+          ),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      Navigator.pop(context); // Close loading dialog
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error loading report: ${e.toString()}'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
   }
 
   @override

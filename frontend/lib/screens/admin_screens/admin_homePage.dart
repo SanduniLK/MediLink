@@ -269,7 +269,7 @@ class _AdminHomePageState extends State<AdminHomePage> {
 _buildActionButton(
   icon: Icons.assignment,
   label: 'Test Reports',
-  color: Colors.teal,
+  color: const Color.fromARGB(255, 255, 36, 229),
   onTap: () {
     if (_medicalCenterId != null && _medicalCenterName != null) {
       Navigator.push(
