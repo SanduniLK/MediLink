@@ -6,55 +6,123 @@ class WebRTCService {
   final SignalingService _signaling;
   RTCPeerConnection? _peerConnection;
   MediaStream? _localStream;
-  // Removed unused _senders field
+  List<RTCRtpSender> _senders = [];
+  
+  // Callbacks for UI updates
+  Function(MediaStream)? onRemoteStream;
+  Function(RTCPeerConnectionState)? onConnectionStateChange;
+  Function(String)? onError;
 
   WebRTCService(this._signaling);
 
-  // Initialize WebRTC connection
+  // Initialize WebRTC connection with better configuration
   Future<void> initialize() async {
-    _peerConnection = await createPeerConnection({
-      'iceServers': [
-        {'urls': 'stun:stun.l.google.com:19302'},
-        // Add your TURN servers here for production
-      ]
-    });
+    try {
+      _peerConnection = await createPeerConnection({
+        'iceServers': [
+          {'urls': 'stun:stun.l.google.com:19302'},
+          {'urls': 'stun:stun1.l.google.com:19302'},
+          {'urls': 'stun:stun2.l.google.com:19302'},
+        ],
+        'sdpSemantics': 'unified-plan',
+        'iceTransportPolicy': 'all',
+      });
 
-    // Add event listeners
-    _peerConnection!.onIceCandidate = (candidate) {
-      _signaling.sendIceCandidate(candidate);
-    };
+      // Set up event listeners
+      _setupPeerConnectionListeners();
 
-    _peerConnection!.onAddStream = (stream) {
-      // Handle remote stream
-      _onRemoteStream(stream);
-    };
-
-    _peerConnection!.onConnectionState = (state) {
-      // Handle connection state changes
-      _onConnectionStateChange(state);
-    };
-
-    if (kDebugMode) {
-      debugPrint('✅ WebRTC peer connection initialized');
+      if (kDebugMode) {
+        debugPrint('✅ WebRTC peer connection initialized');
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('❌ Error initializing WebRTC: $e');
+      }
+      rethrow;
     }
   }
 
-  // Start local camera and microphone
-  Future<MediaStream> startLocalStream() async {
-    _localStream = await navigator.mediaDevices.getUserMedia({
-      'audio': true,
-      'video': {
-        'facingMode': 'user',
-        'width': 1280,
-        'height': 720,
+  void _setupPeerConnectionListeners() {
+    if (_peerConnection == null) return;
+
+    _peerConnection!.onIceCandidate = (candidate) {
+      if (candidate.candidate != null && candidate.candidate!.isNotEmpty) {
+        _signaling.sendIceCandidate(candidate);
+        if (kDebugMode) {
+          debugPrint('🧊 Local ICE candidate: ${candidate.candidate}');
+        }
       }
-    });
-    
-    if (kDebugMode) {
-      debugPrint('✅ Local stream started');
+    };
+
+    _peerConnection!.onAddStream = (stream) {
+      if (kDebugMode) {
+        debugPrint('📹 Remote stream received with ${stream.getTracks().length} tracks');
+      }
+      onRemoteStream?.call(stream);
+    };
+
+    _peerConnection!.onConnectionState = (state) {
+      if (kDebugMode) {
+        debugPrint('🔗 Connection state: $state');
+      }
+      onConnectionStateChange?.call(state);
+    };
+
+    _peerConnection!.onIceConnectionState = (state) {
+      if (kDebugMode) {
+        debugPrint('🧊 ICE connection state: $state');
+      }
+    };
+
+    _peerConnection!.onIceGatheringState = (state) {
+      if (kDebugMode) {
+        debugPrint('📡 ICE gathering state: $state');
+      }
+    };
+
+    _peerConnection!.onRemoveStream = (stream) {
+      if (kDebugMode) {
+        debugPrint('📹 Remote stream removed');
+      }
+    };
+
+    _peerConnection!.onSignalingState = (state) {
+      if (kDebugMode) {
+        debugPrint('📶 Signaling state: $state');
+      }
+    };
+  }
+
+  // Start local camera and microphone with error handling
+  Future<MediaStream> startLocalStream({bool audio = true, bool video = true}) async {
+    try {
+      final constraints = <String, dynamic>{
+        'audio': audio,
+        'video': video ? {
+          'facingMode': 'user',
+          'width': {'ideal': 1280},
+          'height': {'ideal': 720},
+          'frameRate': {'ideal': 30}
+        } : false
+      };
+
+      _localStream = await navigator.mediaDevices.getUserMedia(constraints);
+      
+      if (kDebugMode) {
+        debugPrint('✅ Local stream started with ${_localStream!.getTracks().length} tracks');
+        for (var track in _localStream!.getTracks()) {
+          debugPrint('   - ${track.kind} track: ${track.id}');
+        }
+      }
+      
+      return _localStream!;
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('❌ Error starting local stream: $e');
+      }
+      onError?.call('Failed to access camera/microphone: $e');
+      rethrow;
     }
-    
-    return _localStream!;
   }
 
   // Add local stream to peer connection
@@ -63,29 +131,49 @@ class WebRTCService {
       throw Exception('Peer connection not initialized');
     }
     
-    for (final track in localStream.getTracks()) {
-      await _peerConnection!.addTrack(track, localStream);
-    }
-    
-    if (kDebugMode) {
-      debugPrint('✅ Added local stream tracks to peer connection');
+    try {
+      for (final track in localStream.getTracks()) {
+        final sender = await _peerConnection!.addTrack(track, localStream);
+        _senders.add(sender);
+      }
+      
+      if (kDebugMode) {
+        debugPrint('✅ Added ${localStream.getTracks().length} local tracks to peer connection');
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('❌ Error adding local stream: $e');
+      }
+      rethrow;
     }
   }
 
-  // Create offer for call initiator
+  // Create offer for call initiator with better error handling
   Future<RTCSessionDescription> createOffer() async {
     if (_peerConnection == null) {
       throw Exception('Peer connection not initialized');
     }
     
-    final offer = await _peerConnection!.createOffer();
-    await _peerConnection!.setLocalDescription(offer);
-    
-    if (kDebugMode) {
-      debugPrint('✅ Created offer');
+    try {
+      final offer = await _peerConnection!.createOffer({
+        'offerToReceiveAudio': true,
+        'offerToReceiveVideo': true,
+      });
+      
+      await _peerConnection!.setLocalDescription(offer);
+      
+      if (kDebugMode) {
+        debugPrint('✅ Created offer: ${offer.type}');
+      }
+      
+      return offer;
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('❌ Error creating offer: $e');
+      }
+      onError?.call('Failed to create offer: $e');
+      rethrow;
     }
-    
-    return offer;
   }
 
   // Create answer for call receiver
@@ -94,103 +182,169 @@ class WebRTCService {
       throw Exception('Peer connection not initialized');
     }
     
-    final answer = await _peerConnection!.createAnswer();
-    await _peerConnection!.setLocalDescription(answer);
-    
-    if (kDebugMode) {
-      debugPrint('✅ Created answer');
+    try {
+      final answer = await _peerConnection!.createAnswer({
+        'offerToReceiveAudio': true,
+        'offerToReceiveVideo': true,
+      });
+      
+      await _peerConnection!.setLocalDescription(answer);
+      
+      if (kDebugMode) {
+        debugPrint('✅ Created answer: ${answer.type}');
+      }
+      
+      return answer;
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('❌ Error creating answer: $e');
+      }
+      onError?.call('Failed to create answer: $e');
+      rethrow;
     }
-    
-    return answer;
   }
 
-  // Add remote description
+  // Set remote description with validation
   Future<void> setRemoteDescription(RTCSessionDescription description) async {
     if (_peerConnection == null) {
       throw Exception('Peer connection not initialized');
     }
     
-    await _peerConnection!.setRemoteDescription(description);
-    
-    if (kDebugMode) {
-      debugPrint('✅ Set remote description: ${description.type}');
+    try {
+      await _peerConnection!.setRemoteDescription(description);
+      
+      if (kDebugMode) {
+        debugPrint('✅ Set remote description: ${description.type}');
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('❌ Error setting remote description: $e');
+      }
+      onError?.call('Failed to set remote description: $e');
+      rethrow;
     }
   }
 
-  // Add ICE candidate
+  // Add ICE candidate with validation
   Future<void> addIceCandidate(RTCIceCandidate candidate) async {
     if (_peerConnection == null) {
       throw Exception('Peer connection not initialized');
     }
     
-    await _peerConnection!.addCandidate(candidate);
-    
-    if (kDebugMode) {
-      debugPrint('✅ Added ICE candidate');
+    try {
+      await _peerConnection!.addCandidate(candidate);
+      
+      if (kDebugMode) {
+        debugPrint('✅ Added ICE candidate: ${candidate.candidate}');
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('❌ Error adding ICE candidate: $e');
+      }
+      // Don't throw for ICE candidate errors as they're common during negotiation
     }
   }
 
-  // Toggle camera - FIXED: Use the correct property assignment
-  Future<void> toggleCamera() async {
+  // Toggle camera with proper state management
+  Future<bool> toggleCamera() async {
     if (_localStream != null) {
       final videoTracks = _localStream!.getVideoTracks();
       if (videoTracks.isNotEmpty) {
         final videoTrack = videoTracks.first;
-        // Fixed: Directly assign to the enabled property
         videoTrack.enabled = !videoTrack.enabled;
         
+        final newState = videoTrack.enabled;
         if (kDebugMode) {
-          debugPrint('✅ Camera ${videoTrack.enabled ? 'enabled' : 'disabled'}');
+          debugPrint('✅ Camera ${newState ? 'enabled' : 'disabled'}');
         }
+        return newState;
       }
     }
+    return false;
   }
 
-  // Toggle microphone - FIXED: Use the correct property assignment
-  Future<void> toggleMicrophone() async {
+  // Toggle microphone with proper state management
+  Future<bool> toggleMicrophone() async {
     if (_localStream != null) {
       final audioTracks = _localStream!.getAudioTracks();
       if (audioTracks.isNotEmpty) {
         final audioTrack = audioTracks.first;
-        // Fixed: Directly assign to the enabled property
         audioTrack.enabled = !audioTrack.enabled;
         
+        final newState = audioTrack.enabled;
         if (kDebugMode) {
-          debugPrint('✅ Microphone ${audioTrack.enabled ? 'enabled' : 'disabled'}');
+          debugPrint('✅ Microphone ${newState ? 'enabled' : 'disabled'}');
         }
+        return newState;
       }
     }
+    return false;
   }
 
-  // Switch camera (front/back) - FIXED: Use Helper.switchCamera()
+  // Switch camera (front/back) with better error handling
   Future<void> switchCamera() async {
     if (_localStream != null) {
       final videoTracks = _localStream!.getVideoTracks();
       if (videoTracks.isNotEmpty) {
         final videoTrack = videoTracks.first;
         try {
-          // Fixed: Use Helper.switchCamera() instead of deprecated switchCamera()
           await Helper.switchCamera(videoTrack);
           if (kDebugMode) {
-            debugPrint('✅ Camera switched using Helper.switchCamera()');
+            debugPrint('✅ Camera switched');
           }
         } catch (e) {
           if (kDebugMode) {
             debugPrint('⚠️ Camera switching not supported: $e');
           }
+          onError?.call('Camera switching not supported on this device');
         }
       }
     }
   }
 
-  // End call and cleanup
+  // Get current camera state
+  bool get isCameraEnabled {
+    if (_localStream != null) {
+      final videoTracks = _localStream!.getVideoTracks();
+      if (videoTracks.isNotEmpty) {
+        return videoTracks.first.enabled;
+      }
+    }
+    return false;
+  }
+
+  // Get current microphone state
+  bool get isMicrophoneEnabled {
+    if (_localStream != null) {
+      final audioTracks = _localStream!.getAudioTracks();
+      if (audioTracks.isNotEmpty) {
+        return audioTracks.first.enabled;
+      }
+    }
+    return false;
+  }
+
+  // End call and cleanup resources properly
   Future<void> endCall() async {
     try {
+      // Stop all tracks
+      if (_localStream != null) {
+        for (var track in _localStream!.getTracks()) {
+          track.stop();
+        }
+        await _localStream?.dispose();
+      }
+
+      // Close peer connection
       await _peerConnection?.close();
-      await _localStream?.dispose();
+
+      // Clear senders
+      _senders.clear();
+
+      // Reset state
       _peerConnection = null;
       _localStream = null;
-      
+
       if (kDebugMode) {
         debugPrint('✅ Call ended and resources cleaned up');
       }
@@ -198,7 +352,7 @@ class WebRTCService {
       if (kDebugMode) {
         debugPrint('❌ Error ending call: $e');
       }
-      rethrow;
+      // Don't rethrow during cleanup
     }
   }
 
@@ -208,21 +362,14 @@ class WebRTCService {
   // Get peer connection state
   RTCPeerConnectionState? get connectionState => _peerConnection?.connectionState;
 
-  // Handle remote stream
-  void _onRemoteStream(MediaStream stream) {
-    if (kDebugMode) {
-      debugPrint('✅ Remote stream received');
-    }
-    // You can notify the UI about the remote stream here
-    // This would typically be handled via a callback or stream
-  }
+  // Check if peer connection is active
+  bool get isConnected => _peerConnection != null;
 
-  // Handle connection state changes
-  void _onConnectionStateChange(RTCPeerConnectionState state) {
-    if (kDebugMode) {
-      debugPrint('🔗 Connection state changed: $state');
-    }
-    // You can notify the UI about connection state changes here
-    // This would typically be handled via a callback or stream
+  // Dispose method for complete cleanup
+  Future<void> dispose() async {
+    await endCall();
+    onRemoteStream = null;
+    onConnectionStateChange = null;
+    onError = null;
   }
 }

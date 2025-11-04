@@ -37,6 +37,59 @@ const users = new Map();
 io.on('connection', (socket) => {
   console.log('🔗 User connected for WebRTC:', socket.id);
 
+
+  socket.on('patient-join', (data) => {
+  const patientId = typeof data === 'string' ? data : data.patientId;
+  const roomName = `patient_${patientId}`;
+  
+  console.log(`🎯 PATIENT JOIN: ${patientId} -> Room: ${roomName}`);
+  
+  // Leave any previous patient rooms
+  const rooms = Array.from(socket.rooms);
+  rooms.forEach(room => {
+    if (room.startsWith('patient_')) {
+      socket.leave(room);
+    }
+  });
+  
+  // Join new patient room
+  socket.join(roomName);
+  
+  // Store patient info
+  users.set(socket.id, { 
+    type: 'patient', 
+    patientId: patientId,
+    room: roomName,
+    socketId: socket.id
+  });
+  
+  console.log(`✅ Patient ${patientId} joined room: ${roomName}`);
+});
+
+socket.on('notify-call-started', (data) => {
+  const { patientId, roomId, doctorName, doctorId, consultationType } = data;
+  
+  console.log(`🔔 CALL NOTIFICATION: Doctor ${doctorName} -> Patient ${patientId}`);
+  
+  const patientRoomName = `patient_${patientId}`;
+  const patientRoom = io.sockets.adapter.rooms.get(patientRoomName);
+  
+  if (patientRoom && patientRoom.size > 0) {
+    console.log(`📤 Sending call-started to room: ${patientRoomName}`);
+    
+    io.to(patientRoomName).emit('call-started', {
+      roomId: roomId,
+      doctorName: doctorName,
+      doctorId: doctorId,
+      consultationType: consultationType || 'video',
+      timestamp: new Date().toISOString()
+    });
+    
+    console.log(`✅ Notification sent to patient ${patientId}`);
+  } else {
+    console.log(`❌ Patient ${patientId} not found in room ${patientRoomName}`);
+  }
+});
   // Join a video call room
   socket.on('join-call-room', (roomId) => {
     socket.join(roomId);

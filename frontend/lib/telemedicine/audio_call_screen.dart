@@ -11,6 +11,7 @@ class AudioCallScreen extends StatefulWidget {
   final String currentUserName;
   final bool isDoctor;
   final bool isIncomingCall;
+  final bool shouldInitiateCall;
 
   const AudioCallScreen({
     super.key,
@@ -21,6 +22,7 @@ class AudioCallScreen extends StatefulWidget {
     required this.currentUserName,
     required this.isDoctor,
     required this.isIncomingCall,
+    this.shouldInitiateCall = true,
   });
 
   @override
