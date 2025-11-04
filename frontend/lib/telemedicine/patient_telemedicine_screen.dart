@@ -1,4 +1,4 @@
-// screens/patient_telemedicine_screen.dart - FIXED
+// screens/patient_telemedicine_screen.dart - COMPLETELY FIXED
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -6,7 +6,6 @@ import 'package:frontend/services/video_call_service.dart';
 import 'package:frontend/telemedicine/video_call_screen.dart';
 import 'package:frontend/telemedicine/audio_call_screen.dart';
 import 'package:frontend/telemedicine/incoming_call_screen.dart';
-import 'package:socket_io_client/socket_io_client.dart'; // Keep this import
 
 class PatientTelemedicineScreen extends StatefulWidget {
   const PatientTelemedicineScreen({super.key});
@@ -21,109 +20,80 @@ class _PatientTelemedicineScreenState extends State<PatientTelemedicineScreen> {
   final VideoCallService _videoCallService = VideoCallService();
   String? _patientName;
   String? _patientId;
-  bool _isPatientRoomJoined = false;
   bool _isWebRTCConnected = false;
-  bool _isPhysicalDevice = true;
+  final bool _isPhysicalDevice = true; // ✅ MADE FINAL
 
   @override
   void initState() {
     super.initState();
-    _getPatientInfo();
-    _setupCallListener();
+    _getPatientInfo().then((_) {
+      if (_patientId != null) {
+        _setupCallListener();
+      }
+    });
   }
 
-  void _getPatientInfo() async {
+  Future<void> _getPatientInfo() async {
     final user = _auth.currentUser;
     if (user != null) {
       setState(() {
         _patientId = user.uid;
+        _patientName = user.displayName ?? user.email?.split('@').first ?? 'Patient';
       });
-      
-      // Get patient name from patients collection
-      try {
-        final patientDoc = await _firestore.collection('patients').doc(user.uid).get();
-        if (patientDoc.exists) {
-          final data = patientDoc.data();
-          setState(() {
-            _patientName = data?['fullName'] ?? data?['name'] ?? user.displayName ?? 'Patient';
-          });
-          debugPrint('🟢 PATIENT: Found in patients collection: $_patientName');
-        } else {
-          setState(() {
-            _patientName = user.displayName ?? 'Patient';
-          });
-          debugPrint('🟡 PATIENT: Using user profile name: $_patientName');
-        }
-      } catch (e) {
-        setState(() {
-          _patientName = user.displayName ?? 'Patient';
-        });
-        debugPrint('🔴 PATIENT: Error fetching patient info: $e');
-      }
     }
   }
 
   void _setupCallListener() async {
-    debugPrint('🎧 Setting up WebRTC call listener...');
-    
     try {
       await _videoCallService.initialize(isPhysicalDevice: _isPhysicalDevice);
-      debugPrint('✅ VideoCallService initialized');
       
-      // Set up event listeners
-      _videoCallService.onConnected = () {
-        debugPrint('🎉 🎉 🎉 WEBRTC FULLY CONNECTED! 🎉 🎉 🎉');
-        debugPrint('   Ready for video/audio calls!');
+      // Setup incoming call listener
+      _videoCallService.onIncomingCall = (callData) {
+        debugPrint('📞 PATIENT: Incoming call received');
         
+        final roomId = callData['roomId'] ?? '';
+        final doctorName = callData['doctorName'] ?? 'Doctor';
+        final doctorId = callData['doctorId'] ?? '';
+        
+        // ✅ FIXED: Handle both 'callType' and 'consultationType'
+        final callType = callData['callType'] ?? callData['consultationType'] ?? 'video';
+
+        if (mounted) {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => IncomingCallScreen(
+                callId: roomId,
+                doctorName: doctorName,
+                doctorId: doctorId,
+                patientId: _patientId!,
+                patientName: _patientName!,
+                callType: callType, // ✅ ADDED REQUIRED PARAMETER
+              ),
+            ),
+          );
+        }
+      };
+
+      _videoCallService.onConnected = () {
         if (mounted) {
           setState(() {
             _isWebRTCConnected = true;
           });
-          
-          // Auto-join patient room when connected
-          _autoJoinPatientRoom();
-          
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('✅ Video calls are ready!'),
-              backgroundColor: Colors.green,
-              duration: Duration(seconds: 3),
-            ),
-          );
         }
       };
 
-      _videoCallService.onIncomingCall = (callData) {
-        debugPrint('📞 📞 📞 INCOMING CALL! 📞 📞 📞');
-        debugPrint('   Room: ${callData['roomId']}');
-        debugPrint('   Doctor: ${callData['doctorName']}');
-        debugPrint('   Type: ${callData['consultationType']}');
-        
-        // Handle incoming call - navigate to incoming call screen
-        _handleIncomingCall(callData);
-      };
-
-      _videoCallService.onError = (error) {
-        debugPrint('🔴 WebRTC Error: $error');
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('WebRTC: $error'),
-              backgroundColor: Colors.orange,
-            ),
-          );
-        }
-      };
-
-      // Setup debug socket events
-      _debugSocketEvents();
+      // Join patient room to listen for calls
+      if (_patientId != null) {
+        await _videoCallService.joinPatientRoom(_patientId!);
+      }
 
     } catch (e) {
-      debugPrint('🔴 WebRTC setup error: $e');
+      debugPrint('❌ Error setting up call listener: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Video calls unavailable: $e'),
+            content: Text('Failed to setup call service: $e'),
             backgroundColor: Colors.red,
           ),
         );
@@ -131,41 +101,15 @@ class _PatientTelemedicineScreenState extends State<PatientTelemedicineScreen> {
     }
   }
 
-  void _debugSocketEvents() {
-    debugPrint('🔍 PATIENT: Monitoring socket events...');
-    
-    _videoCallService.socket.on('call-started', (data) {
-      debugPrint('🎉 SOCKET: call-started event received: $data');
-    });
-    
-    _videoCallService.socket.on('incoming-call', (data) {
-      debugPrint('🎉 SOCKET: incoming-call event received: $data');
-    });
-    
-    _videoCallService.socket.on('user-joined', (data) {
-      debugPrint('👤 SOCKET: user-joined event received: $data');
-    });
-    
-    _videoCallService.socket.onAny((event, data) {
-      if (event != 'ice-candidate' && event != 'ping' && event != 'pong') {
-        debugPrint('📡 SOCKET: Event "$event" with data: $data');
-      }
-    });
-  }
-
   void _handleIncomingCall(Map<String, dynamic> callData) {
-    final consultationType = callData['consultationType'] ?? 'video';
     final roomId = callData['roomId'] ?? '';
     final doctorName = callData['doctorName'] ?? 'Doctor';
     final doctorId = callData['doctorId'] ?? '';
+    final callType = callData['callType'] ?? callData['consultationType'] ?? 'video';
 
     debugPrint('🎉 PATIENT: Handling incoming call navigation');
-    debugPrint('   - Doctor: $doctorName');
-    debugPrint('   - Room ID: $roomId');
-    debugPrint('   - Type: $consultationType');
 
     if (mounted) {
-      // Navigate to incoming call screen
       Navigator.push(
         context,
         MaterialPageRoute(
@@ -175,87 +119,50 @@ class _PatientTelemedicineScreenState extends State<PatientTelemedicineScreen> {
             doctorId: doctorId,
             patientId: _patientId!,
             patientName: _patientName!,
-            consultationType: consultationType,
+            callType: callType, // ✅ ADDED REQUIRED PARAMETER
           ),
         ),
       );
     }
   }
 
-  void _joinPatientRoom() async {
+  void _testWebRTCConnection() async {
+    await _videoCallService.testWebRTCConnection();
+  }
+
+  void _forceJoinRoom() async {
     if (_patientId == null || _patientName == null) {
       debugPrint('🔴 PATIENT: Cannot join room - missing patient info');
       return;
     }
 
     try {
+      debugPrint('🔄 PATIENT: Manually joining patient room...');
       await _videoCallService.joinPatientRoom(_patientId!);
+      
       if (mounted) {
-        setState(() {
-          _isPatientRoomJoined = true;
-        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Successfully joined patient room - Ready for calls!'),
+            backgroundColor: Colors.green,
+            duration: Duration(seconds: 3),
+          ),
+        );
       }
-      debugPrint('🟢 PATIENT: Successfully joined patient room');
+      
     } catch (e) {
-      debugPrint('🔴 PATIENT: Error joining patient room: $e');
+      debugPrint('❌ PATIENT: Error manually joining patient room: $e');
       if (mounted) {
-        setState(() {
-          _isPatientRoomJoined = false;
-        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error joining room: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
       }
     }
   }
 
-  void _autoJoinPatientRoom() async {
-    if (_patientId == null || _patientName == null) {
-      debugPrint('🔴 PATIENT: Cannot auto-join room - missing patient info');
-      return;
-    }
-
-    try {
-      debugPrint('🟢 PATIENT: Auto-joining patient room: $_patientId');
-      await _videoCallService.joinPatientRoom(_patientId!);
-      
-      if (mounted) {
-        setState(() {
-          _isPatientRoomJoined = true;
-        });
-      }
-      
-      debugPrint('✅ PATIENT: Auto-joined patient room successfully');
-      
-      // Test if we can receive calls
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Ready to receive calls from doctors'),
-          backgroundColor: Colors.green,
-          duration: Duration(seconds: 3),
-        ),
-      );
-      
-    } catch (e) {
-      debugPrint('❌ PATIENT: Error auto-joining patient room: $e');
-      if (mounted) {
-        setState(() {
-          _isPatientRoomJoined = false;
-        });
-      }
-    }
-  }
-void _checkPatientRoom() async {
-  debugPrint('🔍 Checking patient room status...');
-  debugPrint('   - Patient ID: $_patientId');
-  debugPrint('   - Patient Name: $_patientName');
-  debugPrint('   - WebRTC Connected: $_isWebRTCConnected');
-  debugPrint('   - Patient Room Joined: $_isPatientRoomJoined');
-  debugPrint('   - Socket Connected: ${_videoCallService.isConnected}');
-  
-  // Force join patient room
-  if (_patientId != null) {
-    debugPrint('🔄 Force joining patient room: $_patientId');
-    await _videoCallService.joinPatientRoom(_patientId!);
-  }
-}
   @override
   Widget build(BuildContext context) {
     final user = _auth.currentUser;
@@ -271,7 +178,6 @@ void _checkPatientRoom() async {
         backgroundColor: Color(0xFF18A3B6),
         foregroundColor: Colors.white,
         actions: [
-          // Connection status indicator
           Container(
             padding: EdgeInsets.symmetric(horizontal: 12, vertical: 6),
             margin: EdgeInsets.only(right: 16, top: 8, bottom: 8),
@@ -326,24 +232,6 @@ void _checkPatientRoom() async {
             ],
           ),
           SizedBox(height: 4),
-          Row(
-            children: [
-              Icon(
-                _isPatientRoomJoined ? Icons.check_circle : Icons.radio_button_unchecked,
-                color: _isPatientRoomJoined ? Colors.green : Colors.grey,
-                size: 16,
-              ),
-              SizedBox(width: 8),
-              Text(
-                _isPatientRoomJoined ? '🟢 Listening for calls' : '🟡 Not listening for calls',
-                style: TextStyle(
-                  color: _isPatientRoomJoined ? Colors.green : Colors.grey,
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
-            ],
-          ),
-          SizedBox(height: 4),
           Text('Server: 192.168.1.126:5001', style: TextStyle(fontSize: 12)),
           Text('Device: Physical', style: TextStyle(fontSize: 12)),
           SizedBox(height: 8),
@@ -357,7 +245,7 @@ void _checkPatientRoom() async {
                     foregroundColor: Colors.white,
                     padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                   ),
-                  child: Text('Test WebRTC Connection'),
+                  child: Text('Test Connection'),
                 ),
               ),
               SizedBox(width: 8),
@@ -369,7 +257,7 @@ void _checkPatientRoom() async {
                     foregroundColor: Colors.white,
                     padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                   ),
-                  child: Text('Join Patient Room'),
+                  child: Text('Join Room'),
                 ),
               ),
             ],
@@ -377,47 +265,6 @@ void _checkPatientRoom() async {
         ],
       ),
     );
-  }
-
-  void _testWebRTCConnection() async {
-    await _videoCallService.testWebRTCConnection();
-  }
-
-  void _forceJoinRoom() async {
-    if (_patientId == null || _patientName == null) {
-      debugPrint('🔴 PATIENT: Cannot join room - missing patient info');
-      return;
-    }
-
-    try {
-      debugPrint('🔄 PATIENT: Manually joining patient room...');
-      await _videoCallService.joinPatientRoom(_patientId!);
-      
-      if (mounted) {
-        setState(() {
-          _isPatientRoomJoined = true;
-        });
-      }
-      
-      debugPrint('✅ PATIENT: Successfully joined patient room manually');
-      
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Successfully joined patient room - Ready for calls!'),
-          backgroundColor: Colors.green,
-          duration: Duration(seconds: 3),
-        ),
-      );
-      
-    } catch (e) {
-      debugPrint('❌ PATIENT: Error manually joining patient room: $e');
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Error joining room: $e'),
-          backgroundColor: Colors.red,
-        ),
-      );
-    }
   }
 
   Widget _buildAppointmentsList() {
@@ -567,61 +414,75 @@ void _checkPatientRoom() async {
     final doctorId = sessionData['doctorId'] ?? '';
     final consultationType = sessionData['consultationType'] ?? 'video';
 
-    debugPrint('🎬 PATIENT: Manually joining WebRTC consultation');
-    debugPrint('   - Session ID: $sessionId');
-    debugPrint('   - Doctor: $doctorName ($doctorId)');
-    debugPrint('   - Patient: $_patientName ($_patientId)');
-    debugPrint('   - Type: $consultationType');
+    final patientName = _patientName ?? user.displayName ?? 'Patient';
+    final patientId = _patientId ?? user.uid;
+
+    debugPrint('🎬 PATIENT: Joining consultation as ANSWERER');
+
+    // ✅ FIXED: Validate required fields with mounted checks
+    if (patientId.isEmpty) {
+      debugPrint('❌ PATIENT: Cannot join - patient ID is empty');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Cannot join call: Patient ID missing'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+      return;
+    }
 
     try {
-      // ✅ FIXED: Use proper WebRTC flow instead of URL
       if (!_videoCallService.isConnected) {
         debugPrint('🟡 PATIENT: Call service not connected, initializing...');
         await _videoCallService.initialize();
       }
 
-      // Join the room as patient
       await _videoCallService.joinRoom(
         sessionId, 
-        _patientId!,
-        _patientName!,
+        patientId,
+        patientName,
         false // isDoctor = false
       );
 
-      debugPrint('✅ PATIENT: Joined room $sessionId as patient');
+      debugPrint('✅ PATIENT: Joined room $sessionId as answerer');
 
-      // Navigate to appropriate call screen as PATIENT
-      if (consultationType == 'video') {
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (context) => VideoCallScreen(
-              callId: sessionId,
-              otherUserName: doctorName,
-              otherUserId: doctorId,
-              currentUserId: user.uid,
-              currentUserName: _patientName!,
-              isDoctor: false,
-              isIncomingCall: false,
-              isVideoCall: true,
+      if (mounted) {
+        if (consultationType == 'video') {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => VideoCallScreen(
+                callId: sessionId,
+                otherUserName: doctorName,
+                otherUserId: doctorId,
+                currentUserId: patientId,
+                currentUserName: patientName,
+                isDoctor: false,
+                isIncomingCall: false,
+                isVideoCall: true,
+                shouldInitiateCall: false,
+              ),
             ),
-          ),
-        );
-      } else {
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (context) => AudioCallScreen(
-              callId: sessionId,
-              otherUserName: doctorName,
-              otherUserId: doctorId,
-              currentUserId: user.uid,
-              currentUserName: _patientName!,
-              isDoctor: false,
-              isIncomingCall: false,
+          );
+        } else {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => AudioCallScreen(
+                callId: sessionId,
+                otherUserName: doctorName,
+                otherUserId: doctorId,
+                currentUserId: patientId,
+                currentUserName: patientName,
+                isDoctor: false,
+                isIncomingCall: false,
+                shouldInitiateCall: false,
+              ),
             ),
-          ),
-        );
+          );
+        }
       }
     } catch (e) {
       debugPrint('❌ PATIENT: Error joining consultation: $e');
@@ -665,50 +526,27 @@ void _checkPatientRoom() async {
 
   void _testConnection() {
     debugPrint('🧪 PATIENT: Testing connection...');
-    debugPrint('   - Socket connected: ${_videoCallService.isConnected}');
-    debugPrint('   - Current room: ${_videoCallService.currentRoomId}');
-    debugPrint('   - User ID: ${_videoCallService.userId}');
-    debugPrint('   - User Name: ${_videoCallService.userName}');
-    debugPrint('   - Patient room joined: $_isPatientRoomJoined');
-    debugPrint('   - WebRTC connected: $_isWebRTCConnected');
     
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(_isPatientRoomJoined && _isWebRTCConnected
-            ? '✅ Ready for incoming calls' 
-            : '🟡 Connecting to server...'),
-        backgroundColor: _isPatientRoomJoined && _isWebRTCConnected ? Colors.green : Colors.orange,
-      ),
-    );
-  }
-
-  void _reconnect() {
-    setState(() {
-      _isPatientRoomJoined = false;
-      _isWebRTCConnected = false;
-    });
-    _setupCallListener();
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Reconnecting...'), backgroundColor: Colors.blue),
-    );
-  }
-
-  IconData _getConnectionStatusIcon() {
-    if (_isPatientRoomJoined && _isWebRTCConnected) return Icons.check_circle;
-    if (_videoCallService.isConnected) return Icons.sync;
-    return Icons.error;
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(_isWebRTCConnected 
+              ? '✅ Ready for incoming calls' 
+              : '🟡 Connecting to server...'),
+          backgroundColor: _isWebRTCConnected ? Colors.green : Colors.orange,
+        ),
+      );
+    }
   }
 
   Color _getConnectionStatusColor() {
-    if (_isPatientRoomJoined && _isWebRTCConnected) return Colors.green;
-    if (_videoCallService.isConnected) return Colors.orange;
-    return Colors.red;
+    if (_isWebRTCConnected) return Colors.green;
+    return Colors.orange;
   }
 
   String _getConnectionStatusText() {
-    if (_isPatientRoomJoined && _isWebRTCConnected) return '🟢 Ready for calls';
-    if (_videoCallService.isConnected) return '🟡 Connected, joining room...';
-    return '🔴 Disconnected';
+    if (_isWebRTCConnected) return '🟢 Ready for calls';
+    return '🟡 Connecting...';
   }
 
   Color _getStatusColor(String status) {

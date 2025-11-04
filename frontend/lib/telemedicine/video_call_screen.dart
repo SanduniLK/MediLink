@@ -1,4 +1,6 @@
 // telemedicine/video_call_screen.dart
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:frontend/services/video_call_service.dart';
@@ -23,8 +25,8 @@ class VideoCallScreen extends StatefulWidget {
     required this.currentUserName, 
     required this.isDoctor, 
     required this.isVideoCall, 
-    this.isIncomingCall = false, // ✅ Fixed: using literal false instead of variable
-    this.shouldInitiateCall = true, // ✅ Fixed: using literal true instead of variable
+    this.isIncomingCall = false,
+    this.shouldInitiateCall = true,
   }) : assert(currentUserId.isNotEmpty, 'currentUserId cannot be empty'),
        assert(currentUserName.isNotEmpty, 'currentUserName cannot be empty');
 
@@ -43,6 +45,10 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
   bool _isInitialized = false;
   String _callStatus = 'Initializing...';
 
+  bool _isCameraInitialized = false;
+  int _connectionRetryCount = 0;
+  Timer? _connectionTimer;
+
   @override
   void initState() {
     super.initState();
@@ -57,79 +63,128 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
       debugPrint('✅ Renderers initialized successfully');
     } catch (e) {
       debugPrint('❌ Renderer initialization error: $e');
-      // Continue anyway - audio might still work
     }
   }
-Future<void> _initializeCall() async {
-  try {
-    _setupVideoCallService();
-    
-    if (!_videoCallService.isInitialized) {
-      await _videoCallService.initialize();
+
+  Future<void> _initializeCall() async {
+    try {
+      _setupVideoCallService();
+      
+      if (!_videoCallService.isInitialized) {
+        await _videoCallService.initialize();
+      }
+
+      await _waitForConnection();
+      
+      // Join room first
+      await _videoCallService.joinRoom(
+        widget.callId,
+        widget.currentUserId, 
+        widget.currentUserName,
+        widget.isDoctor
+      );
+
+      // Wait for local stream to be ready before proceeding
+      await _waitForLocalStream();
+
+      // Role-based call initiation
+      if (widget.shouldInitiateCall && !widget.isIncomingCall) {
+        debugPrint('🎯 INITIATOR: Creating and sending offer...');
+        setState(() => _callStatus = 'Calling ${widget.otherUserName}...');
+        await _createAndSendOffer();
+      } else {
+        debugPrint('🎯 ANSWERER: Waiting for offer...');
+        setState(() => _callStatus = 'Waiting for call...');
+        _setupOfferListener();
+      }
+
+      setState(() => _isInitialized = true);
+
+      // Start connection monitoring
+      _startConnectionMonitor();
+
+    } catch (e) {
+      debugPrint('❌ Call init error: $e');
+      setState(() => _callStatus = 'Failed: $e');
+      _showErrorDialog('Call initialization failed: $e');
     }
-
-    await _waitForConnection();
-    
-    // Join room first
-    await _videoCallService.joinRoom(
-      widget.callId,
-      widget.currentUserId, 
-      widget.currentUserName,
-      widget.isDoctor
-    );
-
-    // CRITICAL FIX: Proper role-based call initiation
-    if (widget.shouldInitiateCall && !widget.isIncomingCall) {
-      debugPrint('🎯 INITIATOR: Creating and sending offer...');
-      await _createAndSendOffer();
+  }
+Future<void> _waitForLocalStream() async {
+    for (int i = 0; i < 20; i++) {
+      if (_localRenderer.srcObject != null) {
+        debugPrint('✅ Local stream is ready');
+        setState(() => _isCameraInitialized = true);
+        return;
+      }
+      await Future.delayed(Duration(milliseconds: 250));
+    }
+    throw Exception('Local stream not ready after 5 seconds');
+  }
+void _startConnectionMonitor() {
+  _connectionTimer = Timer.periodic(Duration(seconds: 10), (timer) { // Increased to 10 seconds
+    if (!_isCallConnected && mounted) {
+      _connectionRetryCount++;
+      
+      if (_connectionRetryCount > 2) { // Reduced from 3 to 2
+        debugPrint('🔄 Auto-reconnecting due to connection issues...');
+        _forceReconnect();
+        _connectionRetryCount = 0;
+      }
     } else {
-      debugPrint('🎯 ANSWERER: Waiting for offer...');
-      setState(() => _callStatus = 'Waiting for call...');
-      _setupOfferListener();
+      _connectionRetryCount = 0;
     }
-
-    setState(() => _isInitialized = true);
-
-  } catch (e) {
-    debugPrint('❌ Call init error: $e');
-    setState(() => _callStatus = 'Failed: $e');
-    _showErrorDialog('Call initialization failed: $e');
-  }
+  });
 }
-Future<void> _createAndSendOffer() async {
-  try {
-    // Create offer
-    final offer = await _videoCallService.createOffer();
-    
-    // Send offer to the other participant
-    _videoCallService.socket.emit('webrtc-offer', {
-      'to': widget.callId,
-      'offer': offer.toMap(),
-      'targetUserId': widget.otherUserId,
-    });
-    
-    debugPrint('✅ Offer created and sent successfully');
-  } catch (e) {
-    debugPrint('❌ Error creating offer: $e');
-    rethrow;
+  Future<void> _createAndSendOffer() async {
+    try {
+      // Wait for local stream to be ready
+      if (_localRenderer.srcObject == null) {
+        await Future.delayed(Duration(milliseconds: 500));
+      }
+
+      // Create offer
+      final offer = await _videoCallService.createOffer();
+      
+      // Send offer to the other participant
+      _videoCallService.socket.emit('webrtc-offer', {
+        'to': widget.callId,
+        'offer': offer.toMap(),
+        'targetUserId': widget.otherUserId,
+      });
+      
+      debugPrint('✅ Offer created and sent successfully');
+      setState(() => _callStatus = 'Calling ${widget.otherUserName}...');
+    } catch (e) {
+      debugPrint('❌ Error creating offer: $e');
+      rethrow;
+    }
   }
-}
 
   void _setupOfferListener() {
     // Listen for incoming offers specifically
-    _videoCallService.onOfferReceived = (offer, fromUserId) {
+    _videoCallService.onOfferReceived = (offer, fromUserId) async {
       debugPrint('🎯 OFFER RECEIVED from: $fromUserId');
       if (mounted) {
         setState(() {
-          _callStatus = 'Offer received - connecting...';
+          _callStatus = 'Incoming call - connecting...';
         });
+      }
+      
+      try {
+        // Handle the incoming offer
+        await _videoCallService.handleIncomingOffer({
+          'from': fromUserId,
+          'offer': offer
+        });
+      } catch (e) {
+        debugPrint('❌ Error handling incoming offer: $e');
       }
     };
   }
 
   Future<void> _waitForConnection() async {
     // Wait for socket connection with timeout
-    for (int i = 0; i < 20; i++) { // Increased timeout
+    for (int i = 0; i < 20; i++) {
       if (_videoCallService.isConnected) {
         debugPrint('✅ Connected to signaling server');
         return;
@@ -142,16 +197,30 @@ Future<void> _createAndSendOffer() async {
 
   void _setupVideoCallService() {
     _videoCallService.onLocalStream = (stream) {
-      debugPrint('📹 Local stream ready');
+      debugPrint('📹 Local stream ready with ${stream.getVideoTracks().length} video tracks');
+      
       if (mounted) {
         setState(() {
           _localRenderer.srcObject = stream;
+          _isCameraInitialized = true;
         });
       }
     };
 
     _videoCallService.onRemoteStream = (stream) {
       debugPrint('🎉 🎉 REMOTE STREAM RECEIVED! 🎉 🎉');
+      debugPrint('   Stream ID: ${stream.id}');
+      debugPrint('   Audio tracks: ${stream.getAudioTracks().length}');
+      debugPrint('   Video tracks: ${stream.getVideoTracks().length}');
+      
+      // Verify tracks are working
+      for (var track in stream.getAudioTracks()) {
+        debugPrint('   🔊 Audio track: ${track.id} - enabled: ${track.enabled}');
+      }
+      for (var track in stream.getVideoTracks()) {
+        debugPrint('   📹 Video track: ${track.id} - enabled: ${track.enabled}');
+      }
+      
       if (mounted) {
         setState(() {
           _remoteRenderer.srcObject = stream;
@@ -161,30 +230,20 @@ Future<void> _createAndSendOffer() async {
       }
     };
 
-    _videoCallService.onCallEnded = () {
-      if (mounted) {
-        setState(() => _callStatus = 'Call Ended');
-        Future.delayed(Duration(seconds: 2), () => _endCall());
-      }
-    };
-
-    // Connection state handlers
-    _videoCallService.onConnectionState = (state) {
-      debugPrint('🔗 Connection State: $state');
+    // Enhanced error handling
+    _videoCallService.onError = (error) {
+      debugPrint('❌ VideoCallService error: $error');
       if (mounted) {
         setState(() {
-          // Update UI based on connection state if needed
-          if (state == 'connected') {
-            _callStatus = 'Connected';
-          } else if (state == 'disconnected') {
-            _callStatus = 'Disconnected';
-          }
+          _callStatus = 'Error: $error';
         });
       }
     };
 
+    // Track-specific events
     _videoCallService.onIceConnectionState = (state) {
       debugPrint('🧊 ICE State: $state');
+      
       if (state == RTCIceConnectionState.RTCIceConnectionStateConnected) {
         debugPrint('🎉 ICE CONNECTED! Audio/Video should work now!');
         if (mounted) {
@@ -193,14 +252,15 @@ Future<void> _createAndSendOffer() async {
             _callStatus = 'Connected';
           });
         }
-      } else if (state == RTCIceConnectionState.RTCIceConnectionStateFailed ||
-          state == RTCIceConnectionState.RTCIceConnectionStateDisconnected) {
+      } else if (state == RTCIceConnectionState.RTCIceConnectionStateFailed) {
+        debugPrint('❌ ICE Connection failed');
         if (mounted) {
           setState(() {
             _isCallConnected = false;
-            _callStatus = 'Connection Lost';
+            _callStatus = 'Connection Lost - Retrying...';
           });
         }
+        _forceReconnect();
       }
     };
   }
@@ -241,25 +301,30 @@ Future<void> _createAndSendOffer() async {
     }
   }
 
-  Future<void> _toggleVideo() async {
+ Future<void> _toggleVideo() async {
     try {
+      if (!_isCameraInitialized) {
+        debugPrint('🔄 Camera not ready, initializing...');
+        await _waitForLocalStream();
+      }
+      
       final newState = await _videoCallService.toggleVideo();
       if (mounted) {
         setState(() => _isVideoMuted = !newState);
       }
     } catch (e) {
       debugPrint('❌ Toggle video error: $e');
-      // Show user-friendly message
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Failed to toggle video: Camera may be in use'),
+            content: Text('Camera error: ${e.toString()}'),
             backgroundColor: Colors.orange,
           ),
         );
       }
     }
   }
+
 
   void _showErrorDialog(String message) {
     if (!mounted) return;
@@ -285,6 +350,27 @@ Future<void> _createAndSendOffer() async {
   void _forceReconnect() async {
     setState(() => _callStatus = 'Reconnecting...');
     await _videoCallService.forceReconnect();
+  }
+
+  void _testConnection() async {
+    try {
+      setState(() => _callStatus = 'Testing connection...');
+      
+      // Test if we can create an offer
+      final offer = await _videoCallService.createOffer();
+      debugPrint('✅ Test offer created: ${offer.type}');
+      
+      // Test if local stream is working
+      if (_localRenderer.srcObject != null) {
+        debugPrint('✅ Local stream is active');
+      }
+      
+      setState(() => _callStatus = 'Connection test passed');
+      
+    } catch (e) {
+      debugPrint('❌ Connection test failed: $e');
+      setState(() => _callStatus = 'Test failed: $e');
+    }
   }
 
   @override
@@ -383,30 +469,70 @@ Future<void> _createAndSendOffer() async {
               ),
             ),
 
-            Positioned(
-              top: 100,
-              left: 0,
-              right: 0,
-              child: Container(
-                padding: EdgeInsets.all(16),
-                color: Colors.black54,
-                child: Column(
-                  children: [
-                    Text('Status: $_callStatus', 
-                         style: TextStyle(color: Colors.white)),
-                    SizedBox(height: 8),
-                    if (!_isCallConnected)
-                      ElevatedButton(
-                        onPressed: _forceReconnect,
-                        child: Text('Force Reconnect'),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.orange,
-                        ),
+            // ✅ CONNECTION STATUS INDICATOR
+            if (!_isCallConnected)
+              Positioned(
+                top: 150,
+                left: 20,
+                right: 20,
+                child: Container(
+                  padding: EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withOpacity(0.8),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: Colors.orange, width: 2),
+                  ),
+                  child: Column(
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(Icons.warning_amber, color: Colors.orange),
+                          SizedBox(width: 8),
+                          Text(
+                            'Connecting...',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ],
                       ),
-                  ],
+                      SizedBox(height: 8),
+                      Text(
+                        _callStatus,
+                        style: TextStyle(color: Colors.white70),
+                        textAlign: TextAlign.center,
+                      ),
+                      SizedBox(height: 12),
+                      if (_callStatus.contains('Connecting') || 
+                          _callStatus.contains('Waiting'))
+                        CircularProgressIndicator(color: Colors.orange),
+                      SizedBox(height: 12),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                        children: [
+                          ElevatedButton(
+                            onPressed: _forceReconnect,
+                            child: Text('Retry'),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.orange,
+                            ),
+                          ),
+                          ElevatedButton(
+                            onPressed: _testConnection,
+                            child: Text('Test'),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.blue,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
                 ),
               ),
-            ),
 
             // Call Controls
             if (_isInitialized)
@@ -579,7 +705,7 @@ Future<void> _createAndSendOffer() async {
             shape: BoxShape.circle,
           ),
           child: IconButton(
-            onPressed: onPressed, // ✅ Fixed: moved onPressed before icon parameter
+            onPressed: onPressed,
             icon: Icon(icon, color: iconColor, size: isLarge ? 30 : 24),
           ),
         ),
@@ -611,8 +737,8 @@ Future<void> _createAndSendOffer() async {
                 shape: BoxShape.circle,
               ),
               child: Icon(
-                Icons.person,
-                size: 60,
+                widget.isVideoCall ? Icons.videocam : Icons.call,
+                size: 80,
                 color: Colors.white,
               ),
             ),
@@ -711,6 +837,7 @@ Future<void> _createAndSendOffer() async {
 
   @override
   void dispose() {
+     _connectionTimer?.cancel();
     _videoCallService.dispose();
     _localRenderer.dispose();
     _remoteRenderer.dispose();

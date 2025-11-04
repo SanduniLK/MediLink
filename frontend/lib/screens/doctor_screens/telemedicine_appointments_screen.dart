@@ -1,8 +1,6 @@
-import 'dart:io'; // ✅ ADD THIS IMPORT
-import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:frontend/screens/doctor_screens/prescription_screen.dart';
 import 'package:frontend/services/video_call_service.dart';
 import 'package:frontend/telemedicine/audio_call_screen.dart';
 import 'package:frontend/telemedicine/video_call_screen.dart';
@@ -11,15 +9,12 @@ class TelemedicineAppointmentsScreen extends StatefulWidget {
   const TelemedicineAppointmentsScreen({super.key});
 
   @override
-  State<TelemedicineAppointmentsScreen> createState() =>
-      _TelemedicineAppointmentsScreenState();
+  State<TelemedicineAppointmentsScreen> createState() => _TelemedicineAppointmentsScreenState();
 }
 
-class _TelemedicineAppointmentsScreenState
-    extends State<TelemedicineAppointmentsScreen> {
+class _TelemedicineAppointmentsScreenState extends State<TelemedicineAppointmentsScreen> {
+  final VideoCallService _videoCallService = VideoCallService();
   final FirebaseAuth _auth = FirebaseAuth.instance;
-  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
-  final VideoCallService _videoCallService = VideoCallService(); 
   String? _doctorId;
   String? _doctorName;
   bool _isCallServiceInitialized = false;
@@ -31,407 +26,75 @@ class _TelemedicineAppointmentsScreenState
     _initializeCallService();
   }
 
+  // ✅ FIXED: Added missing _getDoctorInfo method
+  Future<void> _getDoctorInfo() async {
+    try {
+      final user = _auth.currentUser;
+      if (user != null) {
+        setState(() {
+          _doctorId = user.uid;
+          _doctorName = user.displayName ?? user.email?.split('@').first ?? 'Doctor';
+        });
+        debugPrint('✅ Doctor info loaded: $_doctorName ($_doctorId)');
+      }
+    } catch (e) {
+      debugPrint('❌ Error getting doctor info: $e');
+    }
+  }
+
   Future<void> _initializeCallService() async {
     try {
-      debugPrint('🔄 Initializing call service...');
       await _videoCallService.initialize();
       setState(() {
         _isCallServiceInitialized = true;
       });
-      debugPrint('✅ Call service initialized successfully');
+      debugPrint('✅ Call service initialized');
     } catch (e) {
-      debugPrint('❌ Failed to initialize call service: $e');
+      debugPrint('❌ Call service error: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Call service error: $e'),
-            backgroundColor: Colors.red,
-          ),
+          SnackBar(content: Text('Failed to initialize call service: $e')),
         );
       }
     }
   }
 
-  Future<void> _getDoctorInfo() async {
-    final user = _auth.currentUser;
-    if (user == null) return;
-
-    try {
-      final doctorDoc = await _firestore.collection('doctors').doc(user.uid).get();
-      if (doctorDoc.exists) {
-        final data = doctorDoc.data()!;
-        setState(() {
-          _doctorId = user.uid;
-          _doctorName = data['fullName'] ?? data['name'] ?? 'Doctor';
-        });
-      } else {
-        setState(() {
-          _doctorId = user.uid;
-          _doctorName = user.displayName ?? 'Doctor';
-        });
-      }
-    } catch (e) {
-      debugPrint('❌ Error fetching doctor info: $e');
-    }
-  }
-
-  // ✅ ADD THIS MISSING METHOD
-  Future<bool> _checkServerStatus() async {
-    try {
-      debugPrint('🔍 Checking if server is running at 192.168.1.126:5001...');
-      
-      final client = HttpClient();
-      client.connectionTimeout = const Duration(seconds: 5);
-      
-      final request = await client.getUrl(Uri.parse('http://192.168.1.126:5001/health'));
-      final response = await request.close();
-      
-      final isRunning = response.statusCode == 200;
-      debugPrint(isRunning ? '✅ Server is running!' : '❌ Server returned status: ${response.statusCode}');
-      
-      return isRunning;
-    } catch (e) {
-      debugPrint('❌ Server is NOT reachable: $e');
-      return false;
-    }
-  }
-
-  // ✅ ADD TEST METHOD
-  void _testServerConnection() async {
-    final isRunning = await _checkServerStatus();
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(isRunning ? '✅ Server is running!' : '❌ Server is NOT running'),
-          backgroundColor: isRunning ? Colors.green : Colors.red,
-          duration: const Duration(seconds: 3),
-        ),
-      );
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    if (_doctorId == null) {
-      return const Scaffold(
-        body: Center(child: CircularProgressIndicator()),
-      );
-    }
-
-    return Scaffold(
-      appBar: AppBar(
-        backgroundColor: const Color(0xFF18A3B6),
-        foregroundColor: Colors.white,
-        title: Text(
-          _doctorName == null
-              ? 'Loading...'
-              : 'Dr. $_doctorName - Telemedicine Sessions',
-          style: const TextStyle(fontWeight: FontWeight.bold),
-        ),
-        centerTitle: true,
-        actions: [
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-            margin: const EdgeInsets.only(right: 8, top: 8, bottom: 8),
-            decoration: BoxDecoration(
-              color: _isCallServiceInitialized ? Colors.green : Colors.orange,
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Row(
-              children: [
-                Icon(
-                  _isCallServiceInitialized ? Icons.check_circle : Icons.sync,
-                  color: Colors.white,
-                  size: 16,
-                ),
-                const SizedBox(width: 4),
-                Text(
-                  _isCallServiceInitialized ? 'Ready' : 'Connecting',
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 12,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          // ✅ ADD TEST BUTTON
-          IconButton(
-            icon: const Icon(Icons.wifi_find, color: Colors.white),
-            onPressed: _testServerConnection,
-            tooltip: 'Test Server Connection',
-          ),
-        ],
-      ),
-      body: Column(
-        children: [
-          if (!_isCallServiceInitialized)
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(12),
-              color: Colors.orange.withOpacity(0.1),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  const Icon(Icons.sync, size: 16, color: Colors.orange),
-                  const SizedBox(width: 8),
-                  Text(
-                    'Initializing call service...',
-                    style: TextStyle(
-                      color: Colors.orange[800],
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          Expanded(
-            child: StreamBuilder<QuerySnapshot>(
-              stream: _firestore
-                  .collection('telemedicine_sessions')
-                  .where('doctorId', isEqualTo: _doctorId)
-                  .where('status', whereIn: ['Scheduled', 'confirmed', 'In-Progress'])
-                  .snapshots(),
-              builder: (context, snapshot) {
-                if (snapshot.hasError) {
-                  return Center(child: Text('Error: ${snapshot.error}'));
-                }
-
-                if (snapshot.connectionState == ConnectionState.waiting) {
-                  return const Center(child: CircularProgressIndicator());
-                }
-
-                final sessions = snapshot.data?.docs ?? [];
-                if (sessions.isEmpty) {
-                  return _buildEmptyState();
-                }
-
-                return ListView.builder(
-                  padding: const EdgeInsets.all(16),
-                  itemCount: sessions.length,
-                  itemBuilder: (context, index) {
-                    final sessionDoc = sessions[index];
-                    final data = sessionDoc.data() as Map<String, dynamic>;
-                    return _buildSessionCard(sessionDoc.id, data);
-                  },
-                );
-              },
-            ),
-          ),
-        ],
-      ),
-      // ✅ ADD FLOATING ACTION BUTTON FOR TESTING
-      floatingActionButton: FloatingActionButton(
-        onPressed: _testServerConnection,
-        backgroundColor: const Color(0xFF18A3B6),
-        child: const Icon(Icons.wifi, color: Colors.white),
-      ),
-    );
-  }
-
-  Widget _buildSessionCard(String sessionId, Map<String, dynamic> data) {
-    final patientName = data['patientName'] ?? 'Patient';
-    final date = data['date'] ?? '';
-    final timeSlot = data['timeSlot'] ?? '';
-    final status = data['status'] ?? 'Scheduled';
-    final tokenNumber = data['tokenNumber'] ?? '';
-    final consultationType = data['consultationType'] ?? 'video';
-    final isVideoCall = consultationType == 'video';
-
-    return Card(
-      margin: const EdgeInsets.only(bottom: 12),
-      elevation: 3,
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        patientName,
-                        style: const TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        'Token: #$tokenNumber',
-                        style: TextStyle(
-                          color: Colors.grey[600],
-                          fontSize: 14,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: _getStatusColor(status),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Text(
-                    status,
-                    style: const TextStyle(color: Colors.white, fontSize: 12),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                Icon(Icons.calendar_today, size: 16, color: Colors.grey[600]),
-                const SizedBox(width: 8),
-                Text('Date: $date'),
-              ],
-            ),
-            const SizedBox(height: 4),
-            Row(
-              children: [
-                Icon(Icons.access_time, size: 16, color: Colors.grey[600]),
-                const SizedBox(width: 8),
-                Text('Time: $timeSlot'),
-              ],
-            ),
-            const SizedBox(height: 4),
-            Row(
-              children: [
-                Icon(
-                  isVideoCall ? Icons.videocam : Icons.call,
-                  size: 16,
-                  color: Colors.grey[600],
-                ),
-                const SizedBox(width: 8),
-                Text(isVideoCall ? 'Video Consultation' : 'Audio Consultation'),
-              ],
-            ),
-            const SizedBox(height: 16),
-            
-            ElevatedButton.icon(
-              icon: Icon(
-                isVideoCall ? Icons.video_call : Icons.call,
-                color: Colors.white,
-              ),
-              label: Text(
-                status == 'In-Progress'
-                    ? 'Join ${isVideoCall ? 'Video' : 'Audio'} Call'
-                    : 'Start ${isVideoCall ? 'Video' : 'Audio'} Consultation',
-              ),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: _isCallServiceInitialized 
-                    ? _getButtonColor(status) 
-                    : Colors.grey,
-                foregroundColor: Colors.white,
-                minimumSize: const Size(double.infinity, 50),
-              ),
-              onPressed: _isCallServiceInitialized
-                  ? () => _startConsultation(sessionId, data)
-                  : null,
-            ),
-            
-            if (status == 'In-Progress') ...[
-              const SizedBox(height: 10),
-              ElevatedButton.icon(
-                icon: const Icon(Icons.medical_services, color: Colors.white),
-                label: const Text('Write Prescription'),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.green,
-                  foregroundColor: Colors.white,
-                  minimumSize: const Size(double.infinity, 50),
-                ),
-                onPressed: () => _writePrescription(sessionId, data),
-              ),
-            ],
-          ],
-        ),
-      ),
-    );
-  }
-
-  void _startConsultation(String sessionId, Map<String, dynamic> data) async {
-    // ✅ CHECK MOUNTED AT START
-    if (!mounted) return;
-    
-    if (!_isCallServiceInitialized) {
-      debugPrint('❌ Call service not ready yet');
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Call service is still initializing. Please wait...'),
-          backgroundColor: Colors.orange,
-        ),
-      );
+  // ✅ DOCTOR: START VIDEO CALL - FIXED with proper error handling
+  void _startVideoCall(String sessionId, Map<String, dynamic> data) async {
+    if (!_isCallServiceInitialized || _doctorId == null || _doctorName == null) {
+      _showError('Call service not ready. Please wait...');
       return;
     }
 
     try {
-      // ✅ CHECK SERVER STATUS FIRST
-      final isServerRunning = await _checkServerStatus();
-      if (!isServerRunning) {
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Call server is not running. Please start the server first.'),
-            backgroundColor: Colors.red,
-            duration: Duration(seconds: 5),
-          ),
-        );
-        return;
-      }
-
       final patientId = data['patientId'] ?? '';
       final patientName = data['patientName'] ?? 'Patient';
-      final doctorName = _doctorName ?? 'Doctor';
-      final consultationType = data['consultationType'] ?? 'video';
-      final isVideoCall = consultationType == 'video';
 
-      debugPrint('🎯 Starting $consultationType consultation with $patientName');
+      debugPrint('🎯 DOCTOR: Starting VIDEO call with $patientName');
 
-      // Update session to In-Progress
-      if (data['status'] == 'Scheduled' || data['status'] == 'confirmed') {
-        await _firestore.collection('telemedicine_sessions').doc(sessionId).update({
-          'status': 'In-Progress',
-          'startedAt': FieldValue.serverTimestamp(),
-        });
-      }
-
-      // ✅ ADD MOUNTED CHECK BEFORE NETWORK OPERATIONS
-      if (!mounted) return;
-
-      // Join room as doctor
+      // 1. Join room first
       await _videoCallService.joinRoom(
         sessionId, 
         _doctorId!,
-        doctorName,
-        true
+        _doctorName!,
+        true // isDoctor = true
       );
 
-      // ✅ ADD MOUNTED CHECK
-      if (!mounted) return;
+      // 2. Notify patient using socket event
+      _videoCallService.socket.emit('notify-call-started', {
+        'patientId': patientId,
+        'roomId': sessionId,
+        'doctorName': _doctorName!,
+        'doctorId': _doctorId!,
+        'consultationType': 'video',
+        'timestamp': DateTime.now().toIso8601String(),
+      });
 
-      // Notify patient
-      await _videoCallService.notifyPatientCallStarted(
-        patientId, 
-        sessionId, 
-        doctorName,
-        consultationType: consultationType
-      );
+      // 3. Make the call
+      await _videoCallService.makeCall(patientId);
 
-      debugPrint('✅ Doctor started $consultationType call and notified patient $patientName');
-
-      // ✅ FINAL MOUNTED CHECK BEFORE NAVIGATION
-      if (!mounted) return;
-
-      // Navigate to appropriate call screen
-      if (isVideoCall) {
+      // 4. Navigate to video call screen
+      if (mounted) {
         Navigator.push(
           context,
           MaterialPageRoute(
@@ -443,11 +106,57 @@ class _TelemedicineAppointmentsScreenState
               currentUserName: _doctorName!,
               isDoctor: true,
               isIncomingCall: false,
-              isVideoCall: true, 
+              isVideoCall: true,
+              shouldInitiateCall: true,
             ),
           ),
         );
-      } else {
+      }
+
+    } catch (e) {
+      debugPrint('❌ Error starting video call: $e');
+      if (mounted) {
+        _showError('Failed to start video call: $e');
+      }
+    }
+  }
+
+  // ✅ DOCTOR: START AUDIO CALL - FIXED with proper error handling
+  void _startAudioCall(String sessionId, Map<String, dynamic> data) async {
+    if (!_isCallServiceInitialized || _doctorId == null || _doctorName == null) {
+      _showError('Call service not ready. Please wait...');
+      return;
+    }
+
+    try {
+      final patientId = data['patientId'] ?? '';
+      final patientName = data['patientName'] ?? 'Patient';
+
+      debugPrint('🎯 DOCTOR: Starting AUDIO call with $patientName');
+
+      // 1. Join room first
+      await _videoCallService.joinRoom(
+        sessionId, 
+        _doctorId!,
+        _doctorName!,
+        true
+      );
+
+      // 2. Notify patient using socket event
+      _videoCallService.socket.emit('notify-call-started', {
+        'patientId': patientId,
+        'roomId': sessionId,
+        'doctorName': _doctorName!,
+        'doctorId': _doctorId!,
+        'consultationType': 'audio',
+        'timestamp': DateTime.now().toIso8601String(),
+      });
+
+      // 3. Make the audio call
+      await _videoCallService.makeAudioCall(patientId);
+
+      // 4. Navigate to audio call screen
+      if (mounted) {
         Navigator.push(
           context,
           MaterialPageRoute(
@@ -459,92 +168,129 @@ class _TelemedicineAppointmentsScreenState
               currentUserName: _doctorName!,
               isDoctor: true,
               isIncomingCall: false,
+              shouldInitiateCall: true,
             ),
           ),
         );
       }
+
     } catch (e) {
-      debugPrint('❌ Error starting consultation: $e');
-      // ✅ CHECK MOUNTED BEFORE SHOWING SNACKBAR
-      if (!mounted) return;
+      debugPrint('❌ Error starting audio call: $e');
+      if (mounted) {
+        _showError('Failed to start audio call: $e');
+      }
+    }
+  }
+
+  void _showError(String message) {
+    if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Error starting call: $e'),
+          content: Text(message),
           backgroundColor: Colors.red,
+          duration: Duration(seconds: 3),
         ),
       );
     }
   }
 
-  void _writePrescription(String sessionId, Map<String, dynamic> data) {
-    try {
-      Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (context) => PrescriptionScreen(),
-        ),
-      );
-    } catch (e) {
-      debugPrint('❌ Error navigating to prescription screen: $e');
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Error opening prescription: $e'),
-          backgroundColor: Colors.red,
-        ),
-      );
-    }
-  }
-
-  Widget _buildEmptyState() {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(Icons.event_busy, size: 64, color: Colors.grey[400]),
-          const SizedBox(height: 16),
-          const Text(
-            'No Telemedicine Sessions Found',
-            style: TextStyle(fontSize: 18, color: Colors.grey),
-          ),
-          const SizedBox(height: 8),
-          const Text(
-            'Your scheduled telemedicine sessions will appear here',
-            style: TextStyle(fontSize: 14, color: Colors.grey),
-            textAlign: TextAlign.center,
-          ),
-          const SizedBox(height: 20),
-          if (!_isCallServiceInitialized)
-            ElevatedButton.icon(
-              icon: const Icon(Icons.refresh),
-              label: const Text('Retry Connection'),
-              onPressed: _initializeCallService,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF18A3B6),
-                foregroundColor: Colors.white,
-              ),
-            ),
-        ],
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: Text('Dr. ${_doctorName ?? "Doctor"} - Telemedicine'),
       ),
+      body: _buildSessionsList(),
     );
   }
 
-  Color _getStatusColor(String status) {
-    switch (status.toLowerCase()) {
-      case 'scheduled':
-        return Colors.blue;
-      case 'confirmed':
-        return Colors.orange;
-      case 'in-progress':
-        return Colors.green;
-      default:
-        return Colors.grey;
+  Widget _buildSessionsList() {
+    if (_doctorId == null) {
+      return Center(child: CircularProgressIndicator());
     }
-  }
 
-  Color _getButtonColor(String status) {
-    if (status.toLowerCase() == 'in-progress') return Colors.green;
-    return const Color(0xFF18A3B6);
+    return StreamBuilder<QuerySnapshot>(
+      stream: FirebaseFirestore.instance
+          .collection('telemedicine_sessions')
+          .where('doctorId', isEqualTo: _doctorId)
+          .where('status', whereIn: ['Scheduled', 'confirmed'])
+          .snapshots(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return Center(child: CircularProgressIndicator());
+        }
+
+        if (snapshot.hasError) {
+          return Center(child: Text('Error: ${snapshot.error}'));
+        }
+
+        if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+          return Center(child: Text('No telemedicine appointments found'));
+        }
+
+        final sessions = snapshot.data!.docs;
+        
+        return ListView.builder(
+          itemCount: sessions.length,
+          itemBuilder: (context, index) {
+            final session = sessions[index];
+            final data = session.data() as Map<String, dynamic>;
+            
+            return Card(
+              margin: EdgeInsets.all(8),
+              child: Padding(
+                padding: EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Patient: ${data['patientName'] ?? 'Unknown'}',
+                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                    ),
+                    SizedBox(height: 8),
+                    Text('Token: #${data['tokenNumber'] ?? 'N/A'}'),
+                    Text('Date: ${data['date'] ?? 'N/A'}'),
+                    Text('Time: ${data['timeSlot'] ?? 'N/A'}'),
+                    SizedBox(height: 12),
+                    // ✅ DOCTOR CAN START BOTH CALL TYPES
+                    Row(
+                      children: [
+                        Expanded(
+                          child: ElevatedButton.icon(
+                            icon: Icon(Icons.videocam),
+                            label: Text('Video Call'),
+                            onPressed: _isCallServiceInitialized
+                                ? () => _startVideoCall(session.id, data)
+                                : null,
+                          ),
+                        ),
+                        SizedBox(width: 10),
+                        Expanded(
+                          child: ElevatedButton.icon(
+                            icon: Icon(Icons.call),
+                            label: Text('Audio Call'),
+                            onPressed: _isCallServiceInitialized
+                                ? () => _startAudioCall(session.id, data)
+                                : null,
+                          ),
+                        ),
+                      ],
+                    ),
+                    if (!_isCallServiceInitialized) ...[
+                      SizedBox(height: 8),
+                      Text(
+                        'Initializing call service...',
+                        style: TextStyle(color: Colors.orange, fontSize: 12),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
   }
 
   @override

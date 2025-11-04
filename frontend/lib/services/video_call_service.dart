@@ -1,10 +1,8 @@
-// services/video_call_service.dart
+// services/video_call_service.dart - COMPLETE FIXED VERSION
 import 'dart:async';
-import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:socket_io_client/socket_io_client.dart' as io;
 import 'package:flutter_webrtc/flutter_webrtc.dart';
-import 'package:http/http.dart' as http;
 
 class VideoCallService {
   io.Socket? _socket;
@@ -18,20 +16,7 @@ class VideoCallService {
   String? _userName;
   bool _isDoctor = false;
 
-  Function(dynamic, String)? onOfferReceived;
-  Function(dynamic, String)? onAnswerReceived;
-  Function(List<dynamic>)? onIceCandidateReceived;
-
-  // Add connection state tracking
-  bool get isInitialized => _isInitialized;
-  bool _isInitialized = false;
-  
-  // Signaling state management
-  bool _isMakingOffer = false;
-  bool _isIgnoringOffer = false;
-  bool _isSettingRemoteAnswer = false;
-  
-  // Event callbacks
+  // Event callbacks - ADD THE MISSING ONES
   VoidCallback? onConnected;
   VoidCallback? onDisconnected;
   Function(String)? onError;
@@ -40,8 +25,24 @@ class VideoCallService {
   VoidCallback? onCallEnded;
   Function(Map<String, dynamic>)? onIncomingCall;
   VoidCallback? onCallAccepted;
+  Function(String)? onCallRejected;
+  VoidCallback? onCallConnected;
   Function(String)? onConnectionState;
   Function(RTCIceConnectionState)? onIceConnectionState;
+  Function(dynamic, String)? onOfferReceived; // ADD THIS
+  Function(dynamic, String)? onAnswerReceived; // ADD THIS
+
+  // State management
+  bool _isInitialized = false;
+  bool _hasRemoteDescription = false;
+  bool _isSettingRemoteDescription = false;
+  bool _isCreatingOffer = false;
+  bool _isCreatingAnswer = false;
+
+  // Server URL
+  static String getServerUrl() {
+    return 'http://192.168.1.126:5001';
+  }
 
   // Public getters
   io.Socket get socket => _socket!;
@@ -50,231 +51,211 @@ class VideoCallService {
   String? get userId => _userId;
   String? get userName => _userName;
   bool get isDoctor => _isDoctor;
-  
-  // Polite peer logic
-  bool get _isPolite => !_isDoctor;
+  bool get isInitialized => _isInitialized;
 
-  // Server URL method
-  static String getServerUrl() {
-    return 'http://192.168.1.126:5001';
-  }
-
-  // In your VideoCallService - FIXED connection handling
-Future<void> initialize({bool isPhysicalDevice = false}) async {
-  try {
-    debugPrint('🎯 Initializing VideoCallService...');
-    
-    final serverUrl = getServerUrl();
-    debugPrint('🔗 Connecting to: $serverUrl');
-
-    _socket = io.io(
-      serverUrl,
-      io.OptionBuilder()
-        .setTransports(['websocket', 'polling'])
-        .disableAutoConnect()
-        .setTimeout(30000)
-        .setReconnectionDelay(1000)
-        .setReconnectionDelayMax(5000)
-        .setRandomizationFactor(0.5)
-        .build(),
-    );
-
-    _setupSocketListeners();
-    _socket!.connect();
-    
-    // Wait for connection with timeout
-    await _waitForConnection();
-    
-    _isInitialized = true;
-    debugPrint('✅ VideoCallService initialization completed');
-    
-  } catch (e) {
-    debugPrint('❌ Error initializing VideoCallService: $e');
-    rethrow;
-  }
-}
-
-Future<void> _waitForConnection({int timeoutSeconds = 15}) async {
-  for (int i = 0; i < timeoutSeconds * 2; i++) {
-    if (_socket?.connected == true) {
-      debugPrint('✅ Connected to signaling server');
-      return;
-    }
-    await Future.delayed(Duration(milliseconds: 500));
-  }
-  throw Exception('Failed to connect to signaling server after $timeoutSeconds seconds');
-}
-
-Future<RTCSessionDescription> createOffer() async {
-    if (_peerConnection == null) {
-      throw Exception('Peer connection not initialized');
-    }
-    
+  // ✅ INITIALIZE SERVICE
+  Future<void> initialize({bool isPhysicalDevice = false}) async {
     try {
-      final offer = await _peerConnection!.createOffer({
-        'offerToReceiveAudio': true,
-        'offerToReceiveVideo': true,
-      });
+      debugPrint('🎯 Initializing VideoCallService...');
       
-      await _peerConnection!.setLocalDescription(offer);
-      debugPrint('✅ Offer created successfully');
-      return offer;
-    } catch (e) {
-      debugPrint('❌ Error creating offer: $e');
-      rethrow;
-    }
-  }
-   Future<RTCSessionDescription> createAnswer() async {
-    if (_peerConnection == null) {
-      throw Exception('Peer connection not initialized');
-    }
-    
-    try {
-      final answer = await _peerConnection!.createAnswer({
-        'offerToReceiveAudio': true,
-        'offerToReceiveVideo': true,
-      });
-      
-      await _peerConnection!.setLocalDescription(answer);
-      debugPrint('✅ Answer created successfully');
-      return answer;
-    } catch (e) {
-      debugPrint('❌ Error creating answer: $e');
-      rethrow;
-    }
-  }
-  Future<void> setRemoteDescription(RTCSessionDescription description) async {
-    if (_peerConnection == null) {
-      throw Exception('Peer connection not initialized');
-    }
-    
-    try {
-      await _peerConnection!.setRemoteDescription(description);
-      debugPrint('✅ Remote description set successfully');
-    } catch (e) {
-      debugPrint('❌ Error setting remote description: $e');
-      rethrow;
-    }
-  }
-
-  // Server status check method
-  Future<bool> _checkServerStatus() async {
-    try {
-      debugPrint('🔍 Checking server connectivity...');
-      
-      final client = http.Client();
-      final serverUrl = 'http://192.168.1.126:5001';
-      
-      final response = await client.get(
-        Uri.parse('$serverUrl/api/webrtc/health')
-      ).timeout(const Duration(seconds: 5));
-      
-      client.close();
-
-      if (response.statusCode == 200) {
-        debugPrint('✅ Server is running and accessible!');
-        return true;
-      } else {
-        debugPrint('❌ Server returned status: ${response.statusCode}');
-        return false;
-      }
-      
-    } catch (e) {
-      debugPrint('❌ Server check failed: $e');
-      return false;
-    }
-  }
-
-  void _setupSocketListeners() {
-    if (_socket == null) return;
-
-    Timer? connectionTimer;
-    
-    _socket!.onConnect((_) {
-      debugPrint('🎉 SOCKET.IO CONNECTED SUCCESSFULLY!');
-      debugPrint('   Socket ID: ${_socket!.id}');
-      connectionTimer?.cancel();
-      onConnected?.call();
-    });
-
-    _socket!.onDisconnect((_) {
-      debugPrint('🔴 SOCKET.IO DISCONNECTED');
-      onDisconnected?.call();
-    });
-
-    _socket!.onConnectError((error) {
-      debugPrint('🔴 SOCKET CONNECTION ERROR: $error');
-      onError?.call('Connection failed: $error');
-    });
-
-    _socket!.onError((error) {
-      debugPrint('🔴 SOCKET ERROR: $error');
-      onError?.call('Socket error: $error');
-    });
-
-    // Monitor connection progress
-    connectionTimer = Timer.periodic(Duration(seconds: 2), (timer) {
-      if (_socket == null) {
-        timer.cancel();
+      if (_isInitialized && _socket?.connected == true) {
+        debugPrint('✅ Already initialized and connected');
         return;
       }
-      if (_socket!.connected) {
-        debugPrint("✅ Socket is connected to the server");
-      } else {
-        debugPrint("⏳ Waiting for socket connection... (${timer.tick * 2}s)");
-      }
-    });
 
-    // Debug all events
-    _socket!.onAny((event, data) {
-      if (event != 'ice-candidate' && event != 'ping' && event != 'pong') {
-        debugPrint('📡 SOCKET EVENT: "$event" → ${data != null ? data.toString() : "null"}');
-      }
-    });
+      final serverUrl = getServerUrl();
+      debugPrint('🔗 Connecting to: $serverUrl');
 
-    // WebRTC specific handlers
-    _socket!.on('call-started', (data) {
-      debugPrint('📞 INCOMING CALL RECEIVED!');
-      if (data is Map<String, dynamic>) {
-        onIncomingCall?.call(data);
-      } else {
-        onIncomingCall?.call(Map<String, dynamic>.from(data));
-      }
-    });
+      _socket = io.io(
+        serverUrl,
+        io.OptionBuilder()
+          .setTransports(['websocket', 'polling'])
+          .disableAutoConnect()
+          .setTimeout(30000)
+          .setReconnectionDelay(1000)
+          .setReconnectionDelayMax(5000)
+          .build(),
+      );
 
-    _socket!.on('incoming-call', (data) {
-      debugPrint('📞 INCOMING CALL (alternate event)');
-      if (data is Map<String, dynamic>) {
-        onIncomingCall?.call(data);
-      } else {
-        onIncomingCall?.call(Map<String, dynamic>.from(data));
-      }
-    });
-
-    _socket!.on('webrtc-offer', (data) async {
-      debugPrint('🎉 🎉 🎉 WEBRTC OFFER FINALLY RECEIVED! 🎉 🎉 🎉');
-      debugPrint('   From: ${data['from']}');
-      debugPrint('   Room: $_currentRoomId');
-      debugPrint('   Offer data: ${data.containsKey('offer')}');
+      _setupSocketListeners();
+      _socket!.connect();
       
-      await _handleOffer(data);
-    });
-
-    _socket!.on('webrtc-answer', (data) async {
-      debugPrint('📨 WebRTC ANSWER received');
-      await _handleAnswer(data);
-    });
-
-    _socket!.on('ice-candidate', (data) async {
-      debugPrint('🧊 ICE CANDIDATE received');
-      await _handleIceCandidate(data);
-    });
-
-    _socket!.on('test-response', (data) {
-      debugPrint('🧪 TEST RESPONSE: $data');
-    });
+      await _waitForConnection();
+      _isInitialized = true;
+      debugPrint('✅ VideoCallService initialization completed');
+      
+    } catch (e) {
+      debugPrint('❌ Error initializing VideoCallService: $e');
+      rethrow;
+    }
   }
 
+  Future<void> _waitForConnection({int timeoutSeconds = 15}) async {
+    for (int i = 0; i < timeoutSeconds * 2; i++) {
+      if (_socket?.connected == true) {
+        debugPrint('✅ Connected to signaling server');
+        return;
+      }
+      await Future.delayed(Duration(milliseconds: 500));
+    }
+    throw Exception('Failed to connect to signaling server');
+  }
+
+  // ✅ JOIN ROOM
+  Future<void> joinRoom(String roomId, String userId, String userName, bool isDoctor) async {
+    try {
+      _currentRoomId = roomId;
+      _userId = userId;
+      _userName = userName;
+      _isDoctor = isDoctor;
+
+      debugPrint('🚀 Joining room: $roomId as $userName (Doctor: $isDoctor)');
+      
+      if (!isConnected) await initialize();
+
+      _socket!.emit('join-call-room', {
+        'roomId': roomId,
+        'userId': userId,
+        'userName': userName,
+        'isDoctor': isDoctor,
+      });
+      
+      await _initializeWebRTC();
+      debugPrint('✅ Successfully joined room: $roomId');
+    } catch (e) {
+      debugPrint('❌ Error joining room: $e');
+      rethrow;
+    }
+  }
+
+  // ✅ ADD MISSING METHOD: Join Patient Room
+  Future<void> joinPatientRoom(String patientId) async {
+    try {
+      debugPrint('👤 Joining patient room: $patientId');
+      
+      _socket!.emit('patient-join', {
+        'patientId': patientId,
+        'userName': _userName ?? 'Patient',
+        'userId': _userId,
+        'socketId': _socket!.id,
+      });
+      
+      debugPrint('✅ Joined patient room: $patientId');
+    } catch (e) {
+      debugPrint('❌ Error joining patient room: $e');
+      rethrow;
+    }
+  }
+
+  // ✅ ADD MISSING METHOD: Make Video Call
+  Future<void> makeCall(String targetUserId) async {
+    try {
+      debugPrint('📞 Making video call to: $targetUserId');
+      
+      await _ensurePeerConnectionInitialized();
+      final offer = await createOffer();
+      
+      _socket!.emit('webrtc-offer', {
+        'to': _currentRoomId,
+        'offer': offer.toMap(),
+        'targetUserId': targetUserId,
+      });
+      
+      debugPrint('✅ Video call offer sent');
+    } catch (e) {
+      debugPrint('❌ Error making video call: $e');
+      rethrow;
+    }
+  }
+
+  // ✅ ADD MISSING METHOD: Make Audio Call
+  Future<void> makeAudioCall(String targetUserId) async {
+    try {
+      debugPrint('🎙️ Making audio call to: $targetUserId');
+      
+      await _ensurePeerConnectionInitialized();
+      
+      // Disable video for audio call
+      if (_localStream != null) {
+        final videoTracks = _localStream!.getVideoTracks();
+        for (var track in videoTracks) {
+          track.enabled = false;
+        }
+      }
+      
+      final offer = await createOffer();
+      
+      _socket!.emit('webrtc-offer', {
+        'to': _currentRoomId,
+        'offer': offer.toMap(),
+      });
+      
+      debugPrint('✅ Audio call offer sent');
+    } catch (e) {
+      debugPrint('❌ Error making audio call: $e');
+      rethrow;
+    }
+  }
+
+  // ✅ ADD MISSING METHOD: Handle Incoming Offer
+  Future<void> handleIncomingOffer(dynamic data) async {
+    try {
+      if (_hasRemoteDescription) {
+        debugPrint('⚠️ Already have remote description, ignoring duplicate offer');
+        return;
+      }
+      
+      final from = data['from'];
+      final Map<String, dynamic> offerData = Map<String, dynamic>.from(data['offer']);
+      final offer = RTCSessionDescription(offerData['sdp'], offerData['type']);
+      
+      debugPrint('📨 HANDLING INCOMING OFFER from $from');
+      
+      // Set remote description
+      await _setRemoteDescription(offer);
+      _hasRemoteDescription = true;
+      
+      // Create and send answer
+      final answer = await createAnswer();
+      
+      _socket!.emit('webrtc-answer', {
+        'to': from,
+        'answer': answer.toMap(),
+      });
+      
+      debugPrint('✅ Sent answer to $from');
+      
+    } catch (e) {
+      debugPrint('❌ Error handling incoming offer: $e');
+      rethrow;
+    }
+  }
+
+  // ✅ ADD MISSING METHOD: Force Reconnect
+  Future<void> forceReconnect() async {
+    try {
+      debugPrint('🔄 FORCE RECONNECTING...');
+      
+      // Reset state
+      _hasRemoteDescription = false;
+      _isSettingRemoteDescription = false;
+      
+      // Safe cleanup
+      await _peerConnection?.close();
+      _peerConnection = null;
+      _senders.clear();
+      
+      // Reinitialize WebRTC
+      await _initializeWebRTC();
+      
+      debugPrint('✅ Force reconnect completed');
+    } catch (e) {
+      debugPrint('❌ Force reconnect failed: $e');
+      rethrow;
+    }
+  }
+
+  // ✅ ADD MISSING METHOD: Test WebRTC Connection
   Future<void> testWebRTCConnection() async {
     try {
       debugPrint('🧪 TESTING WEBRTC CONNECTION...');
@@ -293,12 +274,9 @@ Future<RTCSessionDescription> createOffer() async {
           'client': 'flutter_app',
           'userId': _userId,
           'timestamp': DateTime.now().millisecondsSinceEpoch,
-          'message': 'WebRTC connection test'
         });
         
         debugPrint('   ✅ Test event sent to server');
-      } else {
-        debugPrint('   ⚠️ Socket not connected yet');
       }
       
     } catch (e) {
@@ -306,358 +284,241 @@ Future<RTCSessionDescription> createOffer() async {
     }
   }
 
-  Future<void> joinRoom(String roomId, String userId, String userName, bool isDoctor) async {
+  // ✅ ADD MISSING METHOD: Switch Camera
+  Future<void> switchCamera() async {
     try {
-      _currentRoomId = roomId;
-      _userId = userId;
-      _userName = userName;
-      _isDoctor = isDoctor;
-
-      debugPrint('🚀 Joining room: $roomId as $userName (Doctor: $isDoctor)');
-      
-      _socket!.emit('join-call-room', {
-        'roomId': roomId,
-        'userId': userId,
-        'userName': userName,
-        'isDoctor': isDoctor,
-      });
-      
-      await _initializeWebRTC();
-      
-      debugPrint('✅ Successfully joined room: $roomId');
+      if (_localStream != null) {
+        final videoTracks = _localStream!.getVideoTracks();
+        if (videoTracks.isNotEmpty) {
+          await Helper.switchCamera(videoTracks.first);
+          debugPrint('🔄 Camera switched');
+        }
+      }
     } catch (e) {
-      debugPrint('❌ Error joining room: $e');
-      rethrow;
+      debugPrint('❌ Error switching camera: $e');
     }
   }
 
-  Future<void> joinPatientRoom(String patientId) async {
-    try {
-      debugPrint('👤 Joining patient room: $patientId');
-      _socket!.emit('patient-join', {
-        'patientId': patientId,
-        'userName': _userName,
-      });
-    } catch (e) {
-      debugPrint('❌ Error joining patient room: $e');
-      rethrow;
-    }
-  }
-
+  // ✅ WEBRTC CORE FUNCTIONS
   Future<void> _initializeWebRTC() async {
     try {
-      _peerConnection = await createPeerConnection({
-        'iceServers': [
-          {'urls': 'stun:stun.l.google.com:19302'},
-          {'urls': 'stun:stun1.l.google.com:19302'},
-        ]
-      });
-
-      // Set up event handlers
-      _peerConnection!.onIceCandidate = (candidate) {
-        if (candidate.candidate != null && candidate.candidate!.isNotEmpty) {
-          debugPrint('🧊 Sending ICE candidate: ${candidate.candidate}');
-          _socket!.emit('ice-candidate', {
-            'to': _currentRoomId,
-            'candidate': candidate.toMap(),
-          });
-        }
-      };
-
-      _peerConnection!.onAddStream = (stream) {
-        debugPrint('📹 Remote stream received');
-        onRemoteStream?.call(stream);
-      };
-
-      _peerConnection!.onConnectionState = (state) {
-        debugPrint('🔗 Connection state: $state');
-        onConnectionState?.call(state.toString());
-      };
-
-      _peerConnection!.onIceConnectionState = (state) {
-        debugPrint('🧊 ICE connection state: $state');
-        onIceConnectionState?.call(state);
-      };
-
-      // Signaling state listener
-      _peerConnection!.onSignalingState = (state) {
-        debugPrint('📶 Signaling state: $state');
-        _handleSignalingStateChange(state);
-      };
-
-      // Get local media stream
-      _localStream = await navigator.mediaDevices.getUserMedia({
-        'audio': true,
-        'video': _isDoctor ? {
+      await _createPeerConnection();
+      
+      final mediaConstraints = <String, dynamic>{
+        'audio': {
+          'echoCancellation': true,
+          'noiseSuppression': true,
+          'autoGainControl': true
+        },
+        'video': {
           'facingMode': 'user',
-          'width': 1280,
-          'height': 720,
-        } : true,
-      });
+          'width': {'ideal': 1280},
+          'height': {'ideal': 720},
+        },
+      };
 
-      debugPrint('🎥 Local stream obtained with ${_localStream!.getVideoTracks().length} video tracks');
+      _localStream = await navigator.mediaDevices.getUserMedia(mediaConstraints);
+      
+      if (_localStream == null) {
+        throw Exception('Failed to get local media stream');
+      }
+      
+      debugPrint('🎥 Local stream obtained with audio & video tracks');
 
       // Add tracks to peer connection
       for (var track in _localStream!.getTracks()) {
-        _senders.add(await _peerConnection!.addTrack(track, _localStream!));
+        final sender = await _peerConnection!.addTrack(track, _localStream!);
+        _senders.add(sender);
       }
 
-      onLocalStream?.call(_localStream!);
+      if (onLocalStream != null) {
+        onLocalStream!(_localStream!);
+      }
+      
       debugPrint('✅ WebRTC initialized successfully');
 
     } catch (e) {
       debugPrint('❌ Error initializing WebRTC: $e');
+      await _cleanupWebRTC();
       rethrow;
     }
   }
 
-  // Signaling state handler
-  void _handleSignalingStateChange(RTCSignalingState state) {
-    switch (state) {
-      case RTCSignalingState.RTCSignalingStateStable:
-        _isMakingOffer = false;
-        _isSettingRemoteAnswer = false;
-        break;
-      case RTCSignalingState.RTCSignalingStateHaveLocalOffer:
-        _isMakingOffer = true;
-        break;
-      case RTCSignalingState.RTCSignalingStateHaveRemoteOffer:
-        _isMakingOffer = false;
-        break;
-      default:
-        break;
-    }
-  }
-
-  Future<void> forceReconnect() async {
+  Future<void> _createPeerConnection() async {
     try {
-      debugPrint('🔄 FORCE RECONNECTING...');
+      if (_peerConnection != null) {
+        await _peerConnection!.close();
+      }
+
+      final configuration = <String, dynamic>{
+        'iceServers': [
+          {'urls': 'stun:stun.l.google.com:19302'},
+          {'urls': 'stun:stun1.l.google.com:19302'},
+        ]
+      };
+
+      _peerConnection = await createPeerConnection(configuration, {});
       
-      // Close existing connection
-      await _peerConnection?.close();
-      _peerConnection = null;
-      
-      // Reinitialize
-      await _initializeWebRTC();
-      
-      // Rejoin room
-      if (_currentRoomId != null && _userId != null && _userName != null) {
-        await joinRoom(_currentRoomId!, _userId!, _userName!, _isDoctor);
+      if (_peerConnection == null) {
+        throw Exception('Failed to create peer connection');
       }
       
-      debugPrint('✅ Force reconnect completed');
+      _setupPeerConnectionListeners();
+      debugPrint('✅ Peer connection created successfully');
     } catch (e) {
-      debugPrint('❌ Force reconnect failed: $e');
+      debugPrint('❌ Error creating peer connection: $e');
+      rethrow;
     }
   }
 
-  // Make call with collision prevention
-  Future<void> makeCall(String targetUserId) async {
-    try {
-      // Prevent multiple simultaneous offers
-      if (_isMakingOffer) {
-        debugPrint('⚠️ Already making an offer, skipping...');
-        return;
+  void _setupPeerConnectionListeners() {
+    _peerConnection!.onIceCandidate = (RTCIceCandidate candidate) {
+      if (candidate.candidate != null && candidate.candidate!.isNotEmpty) {
+        _socket!.emit('ice-candidate', {
+          'to': _currentRoomId,
+          'candidate': candidate.toMap(),
+        });
       }
-      
-      _isMakingOffer = true;
-      
-      debugPrint('📞 Making video call to: $targetUserId');
-      
-      final offer = await _peerConnection!.createOffer();
-      await _setLocalDescription(offer);
-      
-      _socket!.emit('webrtc-offer', {
-        'to': _currentRoomId,
-        'offer': offer.toMap(),
-      });
-      
-      debugPrint('✅ Video call offer sent');
-    } catch (e) {
-      debugPrint('❌ Error making video call: $e');
-      _isMakingOffer = false;
-      rethrow;
-    }
-  }
+    };
 
-  // Make audio call with collision prevention
-  Future<void> makeAudioCall(String targetUserId) async {
-    try {
-      if (_isMakingOffer) {
-        debugPrint('⚠️ Already making an offer, skipping...');
-        return;
-      }
+    _peerConnection!.onTrack = (RTCTrackEvent event) {
+      debugPrint('🎯 REMOTE TRACK RECEIVED: ${event.track.kind}');
       
-      _isMakingOffer = true;
-      
-      debugPrint('🎙️ Making audio call to: $targetUserId');
-      
-      // For audio-only calls, disable video track
-      if (_localStream != null) {
-        final videoTracks = _localStream!.getVideoTracks();
-        for (var track in videoTracks) {
-          track.enabled = false;
-        }
-      }
-      
-      final offer = await _peerConnection!.createOffer();
-      await _setLocalDescription(offer);
-      
-      _socket!.emit('webrtc-offer', {
-        'to': _currentRoomId,
-        'offer': offer.toMap(),
-      });
-      
-      debugPrint('✅ Audio call offer sent');
-    } catch (e) {
-      debugPrint('❌ Error making audio call: $e');
-      _isMakingOffer = false;
-      rethrow;
-    }
-  }
-
-  // Safe local description setter
-  Future<void> _setLocalDescription(RTCSessionDescription description) async {
-    try {
-      await _peerConnection!.setLocalDescription(description);
-    } catch (e) {
-      debugPrint('❌ Error setting local description: $e');
-      rethrow;
-    }
-  }
-
-  Future<void> notifyPatientCallStarted(String patientId, String roomId, String doctorName, {String consultationType = 'video'}) async {
-    try {
-      debugPrint('🔔 Notifying patient $patientId about $consultationType call');
-      
-      _socket!.emit('notify-call-started', {
-        'patientId': patientId,
-        'roomId': roomId,
-        'doctorName': doctorName,
-        'doctorId': _userId,
-        'consultationType': consultationType,
-      });
-      
-      debugPrint('✅ Patient notification sent');
-    } catch (e) {
-      debugPrint('❌ Error notifying patient: $e');
-      rethrow;
-    }
-  }
-
-  // Offer handling with collision detection
-  Future<void> _handleOffer(dynamic data) async {
-    try {
-      final from = data['from'];
-      final Map<String, dynamic> offerData = Map<String, dynamic>.from(data['offer']);
-      final offer = RTCSessionDescription(offerData['sdp'], offerData['type']);
-      
-      debugPrint('📨 WebRTC OFFER received from $from');
-      debugPrint('   Current signaling state: ${_peerConnection?.signalingState}');
-      debugPrint('   Is making offer: $_isMakingOffer');
-
-      // COLLISION DETECTION & RESOLUTION
-      bool collision = _isMakingOffer || _peerConnection?.signalingState != RTCSignalingState.RTCSignalingStateStable;
-      
-      if (collision) {
-        debugPrint('🔄 Offer collision detected!');
+      if (event.streams.isNotEmpty) {
+        final remoteStream = event.streams.first;
+        debugPrint('📹 Remote stream received with ${remoteStream.getTracks().length} tracks');
         
-        if (!_isPolite) {
-          // Impolite peer (doctor) ignores collision
-          debugPrint('   👨‍⚕️ Doctor ignoring collision');
-          return;
-        } else {
-          // Polite peer (patient) rolls back by creating a new connection
-          debugPrint('   👤 Patient handling collision - creating new answer');
-          // Instead of rollback, we'll handle it by creating a new answer
+        if (onRemoteStream != null) {
+          onRemoteStream!(remoteStream);
         }
+        
+        onCallConnected?.call();
       }
+    };
 
-      // Set remote description
-      await _setRemoteDescription(offer);
+    _peerConnection!.onIceConnectionState = (state) {
+      debugPrint('🧊 ICE Connection State: $state');
+      onIceConnectionState?.call(state);
+    };
+  }
+
+  Future<RTCSessionDescription> createOffer() async {
+    await _ensurePeerConnectionInitialized();
+    
+    _isCreatingOffer = true;
+    
+    try {
+      debugPrint('🎯 Creating WebRTC offer...');
       
-      // Create and send answer
-      final answer = await _peerConnection!.createAnswer();
-      await _setLocalDescription(answer);
-      
-      _socket!.emit('webrtc-answer', {
-        'to': from,
-        'answer': answer.toMap(),
+      final offer = await _peerConnection!.createOffer({
+        'offerToReceiveAudio': true,
+        'offerToReceiveVideo': true,
       });
       
-      debugPrint('✅ Handled offer and sent answer to $from');
+      await _peerConnection!.setLocalDescription(offer);
+      debugPrint('✅ Offer created and local description set');
+      
+      return offer;
     } catch (e) {
-      debugPrint('❌ Error handling offer: $e');
-      onError?.call('Failed to handle offer: $e');
+      debugPrint('❌ Error creating offer: $e');
+      rethrow;
+    } finally {
+      _isCreatingOffer = false;
     }
   }
 
-  // Answer handling
-  Future<void> _handleAnswer(dynamic data) async {
+  Future<RTCSessionDescription> createAnswer() async {
+    await _ensurePeerConnectionInitialized();
+    
+    _isCreatingAnswer = true;
+    
     try {
-      final from = data['from'];
-      final Map<String, dynamic> answerData = Map<String, dynamic>.from(data['answer']);
-      final answer = RTCSessionDescription(answerData['sdp'], answerData['type']);
+      debugPrint('🎯 Creating WebRTC answer...');
       
-      debugPrint('📨 WebRTC ANSWER received from $from');
+      final answer = await _peerConnection!.createAnswer({
+        'offerToReceiveAudio': true,
+        'offerToReceiveVideo': true,
+      });
       
-      await _setRemoteDescription(answer);
+      await _peerConnection!.setLocalDescription(answer);
+      debugPrint('✅ Answer created and local description set');
       
-      debugPrint('✅ Handled answer from $from');
+      return answer;
     } catch (e) {
-      debugPrint('❌ Error handling answer: $e');
+      debugPrint('❌ Error creating answer: $e');
+      rethrow;
+    } finally {
+      _isCreatingAnswer = false;
     }
   }
 
-  // Safe remote description setter
-  Future<void> _setRemoteDescription(RTCSessionDescription description) async {
-    try {
-      await _peerConnection!.setRemoteDescription(description);
-    } catch (e) {
-      debugPrint('❌ Error setting remote description: $e');
-      debugPrint('   Current state: ${_peerConnection?.signalingState}');
+  // ✅ SOCKET EVENT HANDLERS
+  void _setupSocketListeners() {
+    _socket!.onConnect((_) {
+      debugPrint('🎉 SOCKET.IO CONNECTED!');
+      onConnected?.call();
+    });
+
+    // Handle WebRTC offers
+    _socket!.on('webrtc-offer', (data) async {
+      debugPrint('📨 WebRTC OFFER RECEIVED');
       
-      // Handle offer collision in setRemoteDescription
-      if (e.toString().contains('have-local-offer') && description.type == 'offer') {
-        debugPrint('🔄 Offer collision detected in setRemoteDescription');
-        await _handleOfferCollision(description);
+      if (onOfferReceived != null) {
+        onOfferReceived!(data['offer'], data['from']);
       } else {
-        rethrow;
+        await handleIncomingOffer(data);
       }
-    }
+    });
+
+    // Handle WebRTC answers
+    _socket!.on('webrtc-answer', (data) async {
+      debugPrint('✅ WebRTC ANSWER received');
+      
+      try {
+        final Map<String, dynamic> answerData = Map<String, dynamic>.from(data['answer']);
+        final answer = RTCSessionDescription(answerData['sdp'], answerData['type']);
+        
+        await _setRemoteDescription(answer);
+        _hasRemoteDescription = true;
+        
+        onCallAccepted?.call();
+        
+      } catch (e) {
+        debugPrint('❌ Error handling answer: $e');
+      }
+    });
+
+    // Handle incoming calls
+    _socket!.on('incoming-call', (data) {
+      debugPrint('📞 INCOMING CALL RECEIVED');
+      if (onIncomingCall != null) {
+        onIncomingCall!(Map<String, dynamic>.from(data));
+      }
+    });
+
+    _socket!.on('call-started', (data) {
+      debugPrint('📞 CALL STARTED RECEIVED');
+      if (onIncomingCall != null) {
+        onIncomingCall!(Map<String, dynamic>.from(data));
+      }
+    });
+
+    // ICE candidates
+    _socket!.on('ice-candidate', (data) async {
+      await _handleIceCandidate(data);
+    });
+
+    // Call ended
+    _socket!.on('call-ended', (data) {
+      debugPrint('📞 CALL ENDED REMOTELY');
+      onCallEnded?.call();
+    });
   }
 
-  // SIMPLIFIED: Offer collision handler without RTCSdpType
-  Future<void> _handleOfferCollision(RTCSessionDescription offer) async {
-    try {
-      debugPrint('🔄 Handling offer collision by creating new answer...');
-      
-      // For flutter_webrtc, we can't use rollback, so we handle it differently
-      // by creating a new answer after setting the remote description
-      await _peerConnection!.setRemoteDescription(offer);
-      
-      final answer = await _peerConnection!.createAnswer();
-      await _setLocalDescription(answer);
-      
-      _socket!.emit('webrtc-answer', {
-        'to': _currentRoomId,
-        'answer': answer.toMap(),
-      });
-      
-      debugPrint('✅ Recovered from offer collision');
-    } catch (e) {
-      debugPrint('❌ Error handling offer collision: $e');
-      
-      // If collision handling fails, try to reinitialize the connection
-      debugPrint('🔄 Attempting to reinitialize WebRTC connection...');
-      try {
-        await _peerConnection?.close();
-        await _initializeWebRTC();
-        debugPrint('✅ WebRTC reinitialized after collision');
-      } catch (reinitError) {
-        debugPrint('❌ Failed to reinitialize WebRTC: $reinitError');
-      }
-    }
+  Future<void> _setRemoteDescription(RTCSessionDescription description) async {
+    await _ensurePeerConnectionInitialized();
+    await _peerConnection!.setRemoteDescription(description);
+    debugPrint('✅ Remote description set: ${description.type}');
   }
 
   Future<void> _handleIceCandidate(dynamic data) async {
@@ -669,12 +530,12 @@ Future<RTCSessionDescription> createOffer() async {
         candidateData['sdpMLineIndex'] ?? 0,
       );
       await _peerConnection!.addCandidate(candidate);
-      debugPrint('✅ Handled ICE candidate');
     } catch (e) {
       debugPrint('❌ Error handling ICE candidate: $e');
     }
   }
 
+  // ✅ MEDIA CONTROLS
   Future<bool> toggleAudio() async {
     try {
       if (_localStream != null) {
@@ -711,43 +572,39 @@ Future<RTCSessionDescription> createOffer() async {
     }
   }
 
-  Future<void> switchCamera() async {
-    try {
-      if (_localStream != null) {
-        final videoTracks = _localStream!.getVideoTracks();
-        if (videoTracks.isNotEmpty) {
-          await Helper.switchCamera(videoTracks.first);
-          debugPrint('🔄 Camera switched');
-        }
-      }
-    } catch (e) {
-      debugPrint('❌ Error switching camera: $e');
+  // ✅ UTILITY FUNCTIONS
+  bool get isPeerConnectionReady => _peerConnection != null;
+
+  Future<void> _ensurePeerConnectionInitialized() async {
+    if (!isPeerConnectionReady) {
+      await _createPeerConnection();
     }
   }
 
+  Future<void> _cleanupWebRTC() async {
+    try {
+      _localStream?.dispose();
+      await _peerConnection?.close();
+      _localStream = null;
+      _peerConnection = null;
+      _senders.clear();
+    } catch (e) {
+      debugPrint('❌ Error during WebRTC cleanup: $e');
+    }
+  }
+
+  // ✅ END CALL
   void endCall() {
-    debugPrint('📞 Ending call and cleaning up...');
+    debugPrint('📞 Ending call...');
     
     _socket!.emit('end-call', {'roomId': _currentRoomId});
     _socket!.emit('leave-call-room', _currentRoomId);
     
-    _localStream?.dispose();
-    _peerConnection?.close();
-    
-    _localStream = null;
-    _peerConnection = null;
-    _senders.clear();
-    
-    // Reset state
-    _isMakingOffer = false;
-    _isIgnoringOffer = false;
-    _isSettingRemoteAnswer = false;
-    
-    debugPrint('✅ Call ended and resources cleaned up');
+    _cleanupWebRTC();
+    debugPrint('✅ Call ended');
   }
 
   void dispose() {
-    debugPrint('♻️ Disposing VideoCallService...');
     endCall();
     _socket?.disconnect();
     _socket?.dispose();

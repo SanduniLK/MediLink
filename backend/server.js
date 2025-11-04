@@ -36,19 +36,83 @@ const users = new Map();
 // WebRTC Socket.io connection handling
 io.on('connection', (socket) => {
   console.log('🔗 User connected for WebRTC:', socket.id);
+// server.js - ADD THESE EVENTS
 
+// Doctor starts a call
+socket.on('doctor-start-call', (data) => {
+  console.log(`📞 DOCTOR starting ${data.callType} call to room ${data.roomId}`);
+  
+  // Notify patient about incoming call
+  socket.to(data.roomId).emit('incoming-call-from-doctor', {
+    doctorName: data.callerName,
+    doctorId: data.targetUserId,
+    roomId: data.roomId,
+    callType: data.callType,
+    timestamp: new Date().toISOString()
+  });
+
+  // Send offer to patient
+  socket.to(data.roomId).emit('webrtc-offer', {
+    from: socket.id,
+    offer: data.offer,
+    callType: data.callType
+  });
+});
+
+// Patient answers call
+socket.on('patient-answer-call', (data) => {
+  console.log(`✅ PATIENT answered call in room ${data.roomId}`);
+  
+  // Notify doctor that patient answered
+  socket.to(data.roomId).emit('call-answered-by-patient', {
+    from: socket.id,
+    answer: data.answer
+  });
+});
+
+// Patient rejects call
+socket.on('patient-reject-call', (data) => {
+  console.log(`❌ PATIENT rejected call in room ${data.roomId}`);
+  
+  // Notify doctor that patient rejected
+  socket.to(data.roomId).emit('call-rejected-by-patient', {
+    from: socket.id,
+    reason: data.reason
+  });
+});
+
+// Notify patient about call
+socket.on('notify-call-started', (data) => {
+  console.log(`🔔 Notifying patient ${data.patientId} about call`);
+  
+  const patientRoom = `patient_${data.patientId}`;
+  socket.to(patientRoom).emit('incoming-call-from-doctor', {
+    doctorName: data.doctorName,
+    doctorId: data.doctorId,
+    roomId: data.roomId,
+    callType: data.callType,
+    timestamp: data.timestamp
+  });
+});
 
   socket.on('patient-join', (data) => {
   const patientId = typeof data === 'string' ? data : data.patientId;
+   const userName = data.userName || 'Unknown Patient';
   const roomName = `patient_${patientId}`;
   
-  console.log(`🎯 PATIENT JOIN: ${patientId} -> Room: ${roomName}`);
+  console.log(`🎯 PATIENT JOIN DEBUG:`);
+  console.log(`   Patient ID: ${patientId}`);
+  console.log(`   Patient Name: ${userName}`);
+  console.log(`   Room Name: ${roomName}`);
+  console.log(`   Socket ID: ${socket.id}`);
+  console.log(`   Data received: ${JSON.stringify(data)}`);
   
   // Leave any previous patient rooms
-  const rooms = Array.from(socket.rooms);
-  rooms.forEach(room => {
-    if (room.startsWith('patient_')) {
+  const currentRooms = Array.from(socket.rooms);
+  currentRooms.forEach(room => {
+    if (room.startsWith('patient_') && room !== roomName) {
       socket.leave(room);
+      console.log(`   Left previous room: ${room}`);
     }
   });
   
@@ -56,38 +120,106 @@ io.on('connection', (socket) => {
   socket.join(roomName);
   
   // Store patient info
-  users.set(socket.id, { 
+ users.set(socket.id, { 
     type: 'patient', 
     patientId: patientId,
+    userName: userName,
     room: roomName,
-    socketId: socket.id
+    socketId: socket.id,
+    joinedAt: new Date().toISOString()
   });
   
-  console.log(`✅ Patient ${patientId} joined room: ${roomName}`);
+    console.log(`✅ Patient ${patientId} (${data.userName}) joined room: ${roomName}`);
+
+    socket.emit('patient-room-joined', {
+    room: roomName,
+    patientId: patientId,
+    status: 'success'
+  });
+
+      // Debug: Check all patient rooms
+  const patientRooms = Array.from(io.sockets.adapter.rooms.keys())
+    .filter(room => room.startsWith('patient_'));
+ console.log(`   Active patient rooms: ${patientRooms.join(', ') || 'NONE'}`);
 });
+});
+
+// Add this to your server.js for real-time debugging
+console.log('\n🔍 REAL-TIME PATIENT ROOM DEBUG:');
+const patientRooms = Array.from(io.sockets.adapter.rooms.keys())
+  .filter(room => room.startsWith('patient_'));
+console.log(`   Active patient rooms: ${patientRooms.join(', ') || 'NONE'}`);
+
+// Check if our target patient is connected
+const targetPatientRoom = `patient_cnHEP9bh8QdKvS061HjBpiRzyNZ2`;
+const targetRoom = io.sockets.adapter.rooms.get(targetPatientRoom);
+console.log(`   Target patient room exists: ${!!targetRoom}`);
+if (targetRoom) {
+  console.log(`   Sockets in target room: ${Array.from(targetRoom).join(', ')}`);
+}
+// Add this to your server.js for real-time monitoring
+setInterval(() => {
+  console.log('\n🏠 REAL-TIME CONNECTION MONITOR:');
+  console.log(`   Total connections: ${io.engine.clientsCount}`);
+  
+  const rooms = io.sockets.adapter.rooms;
+  const patientRooms = Array.from(rooms.keys()).filter(room => room.startsWith('patient_'));
+  
+  console.log(`   Patient rooms: ${patientRooms.length}`);
+  patientRooms.forEach(roomName => {
+    const room = rooms.get(roomName);
+    const patientId = roomName.replace('patient_', '');
+    console.log(`   👤 ${roomName}: ${room.size} socket(s)`);
+    
+    // Show socket details for each patient room
+    Array.from(room).forEach(socketId => {
+      const userInfo = users.get(socketId);
+      if (userInfo) {
+        console.log(`      → ${userInfo.userName} (${socketId})`);
+      }
+    });
+  });
+  
+  // Show call rooms
+  const callRooms = Array.from(rooms.keys()).filter(room => room.startsWith('T17'));
+  console.log(`   Active call rooms: ${callRooms.length}`);
+  callRooms.forEach(roomName => {
+    const room = rooms.get(roomName);
+    console.log(`   📞 ${roomName}: ${room.size} participant(s)`);
+  });
+  
+}, 15000); // Every 15 seconds 10000); // Every 10 seconds
 
 socket.on('notify-call-started', (data) => {
   const { patientId, roomId, doctorName, doctorId, consultationType } = data;
   
-  console.log(`🔔 CALL NOTIFICATION: Doctor ${doctorName} -> Patient ${patientId}`);
+  console.log(`🔔 CALL NOTIFICATION: Patient ${patientId}, Room ${roomId}`);
   
   const patientRoomName = `patient_${patientId}`;
   const patientRoom = io.sockets.adapter.rooms.get(patientRoomName);
   
   if (patientRoom && patientRoom.size > 0) {
-    console.log(`📤 Sending call-started to room: ${patientRoomName}`);
+    console.log(`✅ Sending call to patient room: ${patientRoomName}`);
     
     io.to(patientRoomName).emit('call-started', {
       roomId: roomId,
       doctorName: doctorName,
       doctorId: doctorId,
       consultationType: consultationType || 'video',
+      patientId: patientId,
       timestamp: new Date().toISOString()
     });
     
-    console.log(`✅ Notification sent to patient ${patientId}`);
+    // Also send as incoming-call for compatibility
+    io.to(patientRoomName).emit('incoming-call', {
+      roomId: roomId,
+      doctorName: doctorName,
+      doctorId: doctorId,
+      consultationType: consultationType || 'video',
+      patientId: patientId
+    });
   } else {
-    console.log(`❌ Patient ${patientId} not found in room ${patientRoomName}`);
+    console.log(`❌ Patient ${patientId} not in their room`);
   }
 });
   // Join a video call room
@@ -108,7 +240,14 @@ socket.on('notify-call-started', (data) => {
     const roomSize = rooms.get(roomId).size;
     io.to(roomId).emit('room-size-update', { size: roomSize });
   });
-
+socket.on('test-patient-notification', (data) => {
+  console.log('🧪 TEST PATIENT NOTIFICATION:', data);
+  socket.emit('test-response', {
+    message: 'Test notification received by server',
+    patientId: data.patientId,
+    timestamp: new Date().toISOString()
+  });
+});
   // Handle WebRTC signaling messages
   socket.on('webrtc-signal', (data) => {
     console.log(`📡 WebRTC signal from ${socket.id} to room ${data.roomId}: ${data.type}`);
@@ -125,9 +264,18 @@ socket.on('notify-call-started', (data) => {
   // Enhanced WebRTC signaling for direct peer communication
   socket.on('webrtc-offer', (data) => {
     console.log(`📨 WebRTC offer from ${socket.id} to ${data.to}`);
+    console.log(`   Target User ID: ${data.targetUserId}`);
+
+    if (!data.offer || !data.to) {
+    console.log('❌ Invalid offer data');
+    return;
+  }
     socket.to(data.to).emit('webrtc-offer', {
       from: socket.id,
-      offer: data.offer
+      fromUserId: data.targetUserId,
+      offer: data.offer,
+      roomId: data.to,
+      timestamp: new Date().toISOString()
     });
   });
 
@@ -135,11 +283,16 @@ socket.on('notify-call-started', (data) => {
     console.log(`📨 WebRTC answer from ${socket.id} to ${data.to}`);
     socket.to(data.to).emit('webrtc-answer', {
       from: socket.id,
-      answer: data.answer
+      answer: data.answer,
+      timestamp: new Date().toISOString()
     });
   });
-
+socket.on('media-state-changed', (data) => {
+  console.log(`🎛️ Media state changed: ${data.mediaType} = ${data.enabled}`);
+  socket.to(data.roomId).emit('media-state-changed', data);
+});
   socket.on('ice-candidate', (data) => {
+     console.log(`🧊 ICE candidate from ${socket.id} to ${data.to}`);
     socket.to(data.to).emit('ice-candidate', {
       from: socket.id,
       candidate: data.candidate
@@ -225,7 +378,7 @@ socket.on('notify-call-started', (data) => {
       }
     });
   });
-});
+
 
 // Your existing routes below - KEEP ALL YOUR CURRENT ROUTES AS THEY ARE
 const queueRoutes = require('./routes/queueRoutes');

@@ -516,7 +516,7 @@ Widget _buildHeader(double screenWidth) {
           ),
           GestureDetector(
             onTap: () {
-              Navigator.push(context, MaterialPageRoute(builder: (_) => const TelemedicineScreen()));
+              Navigator.push(context, MaterialPageRoute(builder: (_) => const PatientTelemedicineScreen()));
             },
             child: _buildActionButton(Icons.video_call_outlined, 'Telemedicine', kBrightCyan),
           ),
