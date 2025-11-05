@@ -429,7 +429,7 @@ Future<dynamic> createOffer() async {
   }
 
   // Handle WebRTC offer
-  Future<void> handleOffer(dynamic offerData) async {
+ Future<void> handleOffer(dynamic offerData) async {
   try {
     debugPrint('🔄 Handling WebRTC offer...');
     
@@ -450,11 +450,8 @@ Future<dynamic> createOffer() async {
     );
     debugPrint('   ✅ Remote description set');
     
-    // Create and set local answer
-    debugPrint('   Creating answer...');
-    final answer = await _peerConnection!.createAnswer();
-    await _peerConnection!.setLocalDescription(answer);
-    debugPrint('   ✅ Answer created and set');
+    // WebRTC will automatically create answer when remote description is set
+    // No need to manually create answer here
     
   } catch (e, stackTrace) {
     debugPrint('❌ Error handling offer: $e');
