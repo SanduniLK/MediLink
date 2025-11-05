@@ -25,359 +25,442 @@ const server = http.createServer(app);
 const io = socketIo(server, {
   cors: {
     origin: "*",
-    methods: ["GET", "POST"]
-  }
+    methods: ["GET", "POST"],
+    credentials: true
+  },
+  pingTimeout: 60000,
+  pingInterval: 25000,
+  transports: ['websocket', 'polling']
 });
 
-// Store active rooms and users for WebRTC
-const rooms = new Map();
-const users = new Map();
-
-// WebRTC Socket.io connection handling
+// ========== COMPLETE SOCKET.IO EVENT HANDLERS ==========
 io.on('connection', (socket) => {
-  console.log('🔗 User connected for WebRTC:', socket.id);
-// server.js - ADD THESE EVENTS
+  console.log('🎯 NEW CLIENT CONNECTED:', socket.id);
+  console.log('   Headers:', socket.handshake.headers);
+  console.log('   Query:', socket.handshake.query);
 
-// Doctor starts a call
-socket.on('doctor-start-call', (data) => {
-  console.log(`📞 DOCTOR starting ${data.callType} call to room ${data.roomId}`);
-  
-  // Notify patient about incoming call
-  socket.to(data.roomId).emit('incoming-call-from-doctor', {
-    doctorName: data.callerName,
-    doctorId: data.targetUserId,
-    roomId: data.roomId,
-    callType: data.callType,
-    timestamp: new Date().toISOString()
+  // Register user with their ID
+  socket.on('register-user', (data) => {
+    const { userId, userType } = data;
+    console.log(`👤 User registered: ${userId} (${userType})`);
+    socket.userId = userId;
+    socket.userType = userType;
+    socket.join(userId);
+
+    // Send confirmation
+    socket.emit('registration-confirmed', { 
+      userId, 
+      userType,
+      socketId: socket.id 
+    });
   });
 
-  // Send offer to patient
-  socket.to(data.roomId).emit('webrtc-offer', {
-    from: socket.id,
-    offer: data.offer,
-    callType: data.callType
-  });
-});
-
-// Patient answers call
-socket.on('patient-answer-call', (data) => {
-  console.log(`✅ PATIENT answered call in room ${data.roomId}`);
-  
-  // Notify doctor that patient answered
-  socket.to(data.roomId).emit('call-answered-by-patient', {
-    from: socket.id,
-    answer: data.answer
-  });
-});
-
-// Patient rejects call
-socket.on('patient-reject-call', (data) => {
-  console.log(`❌ PATIENT rejected call in room ${data.roomId}`);
-  
-  // Notify doctor that patient rejected
-  socket.to(data.roomId).emit('call-rejected-by-patient', {
-    from: socket.id,
-    reason: data.reason
-  });
-});
-
-// Notify patient about call
-socket.on('notify-call-started', (data) => {
-  console.log(`🔔 Notifying patient ${data.patientId} about call`);
-  
-  const patientRoom = `patient_${data.patientId}`;
-  socket.to(patientRoom).emit('incoming-call-from-doctor', {
-    doctorName: data.doctorName,
-    doctorId: data.doctorId,
-    roomId: data.roomId,
-    callType: data.callType,
-    timestamp: data.timestamp
-  });
-});
-
+  // Patient joins patient room
   socket.on('patient-join', (data) => {
-  const patientId = typeof data === 'string' ? data : data.patientId;
-   const userName = data.userName || 'Unknown Patient';
-  const roomName = `patient_${patientId}`;
-  
-  console.log(`🎯 PATIENT JOIN DEBUG:`);
-  console.log(`   Patient ID: ${patientId}`);
-  console.log(`   Patient Name: ${userName}`);
-  console.log(`   Room Name: ${roomName}`);
-  console.log(`   Socket ID: ${socket.id}`);
-  console.log(`   Data received: ${JSON.stringify(data)}`);
-  
-  // Leave any previous patient rooms
-  const currentRooms = Array.from(socket.rooms);
-  currentRooms.forEach(room => {
-    if (room.startsWith('patient_') && room !== roomName) {
-      socket.leave(room);
-      console.log(`   Left previous room: ${room}`);
+    const { patientId, userName } = data;
+    console.log(`👤 Patient joined room: ${patientId} - ${userName}`);
+    socket.patientId = patientId;
+    socket.join(patientId);
+    
+    socket.emit('patient-room-joined', { 
+      patientId, 
+      userName,
+      success: true 
+    });
+    console.log(`✅ Patient ${patientId} joined their room successfully`);
+  });
+
+  // Doctor starts consultation
+  socket.on('doctor-start-call', async (data) => {
+    const { roomId, callType, callerName, callerId, targetUserId, offer } = data;
+    console.log('📞 Doctor starting call:', { 
+      roomId, 
+      callerName, 
+      targetUserId,
+      doctorId: callerId ,
+      socketId: socket.id
+    });
+    
+    try {
+      // Join the room first
+      socket.join(roomId);
+      console.log(`✅ Doctor joined room: ${roomId}`);
+
+      function findSocketByUserId(userId) {
+  const sockets = Array.from(io.sockets.sockets.values());
+  return sockets.find(socket => socket.userId === userId);
+}
+
+      // Check if target user is connected
+    const targetSocket = findSocketByUserId(targetUserId);
+    console.log(`🎯 Target patient socket: ${targetSocket ? 'FOUND' : 'NOT FOUND'}`);
+    
+    if (targetSocket) {
+      console.log(`   Target socket ID: ${targetSocket.id}`);
+      console.log(`   Target socket rooms: ${Array.from(targetSocket.rooms)}`);
+    }
+      // Send WebRTC offer to the specific patient
+      socket.to(targetUserId).emit('webrtc-offer', {
+        from: socket.id,
+        offer: offer,
+        roomId: roomId,
+        callerName: callerName,
+        callerId: callerId,
+        callType: callType,
+        timestamp: new Date().toISOString()
+      });
+      
+      console.log(`📨 WebRTC offer sent to patient: ${targetUserId}`);
+      
+      // Send confirmation to doctor
+      socket.emit('call-started', {
+        roomId: roomId,
+        targetUserId: targetUserId,
+        success: true
+      });
+      
+    } catch (error) {
+      console.error('❌ Error starting call:', error);
+      socket.emit('call-error', { error: error.message });
     }
   });
-  
-  // Join new patient room
-  socket.join(roomName);
-  
-  // Store patient info
- users.set(socket.id, { 
-    type: 'patient', 
-    patientId: patientId,
-    userName: userName,
-    room: roomName,
-    socketId: socket.id,
-    joinedAt: new Date().toISOString()
-  });
-  
-    console.log(`✅ Patient ${patientId} (${data.userName}) joined room: ${roomName}`);
 
-    socket.emit('patient-room-joined', {
-    room: roomName,
-    patientId: patientId,
-    status: 'success'
-  });
-
-      // Debug: Check all patient rooms
-  const patientRooms = Array.from(io.sockets.adapter.rooms.keys())
-    .filter(room => room.startsWith('patient_'));
- console.log(`   Active patient rooms: ${patientRooms.join(', ') || 'NONE'}`);
-});
-});
-
-// Add this to your server.js for real-time debugging
-console.log('\n🔍 REAL-TIME PATIENT ROOM DEBUG:');
-const patientRooms = Array.from(io.sockets.adapter.rooms.keys())
-  .filter(room => room.startsWith('patient_'));
-console.log(`   Active patient rooms: ${patientRooms.join(', ') || 'NONE'}`);
-
-// Check if our target patient is connected
-const targetPatientRoom = `patient_cnHEP9bh8QdKvS061HjBpiRzyNZ2`;
-const targetRoom = io.sockets.adapter.rooms.get(targetPatientRoom);
-console.log(`   Target patient room exists: ${!!targetRoom}`);
-if (targetRoom) {
-  console.log(`   Sockets in target room: ${Array.from(targetRoom).join(', ')}`);
-}
-// Add this to your server.js for real-time monitoring
-setInterval(() => {
-  console.log('\n🏠 REAL-TIME CONNECTION MONITOR:');
-  console.log(`   Total connections: ${io.engine.clientsCount}`);
-  
-  const rooms = io.sockets.adapter.rooms;
-  const patientRooms = Array.from(rooms.keys()).filter(room => room.startsWith('patient_'));
-  
-  console.log(`   Patient rooms: ${patientRooms.length}`);
-  patientRooms.forEach(roomName => {
-    const room = rooms.get(roomName);
-    const patientId = roomName.replace('patient_', '');
-    console.log(`   👤 ${roomName}: ${room.size} socket(s)`);
+  // Patient answers call
+  socket.on('patient-answer-call', (data) => {
+    const { roomId, answer } = data;
+    console.log('✅ Patient answering call in room:', roomId);
     
-    // Show socket details for each patient room
-    Array.from(room).forEach(socketId => {
-      const userInfo = users.get(socketId);
-      if (userInfo) {
-        console.log(`      → ${userInfo.userName} (${socketId})`);
-      }
-    });
-  });
-  
-  // Show call rooms
-  const callRooms = Array.from(rooms.keys()).filter(room => room.startsWith('T17'));
-  console.log(`   Active call rooms: ${callRooms.length}`);
-  callRooms.forEach(roomName => {
-    const room = rooms.get(roomName);
-    console.log(`   📞 ${roomName}: ${room.size} participant(s)`);
-  });
-  
-}, 15000); // Every 15 seconds 10000); // Every 10 seconds
-
-socket.on('notify-call-started', (data) => {
-  const { patientId, roomId, doctorName, doctorId, consultationType } = data;
-  
-  console.log(`🔔 CALL NOTIFICATION: Patient ${patientId}, Room ${roomId}`);
-  
-  const patientRoomName = `patient_${patientId}`;
-  const patientRoom = io.sockets.adapter.rooms.get(patientRoomName);
-  
-  if (patientRoom && patientRoom.size > 0) {
-    console.log(`✅ Sending call to patient room: ${patientRoomName}`);
-    
-    io.to(patientRoomName).emit('call-started', {
-      roomId: roomId,
-      doctorName: doctorName,
-      doctorId: doctorId,
-      consultationType: consultationType || 'video',
-      patientId: patientId,
-      timestamp: new Date().toISOString()
+    socket.to(roomId).emit('webrtc-answer', {
+      from: socket.id,
+      answer: answer,
+      roomId: roomId
     });
     
-    // Also send as incoming-call for compatibility
-    io.to(patientRoomName).emit('incoming-call', {
-      roomId: roomId,
-      doctorName: doctorName,
-      doctorId: doctorId,
-      consultationType: consultationType || 'video',
-      patientId: patientId
+    console.log(`📨 WebRTC answer sent to room: ${roomId}`);
+  });
+
+  // Patient rejects call
+  socket.on('patient-reject-call', (data) => {
+    const { roomId, reason } = data;
+    console.log('❌ Patient rejecting call:', { roomId, reason });
+    
+    socket.to(roomId).emit('call-rejected', {
+      from: socket.id,
+      reason: reason,
+      roomId: roomId
     });
-  } else {
-    console.log(`❌ Patient ${patientId} not in their room`);
-  }
-});
-  // Join a video call room
+  });
+
+  // Join call room
   socket.on('join-call-room', (roomId) => {
+    console.log(`🚪 User ${socket.id} joining call room: ${roomId}`);
     socket.join(roomId);
     
-    if (!rooms.has(roomId)) {
-      rooms.set(roomId, new Set());
-    }
-    rooms.get(roomId).add(socket.id);
-    
-    console.log(`🎥 User ${socket.id} joined call room: ${roomId}`);
-    
-    // Notify others in the room
-    socket.to(roomId).emit('user-joined', { userId: socket.id });
-    
-    // Send current room participants count
-    const roomSize = rooms.get(roomId).size;
-    io.to(roomId).emit('room-size-update', { size: roomSize });
-  });
-socket.on('test-patient-notification', (data) => {
-  console.log('🧪 TEST PATIENT NOTIFICATION:', data);
-  socket.emit('test-response', {
-    message: 'Test notification received by server',
-    patientId: data.patientId,
-    timestamp: new Date().toISOString()
-  });
-});
-  // Handle WebRTC signaling messages
-  socket.on('webrtc-signal', (data) => {
-    console.log(`📡 WebRTC signal from ${socket.id} to room ${data.roomId}: ${data.type}`);
-    
-    // Broadcast to other users in the room
-    socket.to(data.roomId).emit('webrtc-signal', {
-      type: data.type,
-      sdp: data.sdp,
-      candidate: data.candidate,
-      from: socket.id
+    socket.to(roomId).emit('user-joined', { 
+      userId: socket.id, 
+      roomId: roomId 
     });
+    
+    console.log(`✅ User ${socket.id} joined room: ${roomId}`);
   });
 
-  // Enhanced WebRTC signaling for direct peer communication
+  // WebRTC signaling: Offer
   socket.on('webrtc-offer', (data) => {
-    console.log(`📨 WebRTC offer from ${socket.id} to ${data.to}`);
-    console.log(`   Target User ID: ${data.targetUserId}`);
-
-    if (!data.offer || !data.to) {
-    console.log('❌ Invalid offer data');
-    return;
-  }
+    console.log('📨 WebRTC offer relay:', { from: socket.id, to: data.to });
     socket.to(data.to).emit('webrtc-offer', {
       from: socket.id,
-      fromUserId: data.targetUserId,
       offer: data.offer,
-      roomId: data.to,
-      timestamp: new Date().toISOString()
+      targetUserId: data.targetUserId
     });
   });
 
+  // WebRTC signaling: Answer
   socket.on('webrtc-answer', (data) => {
-    console.log(`📨 WebRTC answer from ${socket.id} to ${data.to}`);
+    console.log('📨 WebRTC answer relay:', { from: socket.id, to: data.to });
     socket.to(data.to).emit('webrtc-answer', {
       from: socket.id,
-      answer: data.answer,
-      timestamp: new Date().toISOString()
+      answer: data.answer
     });
   });
-socket.on('media-state-changed', (data) => {
-  console.log(`🎛️ Media state changed: ${data.mediaType} = ${data.enabled}`);
-  socket.to(data.roomId).emit('media-state-changed', data);
-});
+
+  // WebRTC signaling: ICE Candidate
   socket.on('ice-candidate', (data) => {
-     console.log(`🧊 ICE candidate from ${socket.id} to ${data.to}`);
+    console.log('🧊 ICE candidate relay:', { from: socket.id, to: data.to });
     socket.to(data.to).emit('ice-candidate', {
       from: socket.id,
       candidate: data.candidate
     });
   });
 
-  // Handle user leaving call
-  socket.on('leave-call-room', (roomId) => {
-    socket.leave(roomId);
-    
-    if (rooms.has(roomId)) {
-      rooms.get(roomId).delete(socket.id);
-      if (rooms.get(roomId).size === 0) {
-        rooms.delete(roomId);
-      }
-    }
-    
-    console.log(`🚪 User ${socket.id} left call room: ${roomId}`);
-    socket.to(roomId).emit('user-left', { userId: socket.id });
-  });
-
-  // Handle call initiation
-  socket.on('initiate-call', (data) => {
-    const { targetUserId, roomId, offer, callerName, callType } = data;
-    console.log(`📞 Call initiated by ${callerName} in room ${roomId}`);
-    
-    socket.to(roomId).emit('incoming-call', {
-      from: socket.id,
-      fromUserId: data.callerId,
-      fromUserName: callerName,
-      roomId: roomId,
-      offer: offer,
-      callType: callType || 'video'
-    });
-  });
-
-  // Handle call acceptance
-  socket.on('accept-call', (data) => {
-    const { to, answer } = data;
-    console.log(`✅ Call accepted by ${socket.id}, sending answer to: ${to}`);
-    
-    socket.to(to).emit('call-accepted', {
-      from: socket.id,
-      answer: answer
-    });
-  });
-
-  // Handle media controls
-  socket.on('toggle-media', (data) => {
-    const { roomId, mediaType, isEnabled } = data;
-    console.log(`🎛️ ${socket.id} toggled ${mediaType}: ${isEnabled}`);
-    
-    socket.to(roomId).emit('user-media-updated', {
-      userId: socket.id,
-      mediaType: mediaType,
-      isEnabled: isEnabled
-    });
-  });
-
-  // Handle call end
+  // End call
   socket.on('end-call', (data) => {
-    const { roomId } = data;
-    console.log(`📞 Call ended by ${socket.id} in room ${roomId}`);
+    const { roomId, endedBy } = data;
+    console.log(`📞 Call ended in room ${roomId} by: ${endedBy}`);
     
     socket.to(roomId).emit('call-ended', {
-      endedBy: socket.id,
-      timestamp: new Date().toISOString()
+      endedBy: endedBy,
+      roomId: roomId
+    });
+    
+    socket.leave(roomId);
+  });
+
+  // Media state change
+  socket.on('media-state-changed', (data) => {
+    const { roomId, mediaType, enabled } = data;
+    console.log(`🎛️ Media state change in ${roomId}: ${mediaType} = ${enabled}`);
+    
+    socket.to(roomId).emit('media-state-changed', {
+      from: socket.id,
+      mediaType: mediaType,
+      enabled: enabled
     });
   });
 
-  socket.on('disconnect', () => {
-    console.log('🔌 User disconnected from WebRTC:', socket.id);
+  // Handle disconnection
+  socket.on('disconnect', (reason) => {
+    console.log('🚪 Client disconnected:', socket.id, 'Reason:', reason);
     
-    // Remove user from all rooms
-    rooms.forEach((users, roomId) => {
-      if (users.has(socket.id)) {
-        users.delete(socket.id);
-        socket.to(roomId).emit('user-left', { userId: socket.id });
-        
-        if (users.size === 0) {
-          rooms.delete(roomId);
+    if (socket.rooms) {
+      socket.rooms.forEach(room => {
+        if (room !== socket.id) {
+          socket.to(room).emit('user-left', { userId: socket.id, roomId: room });
         }
-      }
-    });
+      });
+    }
   });
+
+  socket.on('error', (error) => {
+    console.error('❌ Socket error:', error);
+  });
+});
+
+// ========== TELEMEDICINE API ENDPOINTS ==========
+
+// Health check
+app.get('/health', (req, res) => {
+  res.json({ 
+    status: 'OK', 
+    message: 'BACKEND WITH FIREBASE IS WORKING!',
+    timestamp: new Date().toISOString()
+  });
+});
+
+// Get telemedicine sessions for patient
+app.get('/api/telemedicine/patient/:patientId/sessions', async (req, res) => {
+  try {
+    const { patientId } = req.params;
+    
+    console.log(`📋 Getting telemedicine sessions for patient: ${patientId}`);
+    
+    const snapshot = await db.collection('telemedicine_sessions')
+      .where('patientId', '==', patientId)
+      .orderBy('createdAt', 'desc')
+      .get();
+    
+    const sessions = [];
+    snapshot.forEach(doc => {
+      const data = doc.data();
+      sessions.push({
+        id: doc.id,
+        ...data,
+        createdAt: data.createdAt?.toDate?.()?.toISOString() || data.createdAt,
+        startedAt: data.startedAt?.toDate?.()?.toISOString() || data.startedAt,
+        endedAt: data.endedAt?.toDate?.()?.toISOString() || data.endedAt,
+        updatedAt: data.updatedAt?.toDate?.()?.toISOString() || data.updatedAt,
+      });
+    });
+    
+    console.log(`✅ Found ${sessions.length} sessions for patient ${patientId}`);
+    
+    res.json({
+      success: true,
+      sessions: sessions
+    });
+    
+  } catch (error) {
+    console.error('❌ Error getting patient sessions:', error);
+    res.status(500).json({ 
+      success: false,
+      error: error.message 
+    });
+  }
+});
+
+// Get telemedicine sessions for doctor
+app.get('/api/telemedicine/doctor/:doctorId/sessions', async (req, res) => {
+  try {
+    const { doctorId } = req.params;
+    
+    console.log(`📋 Getting telemedicine sessions for doctor: ${doctorId}`);
+    
+    const snapshot = await db.collection('telemedicine_sessions')
+      .where('doctorId', '==', doctorId)
+      .orderBy('createdAt', 'desc')
+      .get();
+    
+    const sessions = [];
+    snapshot.forEach(doc => {
+      const data = doc.data();
+      sessions.push({
+        id: doc.id,
+        ...data,
+        createdAt: data.createdAt?.toDate?.()?.toISOString() || data.createdAt,
+        startedAt: data.startedAt?.toDate?.()?.toISOString() || data.startedAt,
+        endedAt: data.endedAt?.toDate?.()?.toISOString() || data.endedAt,
+        updatedAt: data.updatedAt?.toDate?.()?.toISOString() || data.updatedAt,
+      });
+    });
+    
+    console.log(`✅ Found ${sessions.length} sessions for doctor ${doctorId}`);
+    
+    res.json({
+      success: true,
+      sessions: sessions
+    });
+    
+  } catch (error) {
+    console.error('❌ Error getting doctor sessions:', error);
+    res.status(500).json({ 
+      success: false,
+      error: error.message 
+    });
+  }
+});
+
+// Start telemedicine consultation
+app.post('/api/telemedicine/start', async (req, res) => {
+  try {
+    const { appointmentId, doctorId, consultationType } = req.body;
+
+    console.log(`🎬 Starting telemedicine consultation: ${appointmentId}`);
+
+    const sessionDoc = await db.collection('telemedicine_sessions').doc(appointmentId).get();
+    if (!sessionDoc.exists) {
+      return res.status(404).json({ error: 'Telemedicine session not found' });
+    }
+
+    const session = sessionDoc.data();
+    
+    // Create active call document
+    await db.collection('active_calls').doc(session.chatRoomId).set({
+      appointmentId,
+      chatRoomId: session.chatRoomId,
+      consultationType: consultationType || session.consultationType,
+      doctorId: session.doctorId,
+      patientId: session.patientId,
+      status: 'connecting',
+      doctorJoined: true,
+      patientJoined: false,
+      startedAt: admin.firestore.FieldValue.serverTimestamp(),
+      callId: require('uuid').v4()
+    });
+
+    // Update session status
+    await db.collection('telemedicine_sessions').doc(appointmentId).update({
+      status: 'In-Progress',
+      startedAt: admin.firestore.FieldValue.serverTimestamp()
+    });
+
+    res.json({ 
+      success: true, 
+      chatRoomId: session.chatRoomId,
+      consultationType: consultationType || session.consultationType,
+      patientId: session.patientId
+    });
+
+  } catch (error) {
+    console.error('❌ Error starting telemedicine consultation:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Join telemedicine consultation
+app.post('/api/telemedicine/join', async (req, res) => {
+  try {
+    const { appointmentId, userId } = req.body;
+
+    const sessionDoc = await db.collection('telemedicine_sessions').doc(appointmentId).get();
+    if (!sessionDoc.exists) {
+      return res.status(404).json({ error: 'Session not found' });
+    }
+
+    const session = sessionDoc.data();
+    const callDoc = await db.collection('active_calls').doc(session.chatRoomId).get();
+    
+    if (!callDoc.exists) {
+      return res.status(404).json({ error: 'No active call found' });
+    }
+
+    const callData = callDoc.data();
+    
+    // Update patient joined status
+    if (userId === session.patientId) {
+      await db.collection('active_calls').doc(session.chatRoomId).update({
+        patientJoined: true,
+        status: 'connected'
+      });
+    }
+
+    res.json({ 
+      success: true, 
+      consultationType: callData.consultationType,
+      chatRoomId: session.chatRoomId,
+      roomId: session.chatRoomId
+    });
+
+  } catch (error) {
+    console.error('❌ Error joining telemedicine consultation:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// End telemedicine consultation
+app.post('/api/telemedicine/end', async (req, res) => {
+  try {
+    const { appointmentId, endedBy } = req.body;
+
+    console.log(`🛑 Ending telemedicine consultation: ${appointmentId}`);
+
+    const sessionDoc = await db.collection('telemedicine_sessions').doc(appointmentId).get();
+    if (!sessionDoc.exists) {
+      return res.status(404).json({ error: 'Session not found' });
+    }
+
+    const session = sessionDoc.data();
+    
+    // Update active call
+    await db.collection('active_calls').doc(session.chatRoomId).update({
+      status: 'ended',
+      endedBy: endedBy,
+      endedAt: admin.firestore.FieldValue.serverTimestamp()
+    });
+
+    // Update session
+    await db.collection('telemedicine_sessions').doc(appointmentId).update({
+      status: 'Completed',
+      endedAt: admin.firestore.FieldValue.serverTimestamp()
+    });
+
+    // Notify all participants via socket
+    io.to(session.chatRoomId).emit('consultation-ended', { 
+      endedBy: endedBy,
+      appointmentId: appointmentId
+    });
+
+    res.json({ success: true });
+
+  } catch (error) {
+    console.error('❌ Error ending telemedicine consultation:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Start server
+server.listen(PORT, '0.0.0.0', () => {
+  console.log('🚀 TELEMEDICINE BACKEND running on PORT 5001');
+  console.log('📍 Health check: http://localhost:5001/health');
+});
 
 
 // Your existing routes below - KEEP ALL YOUR CURRENT ROUTES AS THEY ARE
@@ -1190,27 +1273,7 @@ app.post('/api/webrtc/call/end', async (req, res) => {
   }
 });
 
-// Get call session
-app.get('/api/webrtc/call/:appointmentId', async (req, res) => {
-  try {
-    const { appointmentId } = req.params;
-    
-    const callDoc = await db.collection('videoCalls').doc(appointmentId).get();
-    
-    if (!callDoc.exists) {
-      return res.status(404).json({ success: false, error: 'Call session not found' });
-    }
-    
-    res.json({
-      success: true,
-      session: callDoc.data()
-    });
-    
-  } catch (error) {
-    console.error('❌ Error getting call session:', error);
-    res.status(500).json({ success: false, error: error.message });
-  }
-});
+
 
 // FEEDBACK ROUTES
 

@@ -180,30 +180,34 @@ io.on('connection', (socket) => {
   });
 
   // WebRTC signaling
+   // WebRTC signaling handlers
   socket.on('webrtc-offer', (data) => {
-    console.log(`📨 WebRTC offer from ${socket.id} to ${data.to}`);
+    console.log('📨 WebRTC offer relay:', { from: socket.id, to: data.to });
     socket.to(data.to).emit('webrtc-offer', {
       from: socket.id,
-      offer: data.offer
+      offer: data.offer,
+      targetUserId: data.targetUserId
     });
   });
 
-  socket.on('webrtc-answer', (data) => {
-    console.log(`📨 WebRTC answer from ${socket.id} to ${data.to}`);
+socket.on('webrtc-answer', (data) => {
+    console.log('📨 WebRTC answer relay:', { from: socket.id, to: data.to });
     socket.to(data.to).emit('webrtc-answer', {
       from: socket.id,
       answer: data.answer
     });
   });
 
-  socket.on('ice-candidate', (data) => {
-    console.log(`🧊 ICE candidate from ${socket.id} to ${data.to}`);
+
+
+   socket.on('ice-candidate', (data) => {
+    console.log('🧊 ICE candidate relay:', { from: socket.id, to: data.to });
     socket.to(data.to).emit('ice-candidate', {
       from: socket.id,
       candidate: data.candidate
     });
   });
-
+  
   // Handle call end
   socket.on('end-call', (data) => {
     const { roomId } = data;

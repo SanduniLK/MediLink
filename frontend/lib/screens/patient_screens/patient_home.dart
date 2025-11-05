@@ -14,7 +14,8 @@ import 'package:frontend/screens/patient_screens/my_appointments_page.dart';
 import 'package:frontend/screens/patient_screens/patient_prescriptions.dart';
 import 'package:frontend/screens/patient_screens/patient_queue_status.dart';
 import 'package:frontend/screens/patient_screens/patient_test_reports_screen.dart';
-import 'package:frontend/screens/patient_screens/telemedicine.dart';
+
+import 'package:frontend/telemedicine/patient_telemedicine_page.dart';
 
 // --- Dedicated Color Palette ---
 const Color kBackgroundColor = Color(0xFFDDF0F5); 
@@ -34,11 +35,22 @@ class MedicalHomeScreen extends StatefulWidget {
 class _MedicalHomeScreenState extends State<MedicalHomeScreen> {
   int _selectedIndex = 0;
   String? patientId;
+  String? patientName;
 
   @override
   void initState() {
     super.initState();
     _getPatientId();
+    _getPatientInfo();
+  }
+void _getPatientInfo() {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user != null) {
+      setState(() {
+        patientId = user.uid;
+        patientName = user.displayName ?? 'Patient'; // Get name from Firebase or default
+      });
+    }
   }
 
   void _getPatientId() {
@@ -516,7 +528,25 @@ Widget _buildHeader(double screenWidth) {
           ),
           GestureDetector(
             onTap: () {
-              Navigator.push(context, MaterialPageRoute(builder: (_) => const PatientTelemedicineScreen()));
+              // FIXED: Check if patientId and patientName are available
+              if (patientId != null && patientName != null) {
+                Navigator.push(
+                  context, 
+                  MaterialPageRoute(
+                    builder: (_) => PatientTelemedicinePage(
+                      patientId: patientId!,
+                      patientName: patientName!,
+                    )
+                  )
+                );
+              } else {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Please wait while we load your information'),
+                    backgroundColor: Colors.orange,
+                  )
+                );
+              }
             },
             child: _buildActionButton(Icons.video_call_outlined, 'Telemedicine', kBrightCyan),
           ),

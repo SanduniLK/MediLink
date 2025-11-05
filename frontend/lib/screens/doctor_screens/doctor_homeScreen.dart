@@ -12,8 +12,9 @@ import 'package:frontend/screens/doctor_screens/prescription_screen.dart';
 
 
 import 'package:frontend/screens/doctor_screens/settings_screen.dart';
-import 'package:frontend/screens/doctor_screens/telemedicine_appointments_screen.dart';
+
 import 'package:frontend/screens/patient_screens/notifications.dart';
+import 'package:frontend/telemedicine/doctor_telemedicine_page.dart';
 import 'package:provider/provider.dart';
 
 // ADD THESE IMPORT FOR CHAT SCREENS
@@ -36,6 +37,9 @@ class _DoctorHomeScreenState extends State<DoctorHomeScreen> {
   bool hasActiveQueue = false;
   int unreadMessagesCount = 0;
 
+   String? doctorId;
+  String? doctorName;
+
   // Your exact theme colors
   final Color primaryColor = const Color(0xFF18A3B6);
   final Color secondaryColor = const Color(0xFF32BACD);
@@ -49,8 +53,17 @@ class _DoctorHomeScreenState extends State<DoctorHomeScreen> {
     _loadDoctorData();
     _loadTodayStats();
     _loadUnreadMessagesCount();
+     _getDoctorInfo();
   }
-
+void _getDoctorInfo() {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user != null) {
+      setState(() {
+        doctorId = user.uid;
+        doctorName = user.displayName ?? 'Doctor'; // Get name from Firebase or default
+      });
+    }
+  }
   Future<void> _loadDoctorData() async {
     try {
       final user = FirebaseAuth.instance.currentUser;
@@ -215,7 +228,9 @@ class _DoctorHomeScreenState extends State<DoctorHomeScreen> {
     Navigator.push(
     context,
     MaterialPageRoute(
-      builder: (context) => TelemedicineAppointmentsScreen(),
+      builder: (context) => DoctorTelemedicinePage(
+        doctorId: doctorId!,
+        doctorName: doctorName!,),
     ),
   );
   }
