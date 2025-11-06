@@ -166,6 +166,12 @@ class _DoctorTelemedicinePageState extends State<DoctorTelemedicinePage> {
           status: 'In-Progress',
           startedAt: DateTime.now(),
         );
+        await FirestoreService.createDoctorStartedNotification(
+          patientId: session.patientId,
+          doctorName: widget.doctorName,
+          appointmentId: session.appointmentId,
+          consultationType: session.consultationType, 
+        );
         debugPrint('✅ Session status updated successfully');
       } catch (e) {
         debugPrint('❌ Failed to update session status: $e');
@@ -204,6 +210,8 @@ class _DoctorTelemedicinePageState extends State<DoctorTelemedicinePage> {
               consultationType: session.consultationType,
               patientId: sessionData['patientId'],
               doctorId: widget.doctorId, // Add this for consistency
+              patientName: session.patientName,
+              doctorName: widget.doctorName,
             ),
           ),
         );

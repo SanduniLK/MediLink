@@ -1,6 +1,7 @@
 // frontend/lib/services/firestore_service.dart
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
+import 'package:frontend/screens/Notifications/notification_service.dart';
 
 class FirestoreService {
   static final FirebaseFirestore _firestore = FirebaseFirestore.instance;
@@ -207,4 +208,168 @@ class FirestoreService {
       rethrow;
     }
   }
+  // Notification methods for FirestoreService
+static Stream<List<Map<String, dynamic>>> getDoctorNotificationsStream(String doctorId) {
+  return FirebaseFirestore.instance
+      .collection('notifications')
+      .where('doctorId', isEqualTo: doctorId)
+      .orderBy('timestamp', descending: true)
+      .snapshots()
+      .map((snapshot) => snapshot.docs.map((doc) {
+            final data = doc.data();
+            return {
+              'id': doc.id,
+              ...data,
+            };
+          }).toList());
+}
+
+static Stream<List<Map<String, dynamic>>> getPatientNotificationsStream(String patientId) {
+  return FirebaseFirestore.instance
+      .collection('notifications')
+      .where('patientId', isEqualTo: patientId)
+      .orderBy('timestamp', descending: true)
+      .snapshots()
+      .map((snapshot) => snapshot.docs.map((doc) {
+            final data = doc.data();
+            return {
+              'id': doc.id,
+              ...data,
+            };
+          }).toList());
+}
+
+static Future<void> markNotificationAsRead(String notificationId) async {
+  await FirebaseFirestore.instance
+      .collection('notifications')
+      .doc(notificationId)
+      .update({'isRead': true});
+}
+
+static Future<void> clearDoctorNotifications(String doctorId) async {
+  final snapshot = await FirebaseFirestore.instance
+      .collection('notifications')
+      .where('doctorId', isEqualTo: doctorId)
+      .get();
+  
+  final batch = FirebaseFirestore.instance.batch();
+  for (final doc in snapshot.docs) {
+    batch.delete(doc.reference);
+  }
+  await batch.commit();
+}
+
+static Future<void> clearPatientNotifications(String patientId) async {
+  final snapshot = await FirebaseFirestore.instance
+      .collection('notifications')
+      .where('patientId', isEqualTo: patientId)
+      .get();
+  
+  final batch = FirebaseFirestore.instance.batch();
+  for (final doc in snapshot.docs) {
+    batch.delete(doc.reference);
+  }
+  await batch.commit();
+}
+
+// Create notification methods
+static Future<void> createDoctorNotification({
+  required String doctorId,
+  required String title,
+  required String message,
+  required String type,
+  String? appointmentId,
+}) async {
+  await FirebaseFirestore.instance.collection('notifications').add({
+    'doctorId': doctorId,
+    'title': title,
+    'message': message,
+    'type': type,
+    'appointmentId': appointmentId,
+    'isRead': false,
+    'timestamp': FieldValue.serverTimestamp(),
+  });
+}
+
+static Future<void> createPatientNotification({
+  required String patientId,
+  required String title,
+  required String message,
+  required String type,
+  String? appointmentId,
+  String? prescriptionId,
+}) async {
+  await FirebaseFirestore.instance.collection('notifications').add({
+    'patientId': patientId,
+    'title': title,
+    'message': message,
+    'type': type,
+    'appointmentId': appointmentId,
+    'prescriptionId': prescriptionId,
+    'isRead': false,
+    'timestamp': FieldValue.serverTimestamp(),
+  });
+}
+
+
+static Future<void> createPatientJoinedNotification({
+  required String doctorId,
+  required String patientName,
+  required String appointmentId,
+}) async {
+  try {
+    await FirebaseFirestore.instance.collection('notifications').add({
+      'doctorId': doctorId,
+      'title': 'Patient Joined Consultation',
+      'message': '$patientName has joined the consultation call.',
+      'type': 'patient_joined',
+      'appointmentId': appointmentId,
+      'isRead': false,
+      'timestamp': FieldValue.serverTimestamp(),
+    });
+    debugPrint('✅ Notification sent to doctor: Patient joined consultation');
+  } catch (e) {
+    debugPrint('❌ Error creating patient joined notification: $e');
+  }
+}
+static Future<void> createDoctorStartedNotification({
+  required String patientId,
+  required String doctorName,
+  required String appointmentId,
+  required String consultationType,
+}) async {
+  try {
+    debugPrint('🔔 Creating consultation started notification for patient: $patientId');
+    
+    // Use the new NotificationService
+    await NotificationService.sendConsultationStartedNotification(
+      patientId: patientId,
+      doctorName: doctorName,
+      appointmentId: appointmentId,
+      consultationType: consultationType,
+    );
+    
+  } catch (e) {
+    debugPrint('❌ Error creating doctor started notification: $e');
+    // Don't rethrow - don't block consultation if notification fails
+  }
+}
+// Add this to any of your screens temporarily
+void _testNotificationDirectly() async {
+  try {
+    debugPrint('🧪 TESTING NOTIFICATION DIRECTLY...');
+    
+    await FirestoreService.createDoctorStartedNotification(
+      patientId: 'test_patient_id',
+      doctorName: 'Test Doctor',
+      appointmentId: 'test_appointment_123',
+      consultationType: 'video'
+    );
+    
+    debugPrint('✅ Direct notification test completed');
+  } catch (e) {
+    debugPrint('❌ Direct notification test failed: $e');
+  }
+}
+
 }

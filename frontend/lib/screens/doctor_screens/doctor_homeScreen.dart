@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:frontend/providers/doctor_provider.dart';
+import 'package:frontend/screens/Notifications/DoctorNotificationPage.dart';
 import 'package:frontend/screens/doctor_screens/create_schedule_screen.dart';
 import 'package:frontend/screens/doctor_screens/doctor_appointments_page.dart';
 import 'package:frontend/screens/doctor_screens/doctor_feedback_dashboard.dart';
@@ -375,9 +376,19 @@ void _navigateTOfeedbackscreen(){
                     ],
                   ),
                   child: IconButton(
-                    icon: Icon(Icons.notifications_outlined, color: primaryColor),
-                    onPressed: _navigateToNotifications,
-                  ),
+                      icon: const Icon(Icons.notifications),
+                       onPressed: () {
+                      Navigator.push(
+                      context,
+                       MaterialPageRoute(
+                        builder: (context) => DoctorNotificationPage(
+                        doctorId: doctorId!,
+                        doctorName: doctorName!,
+        ),
+      ),
+    );
+  },
+),
                 ),
               ),
             ],

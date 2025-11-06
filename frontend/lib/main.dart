@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:frontend/providers/queue_provider.dart';
+import 'package:frontend/screens/Notifications/notification_service.dart';
 import 'package:frontend/services/dio_service.dart';
 import 'package:frontend/utils/firestore_setup.dart';
 import 'package:provider/provider.dart';
@@ -26,6 +27,7 @@ import 'firebase_options.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   
+    await NotificationService.initializeLocalNotifications();
   // Ultimate Firebase initialization that handles hot restart
   await _initializeFirebaseWithRetry();
   

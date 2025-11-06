@@ -152,6 +152,12 @@ void _joinConsultation(TelemedicineSession session) async {
         startedAt: DateTime.now(),
       );
     }
+    debugPrint('🔄 Sending patient joined notification...');
+    await FirestoreService.createPatientJoinedNotification(
+      doctorId: session.doctorId,
+      patientName: widget.patientName,
+      appointmentId: session.appointmentId,
+    );
 
     // Close loading dialog using stored context
     if (mounted) {
@@ -170,6 +176,8 @@ void _joinConsultation(TelemedicineSession session) async {
             consultationType: session.consultationType,
             patientId: widget.patientId, // Add this
             doctorId: session.doctorId,  // Add this
+            patientName: widget.patientName,
+            doctorName: session.doctorName,
           ),
         ),
       );

@@ -1,6 +1,7 @@
 import 'dart:ui';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:frontend/screens/Notifications/PatientNotificationPage.dart';
 
 // Import all necessary screens
 import 'package:frontend/screens/doctor_screens/doctors_list.dart';
@@ -83,6 +84,7 @@ void _getPatientInfo() {
       _buildHomePage(context),
       PatientProfileScreen(uid: FirebaseAuth.instance.currentUser!.uid),
       _buildSettingsPage(),
+      _buildNotificationsPage(),
     ];
 
     return Scaffold(
@@ -101,11 +103,19 @@ void _getPatientInfo() {
           BottomNavigationBarItem(icon: Icon(Icons.home), label: "Home"),
           BottomNavigationBarItem(icon: Icon(Icons.person), label: "Medical Profile"),
           BottomNavigationBarItem(icon: Icon(Icons.settings), label: "Settings"),
+          BottomNavigationBarItem(icon: Icon(Icons.notifications), label: "Notifications"),
         ],
       ),
     );
   }
-
+Widget _buildNotificationsPage() {
+    return  PatientNotificationPage(
+      patientId: patientId ?? widget.uid,
+      patientName: patientName??'patient',
+      
+      
+    );
+  }
   // --- Settings Page ---
   Widget _buildSettingsPage() {
     return Scaffold(

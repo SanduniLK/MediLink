@@ -59,6 +59,8 @@ dependencies:
   open_file: ^3.5.10
   url_launcher: ^6.3.2
   cached_network_image: ^3.4.1
+  firebase_messaging: ^16.0.4
+  flutter_local_notifications: ^19.5.0
  
 
  
