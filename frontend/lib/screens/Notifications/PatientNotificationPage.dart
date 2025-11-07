@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:frontend/model/telemedicine_session.dart';
 import 'package:frontend/screens/Notifications/notification_service.dart';
+import 'package:frontend/services/firestore_service.dart';
 
 import 'package:frontend/telemedicine/consultation_screen.dart';
+
 
 class PatientNotificationPage extends StatefulWidget {
   final String patientId;
@@ -286,28 +289,94 @@ class _PatientNotificationPageState extends State<PatientNotificationPage> {
     );
   }
 
-  void _joinConsultation(Map<String, dynamic> notification) {
-    // Mark as read first
-    NotificationService.markAsRead(notification['id']);
+ // In PatientTelemedicinePage - update join method
+Future<void> _joinConsultation(Map<String, dynamic> notification) async {
+  try {
+    final appointmentId = notification['appointmentId'];
+    final consultationType = notification['consultationType'] ?? 'video';
+    final doctorId = notification['doctorId'];
+    final doctorName = notification['doctorName'] ?? 'Doctor';
 
-    // Navigate to consultation
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => ConsultationScreen(
-          appointmentId: notification['appointmentId'],
-          userId: widget.patientId,
-          userName: widget.patientName,
-          userType: 'patient',
-          consultationType: notification['consultationType'] ?? 'video',
-          patientId: widget.patientId,
-          doctorId: '', // You'll need to get this from session data
-          patientName: widget.patientName,
-          doctorName: notification['doctorName'] ?? 'Doctor',
+    if (appointmentId == null || doctorId == null) {
+      _showError('Invalid notification data: missing appointment ID or doctor ID');
+      return;
+    }
+
+    debugPrint('🎬 PATIENT JOINING: $appointmentId');
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        backgroundColor: Colors.white,
+        content: Row(
+          children: [
+            CircularProgressIndicator(valueColor: AlwaysStoppedAnimation<Color>(Colors.blue)),
+            const SizedBox(width: 16),
+            const Text('Joining consultation...', style: TextStyle(color: Colors.blueAccent)),
+          ],
         ),
       ),
     );
+
+    // STEP 1: Ensure join status fields exist
+    debugPrint('🔄 Ensuring join status fields exist...');
+    await FirestoreService.addJoinStatusFields(appointmentId);
+
+    // STEP 2: Update patient join status to TRUE
+    debugPrint('🔄 Updating patient join status to TRUE...');
+    await FirestoreService.updateSessionJoinStatus(
+      appointmentId: appointmentId,
+      userType: 'patient',
+      hasJoined: true,
+    );
+
+    // STEP 3: Send notification to doctor
+    debugPrint('🔄 Sending notification to doctor...');
+    await FirestoreService.createPatientJoinedNotification(
+      doctorId: doctorId,
+      patientName: widget.patientName,
+      appointmentId: appointmentId,
+      consultationType: consultationType,
+    );
+
+    // STEP 4: Verify the update worked
+    final updatedStatus = await FirestoreService.getSessionJoinStatus(appointmentId);
+    debugPrint('✅ VERIFICATION - Patient joined: ${updatedStatus?['patientJoined']}');
+
+    if (mounted) Navigator.of(context, rootNavigator: true).pop();
+
+    debugPrint('🎉 PATIENT JOINED SUCCESSFULLY');
+
+    // Navigate to consultation
+    if (mounted) {
+      Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (context) => ConsultationScreen(
+            appointmentId: appointmentId,
+            userId: widget.patientId,
+            userName: widget.patientName,
+            userType: 'patient',
+            consultationType: consultationType,
+            patientId: widget.patientId,
+            doctorId: doctorId,
+            patientName: widget.patientName,
+            doctorName: doctorName,
+          ),
+        ),
+      );
+    }
+
+  } catch (e) {
+    debugPrint('❌ PATIENT JOIN ERROR: $e');
+    if (mounted) {
+      try {
+        Navigator.of(context, rootNavigator: true).pop();
+      } catch (_) {}
+    }
+    _showError('Failed to join consultation: $e');
   }
+}
 
   void _dismissNotification(Map<String, dynamic> notification) {
     showDialog(
@@ -377,4 +446,15 @@ class _PatientNotificationPageState extends State<PatientNotificationPage> {
       ),
     );
   }
+  void _showError(String message) {
+  if (mounted) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: Colors.red,
+        duration: const Duration(seconds: 3),
+      ),
+    );
+  }
+}
 }

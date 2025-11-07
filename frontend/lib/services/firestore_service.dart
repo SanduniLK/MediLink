@@ -6,7 +6,149 @@ import 'package:frontend/screens/Notifications/notification_service.dart';
 class FirestoreService {
   static final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
-  // Get telemedicine sessions for patient (simple query without ordering to avoid index)
+  // Complete Flow Methods
+  static Future<void> completeDoctorStartFlow({
+    required String appointmentId,
+    required String doctorId,
+    required String doctorName,
+    required String patientId,
+    required String consultationType,
+  }) async {
+    try {
+      debugPrint('🚀 STARTING COMPLETE FLOW: Doctor Starts Consultation');
+      
+      // Step 1: Update session status to In-Progress
+      await updateSessionStatus(
+        appointmentId: appointmentId,
+        status: 'In-Progress',
+        startedAt: DateTime.now(),
+      );
+      
+      // Step 2: Send notification to patient
+      await createDoctorStartedNotification(
+        patientId: patientId,
+        doctorName: doctorName,
+        appointmentId: appointmentId,
+        consultationType: consultationType,
+      );
+      
+      debugPrint('✅ STEP 1 COMPLETE: Doctor started consultation → Patient notified');
+      
+    } catch (e) {
+      debugPrint('❌ Error in doctor start flow: $e');
+      rethrow;
+    }
+  }
+
+  static Future<void> completePatientJoinFlow({
+    required String appointmentId,
+    required String patientId,
+    required String patientName,
+    required String doctorId,
+    required String consultationType,
+  }) async {
+    try {
+      debugPrint('🚀 STEP 2: Patient Joins Consultation');
+      
+      // Update patient join status
+      await updateSessionJoinStatus(
+        appointmentId: appointmentId,
+        userType: 'patient',
+        hasJoined: true,
+      );
+      
+      // Send notification to doctor
+      await createPatientJoinedNotification(
+        doctorId: doctorId,
+        patientName: patientName,
+        appointmentId: appointmentId,
+        consultationType: consultationType,
+      );
+      
+      debugPrint('✅ STEP 2 COMPLETE: Patient joined → Doctor notified');
+      
+    } catch (e) {
+      debugPrint('❌ Error in patient join flow: $e');
+      rethrow;
+    }
+  }
+
+  static Future<void> completeDoctorJoinFlow({
+    required String appointmentId,
+    required String doctorId,
+  }) async {
+    try {
+      debugPrint('🚀 STEP 3: Doctor Joins Consultation');
+      
+      // Update doctor join status
+      await updateSessionJoinStatus(
+        appointmentId: appointmentId,
+        userType: 'doctor',
+        hasJoined: true,
+      );
+      
+      debugPrint('✅ STEP 3 COMPLETE: Doctor joined → Both in consultation room');
+      
+    } catch (e) {
+      debugPrint('❌ Error in doctor join flow: $e');
+      rethrow;
+    }
+  }
+
+  // Test the complete flow
+  static Future<void> testCompleteFlow({
+    required String appointmentId,
+    required String doctorId,
+    required String doctorName,
+    required String patientId,
+    required String patientName,
+    required String consultationType,
+  }) async {
+    try {
+      debugPrint('🧪 TESTING COMPLETE FLOW');
+      debugPrint('Appointment: $appointmentId');
+      debugPrint('Doctor: $doctorName ($doctorId)');
+      debugPrint('Patient: $patientName ($patientId)');
+      
+      // Step 1: Doctor starts
+      await completeDoctorStartFlow(
+        appointmentId: appointmentId,
+        doctorId: doctorId,
+        doctorName: doctorName,
+        patientId: patientId,
+        consultationType: consultationType,
+      );
+      
+      // Wait a bit for notification delivery
+      await Future.delayed(Duration(seconds: 2));
+      
+      // Step 2: Patient joins
+      await completePatientJoinFlow(
+        appointmentId: appointmentId,
+        patientId: patientId,
+        patientName: patientName,
+        doctorId: doctorId,
+        consultationType: consultationType,
+      );
+      
+      // Wait a bit for notification delivery
+      await Future.delayed(Duration(seconds: 2));
+      
+      // Step 3: Doctor joins
+      await completeDoctorJoinFlow(
+        appointmentId: appointmentId,
+        doctorId: doctorId,
+      );
+      
+      debugPrint('🎉 COMPLETE FLOW TEST FINISHED SUCCESSFULLY!');
+      
+    } catch (e) {
+      debugPrint('❌ Complete flow test failed: $e');
+      rethrow;
+    }
+  }
+
+  // Get telemedicine sessions for patient
   static Stream<List<Map<String, dynamic>>> getPatientSessionsStream(String patientId) {
     return _firestore
         .collection('telemedicine_sessions')
@@ -18,18 +160,17 @@ class FirestoreService {
             return _parseSessionData(doc.id, data);
           }).toList();
           
-          // Manual sorting by createdAt in memory
           sessions.sort((a, b) {
             final dateA = a['createdAt'] as DateTime;
             final dateB = b['createdAt'] as DateTime;
-            return dateB.compareTo(dateA); // Descending (newest first)
+            return dateB.compareTo(dateA);
           });
           
           return sessions;
         });
   }
 
-  // Get telemedicine sessions for doctor (simple query without ordering to avoid index)
+  // Get telemedicine sessions for doctor
   static Stream<List<Map<String, dynamic>>> getDoctorSessionsStream(String doctorId) {
     return _firestore
         .collection('telemedicine_sessions')
@@ -41,11 +182,10 @@ class FirestoreService {
             return _parseSessionData(doc.id, data);
           }).toList();
           
-          // Manual sorting by createdAt in memory
           sessions.sort((a, b) {
             final dateA = a['createdAt'] as DateTime;
             final dateB = b['createdAt'] as DateTime;
-            return dateB.compareTo(dateA); // Descending (newest first)
+            return dateB.compareTo(dateA);
           });
           
           return sessions;
@@ -62,7 +202,6 @@ class FirestoreService {
     return {
       'id': docId,
       ...data,
-      // Use the new safe date parser
       'createdAt': _safeParseDate(data['createdAt']),
       'startedAt': _safeParseDate(data['startedAt']),
       'endedAt': _safeParseDate(data['endedAt']),
@@ -70,75 +209,52 @@ class FirestoreService {
     };
   }
 
-  // Safe date parser that handles all possible formats
+  // Safe date parser
   static DateTime _safeParseDate(dynamic dateValue) {
     if (dateValue == null) {
-      debugPrint('⚠️ Date value is null, using current time');
       return DateTime.now();
     }
     
-    debugPrint('🔍 Parsing date: $dateValue (${dateValue.runtimeType})');
-    
-    // If it's already a DateTime, return it
     if (dateValue is DateTime) {
-      debugPrint('✅ Already DateTime: $dateValue');
       return dateValue;
     }
     
-    // If it's a Firestore Timestamp, convert to DateTime
     if (dateValue is Timestamp) {
-      final dateTime = dateValue.toDate();
-      debugPrint('✅ Converted Timestamp to DateTime: $dateTime');
-      return dateTime;
+      return dateValue.toDate();
     }
     
-    // If it's a String, try to parse it
     if (dateValue is String) {
       try {
-        final dateTime = DateTime.parse(dateValue);
-        debugPrint('✅ Parsed String to DateTime: $dateTime');
-        return dateTime;
+        return DateTime.parse(dateValue);
       } catch (e) {
-        debugPrint('❌ Failed to parse date string: "$dateValue", error: $e');
-        
-        // Try alternative date formats
         final alternative = _tryAlternativeDateFormats(dateValue);
         if (alternative != null) {
           return alternative;
         }
-        
-        debugPrint('⚠️ Using current time as fallback');
         return DateTime.now();
       }
     }
     
-    debugPrint('❌ Unknown date type: ${dateValue.runtimeType}, using current time');
     return DateTime.now();
   }
 
   // Try alternative date formats
   static DateTime? _tryAlternativeDateFormats(String dateString) {
     try {
-      // Handle "Today (4/11/2025)" format
       if (dateString.toLowerCase().contains('today') || dateString.toLowerCase().contains('tomorrow')) {
         final match = RegExp(r'(\d{1,2})/(\d{1,2})/(\d{4})').firstMatch(dateString);
         if (match != null) {
           final day = int.parse(match.group(1)!);
           final month = int.parse(match.group(2)!);
           final year = int.parse(match.group(3)!);
-          final dateTime = DateTime(year, month, day);
-          debugPrint('✅ Parsed alternative format: $dateTime');
-          return dateTime;
+          return DateTime(year, month, day);
         }
       }
       
-      // Handle Unix timestamp (milliseconds)
       if (RegExp(r'^\d+$').hasMatch(dateString)) {
         final timestamp = int.tryParse(dateString);
         if (timestamp != null) {
-          final dateTime = DateTime.fromMillisecondsSinceEpoch(timestamp);
-          debugPrint('✅ Parsed Unix timestamp: $dateTime');
-          return dateTime;
+          return DateTime.fromMillisecondsSinceEpoch(timestamp);
         }
       }
     } catch (e) {
@@ -147,6 +263,74 @@ class FirestoreService {
     
     return null;
   }
+
+  // Enhanced notification methods
+  static Future<void> createDoctorStartedNotification({
+    required String patientId,
+    required String doctorName,
+    required String appointmentId,
+    required String consultationType,
+  }) async {
+    try {
+      debugPrint('🔔 Creating doctor started notification for patient: $patientId');
+      
+      await NotificationService.sendConsultationStartedNotification(
+        patientId: patientId,
+        doctorName: doctorName,
+        appointmentId: appointmentId,
+        consultationType: consultationType,
+      );
+      
+      // Also store in Firestore for persistence
+      await _firestore.collection('notifications').add({
+        'patientId': patientId,
+        'title': 'Consultation Started',
+        'message': 'Dr. $doctorName has started your $consultationType consultation',
+        'type': 'consultation_started',
+        'appointmentId': appointmentId,
+        'consultationType': consultationType,
+        'isRead': false,
+        'timestamp': FieldValue.serverTimestamp(),
+        'priority': 'high',
+      });
+      
+    } catch (e) {
+      debugPrint('❌ Error creating doctor started notification: $e');
+    }
+  }
+
+  // In FirestoreService - enhance the notification
+static Future<void> createPatientJoinedNotification({
+  required String doctorId,
+  required String patientName,
+  required String appointmentId,
+  required String consultationType,
+}) async {
+  try {
+    debugPrint('🔔 Creating patient joined notification with JOIN button');
+    
+    await _firestore.collection('notifications').add({
+      'doctorId': doctorId,
+      'title': 'Patient Joined 👤', // Updated emoji
+      'message': '$patientName has joined the consultation',
+      'type': 'patient_joined',
+      'appointmentId': appointmentId,
+      'consultationType': consultationType,
+      'patientName': patientName, // Include for display
+      'hasAction': true, // ✅ NEW: Indicates this has action button
+      'actionText': 'JOIN MEETING', // ✅ NEW: Button text
+      'actionType': 'join_consultation', // ✅ NEW: Action type
+      'read': false,
+      'timestamp': FieldValue.serverTimestamp(),
+      'priority': 'high',
+    });
+    
+    debugPrint('✅ Patient joined notification with JOIN button created');
+    
+  } catch (e) {
+    debugPrint('❌ Error creating patient joined notification: $e');
+  }
+}
 
   // Get single session by appointment ID
   static Future<Map<String, dynamic>?> getSessionByAppointmentId(String appointmentId) async {
@@ -190,7 +374,6 @@ class FirestoreService {
         updateData['endedAt'] = Timestamp.fromDate(endedAt);
       }
 
-      // Find the document by appointmentId
       final snapshot = await _firestore
           .collection('telemedicine_sessions')
           .where('appointmentId', isEqualTo: appointmentId)
@@ -208,168 +391,236 @@ class FirestoreService {
       rethrow;
     }
   }
-  // Notification methods for FirestoreService
-static Stream<List<Map<String, dynamic>>> getDoctorNotificationsStream(String doctorId) {
-  return FirebaseFirestore.instance
-      .collection('notifications')
-      .where('doctorId', isEqualTo: doctorId)
-      .orderBy('timestamp', descending: true)
-      .snapshots()
-      .map((snapshot) => snapshot.docs.map((doc) {
-            final data = doc.data();
-            return {
-              'id': doc.id,
-              ...data,
-            };
-          }).toList());
-}
 
-static Stream<List<Map<String, dynamic>>> getPatientNotificationsStream(String patientId) {
-  return FirebaseFirestore.instance
-      .collection('notifications')
-      .where('patientId', isEqualTo: patientId)
-      .orderBy('timestamp', descending: true)
-      .snapshots()
-      .map((snapshot) => snapshot.docs.map((doc) {
-            final data = doc.data();
-            return {
-              'id': doc.id,
-              ...data,
-            };
-          }).toList());
-}
-
-static Future<void> markNotificationAsRead(String notificationId) async {
-  await FirebaseFirestore.instance
-      .collection('notifications')
-      .doc(notificationId)
-      .update({'isRead': true});
-}
-
-static Future<void> clearDoctorNotifications(String doctorId) async {
-  final snapshot = await FirebaseFirestore.instance
-      .collection('notifications')
-      .where('doctorId', isEqualTo: doctorId)
-      .get();
-  
-  final batch = FirebaseFirestore.instance.batch();
-  for (final doc in snapshot.docs) {
-    batch.delete(doc.reference);
+  // Notification methods
+  static Stream<List<Map<String, dynamic>>> getDoctorNotificationsStream(String doctorId) {
+    return _firestore
+        .collection('notifications')
+        .where('doctorId', isEqualTo: doctorId)
+        .orderBy('timestamp', descending: true)
+        .snapshots()
+        .map((snapshot) => snapshot.docs.map((doc) {
+              final data = doc.data();
+              return {
+                'id': doc.id,
+                ...data,
+              };
+            }).toList());
   }
-  await batch.commit();
-}
 
-static Future<void> clearPatientNotifications(String patientId) async {
-  final snapshot = await FirebaseFirestore.instance
-      .collection('notifications')
-      .where('patientId', isEqualTo: patientId)
-      .get();
-  
-  final batch = FirebaseFirestore.instance.batch();
-  for (final doc in snapshot.docs) {
-    batch.delete(doc.reference);
+  static Stream<List<Map<String, dynamic>>> getPatientNotificationsStream(String patientId) {
+    return _firestore
+        .collection('notifications')
+        .where('patientId', isEqualTo: patientId)
+        .orderBy('timestamp', descending: true)
+        .snapshots()
+        .map((snapshot) => snapshot.docs.map((doc) {
+              final data = doc.data();
+              return {
+                'id': doc.id,
+                ...data,
+              };
+            }).toList());
   }
-  await batch.commit();
-}
 
-// Create notification methods
-static Future<void> createDoctorNotification({
-  required String doctorId,
-  required String title,
-  required String message,
-  required String type,
-  String? appointmentId,
+  static Future<void> markNotificationAsRead(String notificationId) async {
+    await _firestore
+        .collection('notifications')
+        .doc(notificationId)
+        .update({'isRead': true});
+  }
+
+  static Future<void> clearDoctorNotifications(String doctorId) async {
+    final snapshot = await _firestore
+        .collection('notifications')
+        .where('doctorId', isEqualTo: doctorId)
+        .get();
+    
+    final batch = _firestore.batch();
+    for (final doc in snapshot.docs) {
+      batch.delete(doc.reference);
+    }
+    await batch.commit();
+  }
+
+  static Future<void> clearPatientNotifications(String patientId) async {
+    final snapshot = await _firestore
+        .collection('notifications')
+        .where('patientId', isEqualTo: patientId)
+        .get();
+    
+    final batch = _firestore.batch();
+    for (final doc in snapshot.docs) {
+      batch.delete(doc.reference);
+    }
+    await batch.commit();
+  }
+static Future<void> addJoinStatusFields(String appointmentId) async {
+  try {
+    final docRef = _firestore.collection('telemedicine_sessions').doc(appointmentId);
+    
+    await docRef.update({
+      'patientJoined': false,
+      'doctorJoined': false,
+      'patientJoinedAt': null,
+      'doctorJoinedAt': null,
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+    
+    debugPrint('✅ Added join status fields to session: $appointmentId');
+  } catch (e) {
+    debugPrint('❌ Error adding join status fields: $e');
+  }
+}
+  // Join status methods
+  static Future<void> updateSessionJoinStatus({
+  required String appointmentId,
+  required String userType,
+  required bool hasJoined,
 }) async {
-  await FirebaseFirestore.instance.collection('notifications').add({
-    'doctorId': doctorId,
-    'title': title,
-    'message': message,
-    'type': type,
-    'appointmentId': appointmentId,
-    'isRead': false,
-    'timestamp': FieldValue.serverTimestamp(),
-  });
+  try {
+    final updateData = userType == 'doctor' 
+        ? {
+            'doctorJoined': hasJoined, 
+            'doctorJoinedAt': FieldValue.serverTimestamp(),
+            'updatedAt': FieldValue.serverTimestamp(),
+          }
+        : {
+            'patientJoined': hasJoined, 
+            'patientJoinedAt': FieldValue.serverTimestamp(),
+            'updatedAt': FieldValue.serverTimestamp(),
+          };
+
+    final docRef = _firestore.collection('telemedicine_sessions').doc(appointmentId);
+    
+    // Use set with merge: true to create fields if they don't exist
+    await docRef.set(updateData, SetOptions(merge: true));
+    
+    debugPrint('✅ $userType join status updated: $hasJoined for $appointmentId');
+
+  } catch (e) {
+    debugPrint('❌ Error updating $userType join status: $e');
+    rethrow;
+  }
+}
+  // In FirestoreService - fix getSessionJoinStatus to handle missing fields
+static Future<Map<String, dynamic>?> getSessionJoinStatus(String appointmentId) async {
+  try {
+    final doc = await _firestore
+        .collection('telemedicine_sessions')
+        .doc(appointmentId)
+        .get();
+
+    if (doc.exists) {
+      final data = doc.data()!;
+      debugPrint('🔍 getSessionJoinStatus - Raw data: ${data['patientJoined']}, ${data['doctorJoined']}');
+      
+      return {
+        'patientJoined': data['patientJoined'] ?? false,
+        'doctorJoined': data['doctorJoined'] ?? false,
+        'patientJoinedAt': data['patientJoinedAt'],
+        'doctorJoinedAt': data['doctorJoinedAt'],
+      };
+    } else {
+      debugPrint('⚠️ Document not found for: $appointmentId');
+      return {
+        'patientJoined': false,
+        'doctorJoined': false,
+        'patientJoinedAt': null,
+        'doctorJoinedAt': null,
+      };
+    }
+  } catch (e) {
+    debugPrint('❌ Error in getSessionJoinStatus: $e');
+    return {
+      'patientJoined': false,
+      'doctorJoined': false,
+      'patientJoinedAt': null,
+      'doctorJoinedAt': null,
+    };
+  }
 }
 
-static Future<void> createPatientNotification({
+  static Stream<Map<String, dynamic>> getSessionJoinStatusStream(String appointmentId) {
+    return _firestore
+        .collection('telemedicine_sessions')
+        .doc(appointmentId)
+        .snapshots()
+        .map((doc) {
+          if (doc.exists) {
+            final data = doc.data()!;
+            return {
+              'patientJoined': data['patientJoined'] ?? false,
+              'doctorJoined': data['doctorJoined'] ?? false,
+              'patientJoinedAt': data['patientJoinedAt'],
+              'doctorJoinedAt': data['doctorJoinedAt'],
+            };
+          }
+          return {'patientJoined': false, 'doctorJoined': false};
+        });
+  }
+  static Future<void> completeConsultation({
+  required String appointmentId,
+  required String doctorId,
   required String patientId,
-  required String title,
-  required String message,
-  required String type,
-  String? appointmentId,
-  String? prescriptionId,
 }) async {
-  await FirebaseFirestore.instance.collection('notifications').add({
-    'patientId': patientId,
-    'title': title,
-    'message': message,
-    'type': type,
-    'appointmentId': appointmentId,
-    'prescriptionId': prescriptionId,
-    'isRead': false,
-    'timestamp': FieldValue.serverTimestamp(),
-  });
+  try {
+    debugPrint('🔄 COMPLETING CONSULTATION: $appointmentId');
+
+    final sessionDoc = FirebaseFirestore.instance
+        .collection('telemedicine_sessions')
+        .doc(appointmentId);
+
+    // Update session status to completed
+    await sessionDoc.update({
+      'status': 'Completed',
+      'endedAt': FieldValue.serverTimestamp(),
+      'doctorJoined': false,
+      'patientJoined': false,
+    });
+
+    debugPrint('✅ CONSULTATION COMPLETED: $appointmentId');
+
+    // Send completion notification to patient
+    await createConsultationCompletedNotification(
+      patientId: patientId,
+      doctorName: await _getDoctorName(doctorId),
+      appointmentId: appointmentId,
+    );
+
+  } catch (e) {
+    debugPrint('❌ ERROR COMPLETING CONSULTATION: $e');
+    rethrow;
+  }
 }
-
-
-static Future<void> createPatientJoinedNotification({
-  required String doctorId,
-  required String patientName,
+static Future<String> _getDoctorName(String doctorId) async {
+  try {
+    final doc = await FirebaseFirestore.instance
+        .collection('doctors')
+        .doc(doctorId)
+        .get();
+    return doc.data()?['name'] ?? 'Doctor';
+  } catch (e) {
+    return 'Doctor';
+  }
+}
+static Future<void> createConsultationCompletedNotification({
+  required String patientId,
+  required String doctorName,
   required String appointmentId,
 }) async {
   try {
     await FirebaseFirestore.instance.collection('notifications').add({
-      'doctorId': doctorId,
-      'title': 'Patient Joined Consultation',
-      'message': '$patientName has joined the consultation call.',
-      'type': 'patient_joined',
+      'patientId': patientId,
+      'doctorName': doctorName,
       'appointmentId': appointmentId,
-      'isRead': false,
+      'type': 'consultation_completed',
+      'message': 'Your consultation with Dr. $doctorName has been completed',
       'timestamp': FieldValue.serverTimestamp(),
+      'isRead': false,
     });
-    debugPrint('✅ Notification sent to doctor: Patient joined consultation');
   } catch (e) {
-    debugPrint('❌ Error creating patient joined notification: $e');
+    debugPrint('❌ ERROR CREATING COMPLETION NOTIFICATION: $e');
   }
 }
-static Future<void> createDoctorStartedNotification({
-  required String patientId,
-  required String doctorName,
-  required String appointmentId,
-  required String consultationType,
-}) async {
-  try {
-    debugPrint('🔔 Creating consultation started notification for patient: $patientId');
-    
-    // Use the new NotificationService
-    await NotificationService.sendConsultationStartedNotification(
-      patientId: patientId,
-      doctorName: doctorName,
-      appointmentId: appointmentId,
-      consultationType: consultationType,
-    );
-    
-  } catch (e) {
-    debugPrint('❌ Error creating doctor started notification: $e');
-    // Don't rethrow - don't block consultation if notification fails
-  }
-}
-// Add this to any of your screens temporarily
-void _testNotificationDirectly() async {
-  try {
-    debugPrint('🧪 TESTING NOTIFICATION DIRECTLY...');
-    
-    await FirestoreService.createDoctorStartedNotification(
-      patientId: 'test_patient_id',
-      doctorName: 'Test Doctor',
-      appointmentId: 'test_appointment_123',
-      consultationType: 'video'
-    );
-    
-    debugPrint('✅ Direct notification test completed');
-  } catch (e) {
-    debugPrint('❌ Direct notification test failed: $e');
-  }
-}
-
 }

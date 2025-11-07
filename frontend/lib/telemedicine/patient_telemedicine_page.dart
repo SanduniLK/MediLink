@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:frontend/model/telemedicine_session.dart';
 import 'package:frontend/telemedicine/consultation_screen.dart';
 import '../../services/firestore_service.dart';
@@ -152,11 +151,21 @@ void _joinConsultation(TelemedicineSession session) async {
         startedAt: DateTime.now(),
       );
     }
-    debugPrint('🔄 Sending patient joined notification...');
+    
+    debugPrint('🔄 Updating patient join status...');
+    await FirestoreService.updateSessionJoinStatus(
+      appointmentId: session.appointmentId,
+      userType: 'patient',
+      hasJoined: true,
+    );
+    
+    // 🔔 SEND NOTIFICATION TO DOCTOR THAT PATIENT JOINED
+    debugPrint('🔔 Sending patient joined notification to doctor...');
     await FirestoreService.createPatientJoinedNotification(
       doctorId: session.doctorId,
       patientName: widget.patientName,
       appointmentId: session.appointmentId,
+      consultationType: session.consultationType, // FIXED: Now this parameter exists
     );
 
     // Close loading dialog using stored context
@@ -174,8 +183,8 @@ void _joinConsultation(TelemedicineSession session) async {
             userName: widget.patientName,
             userType: 'patient',
             consultationType: session.consultationType,
-            patientId: widget.patientId, // Add this
-            doctorId: session.doctorId,  // Add this
+            patientId: widget.patientId,
+            doctorId: session.doctorId,
             patientName: widget.patientName,
             doctorName: session.doctorName,
           ),
@@ -483,7 +492,7 @@ void _joinConsultation(TelemedicineSession session) async {
       appBar: AppBar(
         title: Row(
           children: [
-            Text('My Telemedicine Consultations'),
+            Text('My Tele Consultations'),
             SizedBox(width: 8),
             if (_usingRealData)
               Container(
@@ -492,14 +501,7 @@ void _joinConsultation(TelemedicineSession session) async {
                   color: Colors.green,
                   borderRadius: BorderRadius.circular(12),
                 ),
-                child: Text(
-                  'LIVE',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 10,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
+                
               ),
           ],
         ),
@@ -507,12 +509,8 @@ void _joinConsultation(TelemedicineSession session) async {
         elevation: 0,
         iconTheme: IconThemeData(color: Colors.white),
         actions: [
-          if (_usingRealData)
-            Tooltip(
-              message: 'Connected to live data',
-              child: Icon(Icons.cloud_done, color: Colors.green),
-            ),
-          SizedBox(width: 8),
+          
+          
           IconButton(
             icon: Icon(Icons.refresh, color: Colors.white),
             onPressed: _loadPatientSessions,

@@ -1,10 +1,9 @@
+// frontend/lib/screens/Notifications/notification_service.dart
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter/material.dart';
 import 'dart:convert';
-
-import 'package:frontend/telemedicine/consultation_screen.dart';
 
 class NotificationService {
   static final FirebaseFirestore _firestore = FirebaseFirestore.instance;
@@ -54,6 +53,35 @@ class NotificationService {
     }
   }
 
+  // Send patient joined notification
+  static Future<void> sendPatientJoinedNotification({
+    required String doctorId,
+    required String patientName,
+    required String appointmentId,
+    required String consultationType,
+  }) async {
+    try {
+      debugPrint('🔔 Sending patient joined notification to doctor: $doctorId');
+      
+      await _storePatientJoinedNotification(
+        doctorId: doctorId,
+        patientName: patientName,
+        appointmentId: appointmentId,
+        consultationType: consultationType,
+      );
+
+      await _showPatientJoinedLocalNotification(
+        patientName: patientName,
+        appointmentId: appointmentId,
+      );
+
+      debugPrint('✅ Patient joined notification sent successfully');
+
+    } catch (e) {
+      debugPrint('❌ Error sending patient joined notification: $e');
+    }
+  }
+
   // Store notification in Firestore
   static Future<void> _storeNotificationInFirestore({
     required String patientId,
@@ -84,7 +112,36 @@ class NotificationService {
     }
   }
 
-  // Show local notification with action buttons
+  static Future<void> _storePatientJoinedNotification({
+    required String doctorId,
+    required String patientName,
+    required String appointmentId,
+    required String consultationType,
+  }) async {
+    try {
+      final notificationData = {
+        'doctorId': doctorId,
+        'patientName': patientName,
+        'appointmentId': appointmentId,
+        'consultationType': consultationType,
+        'type': 'patient_joined',
+        'title': 'Patient Joined ✅',
+        'message': '$patientName has joined the consultation',
+        'timestamp': FieldValue.serverTimestamp(),
+        'read': false,
+        'action': 'join_consultation',
+        'priority': 'high',
+      };
+
+      await _firestore.collection('notifications').add(notificationData);
+      debugPrint('✅ Patient joined notification stored in Firestore');
+      
+    } catch (e) {
+      debugPrint('❌ Error storing patient joined notification: $e');
+    }
+  }
+
+  // Show local notification
   static Future<void> _showLocalNotification({
     required String doctorName,
     required String appointmentId,
@@ -92,14 +149,14 @@ class NotificationService {
   }) async {
     try {
       const AndroidNotificationDetails androidDetails = AndroidNotificationDetails(
-        'consultation_channel', // channelId
-        'Consultation Notifications', // channelName
+        'consultation_channel',
+        'Consultation Notifications',
         channelDescription: 'Notifications for telemedicine consultations',
         importance: Importance.high,
         priority: Priority.high,
         enableVibration: true,
         playSound: true,
-        timeoutAfter: 30000, // 30 seconds timeout
+        timeoutAfter: 30000,
         styleInformation: BigTextStyleInformation(''),
         actions: [
           AndroidNotificationAction(
@@ -139,19 +196,47 @@ class NotificationService {
     }
   }
 
-  // Handle notification tap and actions
-  static void configureNotificationActions(BuildContext context) {
-    // Handle notification tap
-    _localNotifications.getNotificationAppLaunchDetails().then((details) {
-      if (details?.didNotificationLaunchApp ?? false) {
-        final payload = details?.notificationResponse?.payload;
-        if (payload != null) {
-          _handleNotificationPayload(payload, context);
-        }
-      }
-    });
+  static Future<void> _showPatientJoinedLocalNotification({
+    required String patientName,
+    required String appointmentId,
+  }) async {
+    try {
+      const AndroidNotificationDetails androidDetails = AndroidNotificationDetails(
+        'consultation_channel',
+        'Consultation Notifications',
+        channelDescription: 'Notifications for telemedicine consultations',
+        importance: Importance.high,
+        priority: Priority.high,
+        enableVibration: true,
+        playSound: true,
+      );
 
-    // Handle notification actions
+      const NotificationDetails details = NotificationDetails(
+        android: androidDetails,
+      );
+
+      await _localNotifications.show(
+        DateTime.now().millisecondsSinceEpoch.remainder(100000),
+        'Patient Joined ✅',
+        '$patientName has joined the consultation',
+        details,
+        payload: json.encode({
+          'type': 'patient_joined',
+          'appointmentId': appointmentId,
+          'patientName': patientName,
+          'action': 'join_consultation',
+        }),
+      );
+
+      debugPrint('✅ Patient joined local notification shown');
+      
+    } catch (e) {
+      debugPrint('❌ Error showing patient joined notification: $e');
+    }
+  }
+
+  // Handle notification actions
+  static void configureNotificationActions(BuildContext context) {
     _localNotifications.initialize(
       const InitializationSettings(
         android: AndroidInitializationSettings('@mipmap/ic_launcher'),
@@ -175,42 +260,15 @@ class NotificationService {
       final data = json.decode(payload) as Map<String, dynamic>;
       
       if (data['action'] == 'join_consultation') {
-        _navigateToConsultation(data, context);
+        debugPrint('🎯 Notification action: join_consultation');
+        // Navigation logic would go here based on your app structure
       }
     } catch (e) {
       debugPrint('❌ Error handling notification payload: $e');
     }
   }
 
-  static void _navigateToConsultation(Map<String, dynamic> data, BuildContext context) {
-    // You'll need to get patient info from your app state
-    // This is a simplified version - adjust based on your app structure
-    if (Navigator.of(context).canPop()) {
-      Navigator.of(context).popUntil((route) => route.isFirst);
-    }
-    
-    // Navigate to consultation screen
-    // You'll need to pass the actual patient data here
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (context) => ConsultationScreen(
-          appointmentId: data['appointmentId'],
-          userId: 'patient_id_here', // Get from your app state
-          userName: 'Patient Name', // Get from your app state
-          userType: 'patient',
-          consultationType: data['consultationType'] ?? 'video',
-          patientId: 'patient_id_here', // Get from your app state
-          doctorId: 'doctor_id_here', // Get from notification data or lookup
-          patientName: 'Patient Name', // Get from your app state
-          doctorName: data['doctorName'] ?? 'Doctor',
-        ),
-      ),
-    );
-  }
-
-  // ADD THESE MISSING METHODS:
-
-  // Get all unread notifications for a patient
+  // Get notifications
   static Stream<List<Map<String, dynamic>>> getPatientNotifications(String patientId) {
     return _firestore
         .collection('notifications')
@@ -238,7 +296,7 @@ class NotificationService {
     }
   }
 
-  // Mark all notifications as read for a patient
+  // Mark all notifications as read
   static Future<void> markAllAsRead(String patientId) async {
     try {
       final querySnapshot = await _firestore
@@ -270,5 +328,26 @@ class NotificationService {
         .where('read', isEqualTo: false)
         .snapshots()
         .map((snapshot) => snapshot.docs.length);
+  }
+}
+
+// Simple Notification Service for direct calls
+class SimpleNotificationService {
+  static Future<void> sendPatientJoinedNotification({
+    required String doctorId,
+    required String patientName,
+    required String appointmentId,
+    required String consultationType,
+  }) async {
+    try {
+      await NotificationService.sendPatientJoinedNotification(
+        doctorId: doctorId,
+        patientName: patientName,
+        appointmentId: appointmentId,
+        consultationType: consultationType,
+      );
+    } catch (e) {
+      debugPrint('❌ Error in simple notification service: $e');
+    }
   }
 }

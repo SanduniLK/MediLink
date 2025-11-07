@@ -7,7 +7,7 @@ import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:frontend/config/environment.dart';
 import 'package:frontend/services/telemedicine_service.dart';
 import 'package:frontend/services/firestore_service.dart';
-import 'package:flutter_webrtc/flutter_webrtc.dart' as webrtc;
+
 
 class ConsultationScreen extends StatefulWidget {
   final String appointmentId;
@@ -777,6 +777,15 @@ void _endCall() {
     // 3. Use the enhanced end call in TelemedicineService
     _telemedicine.endCall(widget.userType);
     
+   debugPrint('🔄 Updating join status to false...');
+    FirestoreService.updateSessionJoinStatus(
+      appointmentId: widget.appointmentId,
+      userType: widget.userType,
+      hasJoined: false,
+    ).catchError((e) {
+      debugPrint('❌ Error updating join status: $e');
+    });
+
     // 4. Force cleanup of renderers
     _localRenderer.srcObject = null;
     _remoteRenderer.srcObject = null;
@@ -1149,6 +1158,7 @@ void _handleIceFailure() {
         doctorId: doctorId,
         patientName: widget.userName,
         appointmentId: widget.appointmentId,
+        consultationType: widget.consultationType,
       );
     }
     
@@ -1160,6 +1170,65 @@ void _handleIceFailure() {
   } catch (e) {
     debugPrint('❌ Error answering call: $e');
     _showError('Failed to answer call: $e');
+  }
+}
+Future<void> _joinRoomsBasedOnFlow() async {
+  try {
+    debugPrint('🚪 Joining rooms based on flow step...');
+    
+    // Join patient room if patient
+    if (widget.userType == 'patient') {
+      _telemedicine.joinPatientRoom(widget.userId, widget.userName);
+    }
+    
+    // Join call room
+    _telemedicine.joinCallRoom(widget.appointmentId);
+    
+    // Start connection monitoring
+    _startConnectionMonitoring();
+    
+    // Handle different flow steps
+    if (widget.userType == 'doctor') {
+      // Doctor can start call immediately or wait for patient
+      final joinStatus = await FirestoreService.getSessionJoinStatus(widget.appointmentId);
+      final patientJoined = joinStatus?['patientJoined'] ?? false;
+      
+      if (patientJoined) {
+        debugPrint('👨‍⚕️ Doctor joining after patient already joined');
+        setState(() {
+          _callStatus = 'connecting';
+        });
+        // Doctor can start call immediately since patient is waiting
+        await _startCallAsDoctor();
+      } else {
+        debugPrint('👨‍⚕️ Doctor starting new consultation');
+        setState(() {
+          _callStatus = 'waiting';
+        });
+        // Doctor will start call when ready
+      }
+    } else {
+      // Patient flow
+      final joinStatus = await FirestoreService.getSessionJoinStatus(widget.appointmentId);
+      final doctorJoined = joinStatus?['doctorJoined'] ?? false;
+      
+      if (doctorJoined) {
+        debugPrint('👤 Patient joining - doctor is already in call');
+        setState(() {
+          _callStatus = 'connecting';
+        });
+        // Patient can wait for offer from doctor
+      } else {
+        debugPrint('👤 Patient waiting for doctor to start');
+        setState(() {
+          _callStatus = 'waiting';
+        });
+      }
+    }
+    
+  } catch (e) {
+    debugPrint('❌ Error in flow-based room joining: $e');
+    rethrow;
   }
 }
   void _rejectIncomingCall(dynamic callData) {
@@ -1559,33 +1628,7 @@ Widget _buildDebugPanel(Color lightColor, Color primaryColor, Color secondaryCol
         
         SizedBox(height: 12),
         
-        // Debug Buttons - Row 1
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceAround,
-          children: [
-            _buildDebugButton(Icons.audio_file, 'Audio Fix', _forceWebRTCAudioProcessing, primaryColor),
-            _buildDebugButton(Icons.swap_horiz, 'Audio Work', _webRTCAudioWorkaround, primaryColor),
-            _buildDebugButton(Icons.videocam, 'Video Check', _checkVideoRenderers, primaryColor),
-            _buildDebugButton(Icons.link, 'Reattach', _forceMediaStreamAttachment, primaryColor),
-          ],
-        ),
         
-        SizedBox(height: 8),
-        
-        // Debug Buttons - Row 2
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceAround,
-          children: [
-            _buildDebugButton(Icons.bug_report, 'Debug', _debugWebRTCStreams, primaryColor),
-            _buildDebugButton(Icons.visibility, 'Visibility', _fixVideoVisibility, primaryColor),
-            _buildDebugButton(Icons.emergency, 'Emergency', _emergencyMediaFix, primaryColor),
-            _buildDebugButton(Icons.help, 'Full Debug', () {
-              _debugMediaStreams();
-              _checkAudioState();
-              _checkSocketStatus();
-            }, primaryColor),
-          ],
-        ),
       ],
     ),
   );
