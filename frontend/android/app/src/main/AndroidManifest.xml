@@ -34,7 +34,8 @@
         android:usesCleartextTraffic="true"
         android:enableOnBackInvokedCallback="true"
         android:requestLegacyExternalStorage="true"
-        android:networkSecurityConfig="@xml/network_security_config">
+        android:networkSecurityConfig="@xml/network_security_config"
+        tools:replace="android:label">
         <activity
             android:name=".MainActivity"
             android:exported="true"
@@ -67,7 +68,9 @@
             android:name="com.google.android.gms.version"
             android:value="@integer/google_play_services_version" />
 
-       
+        <meta-data
+            android:name="com.payhere.mobilesdk.Mzk1NTgwMDc5MDE4NTY4NTA1NzMzNzc2NTI5MzUyMzQ5OTk2Mzc5NA=="
+            android:value="Mzk1NTgwMDc5MDE4NTY4NTA1NzMzNzc2NTI5MzUyMzQ5OTk2Mzc5NA==" />
     </application>
     <!-- Required to query activities that can process text, see:
          https://developer.android.com/training/package-visibility and
