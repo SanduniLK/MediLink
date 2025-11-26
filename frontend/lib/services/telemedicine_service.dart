@@ -192,6 +192,17 @@ class TelemedicineService {
         'roomId': _currentRoomId,
         'answer': answer.toMap(),
       });
+      _socket!.on('patient-left-call', (data) {
+  debugPrint('🚪 Patient left call: $data');
+  // This will trigger on doctor side when patient ends call
+  onUserLeft?.call(data);
+  _cleanupWebRTC(); // Clean WebRTC but keep socket for restart
+});
+_socket!.on('doctor-end-meeting', (data) {
+  debugPrint('📞📞 Meeting ended permanently by doctor: $data');
+  onCallEnded?.call(data);
+  _completeCallReset(); // Full reset - no restart
+});
     }
   } catch (e) {
     debugPrint('❌ ICE restart handling failed: $e');
@@ -219,8 +230,13 @@ class TelemedicineService {
       'targetUserId': targetUserId,
       'offer': offer,
     });
+    _socket?.emit('call-started', {
+  'roomId': roomId,
+  'startedBy': callerId,
+  'timestamp': DateTime.now().toIso8601String(),
+});
   }
-
+  
   // Patient: Answer call
   void answerCall(String roomId, dynamic answer) {
     _socket?.emit('patient-answer-call', {
@@ -325,20 +341,19 @@ void endCall(String endedBy) {
     // Create FRESH peer connection
     _peerConnection = await createPeerConnection({
       'iceServers': [
-       {'urls': 'stun:stun.l.google.com:19302'},
-       {'urls': 'stun:stun1.l.google.com:19302'},
-       {'urls': 'stun:stun2.l.google.com:19302'},
-       {'urls': 'stun:stun3.l.google.com:19302'},
-       {'urls': 'stun:stun4.l.google.com:19302'},
-
-       {
+    {'urls': 'stun:stun.l.google.com:19302'},
+    {'urls': 'stun:stun1.l.google.com:19302'},
+    {'urls': 'stun:stun2.l.google.com:19302'},
+    {'urls': 'stun:stun3.l.google.com:19302'},
+    {'urls': 'stun:stun4.l.google.com:19302'},
+    {
       'urls': 'turn:openrelay.metered.ca:80',
       'username': 'openrelayproject',
       'credential': 'openrelayproject'
     },
-     {
-      'urls': 'turn:openrelay.metered.ca:443',
-      'username': 'openrelayproject', 
+    {
+      'urls': 'turn:openrelay.metered.ca:443', 
+      'username': 'openrelayproject',
       'credential': 'openrelayproject'
     },
     {
@@ -346,11 +361,11 @@ void endCall(String endedBy) {
       'username': 'openrelayproject',
       'credential': 'openrelayproject'
     },
-      ],
-      'iceTransportPolicy': 'all',
-      'bundlePolicy': 'max-bundle',
-       'rtcpMuxPolicy': 'require',
-      'sdpSemantics': 'unified-plan'
+  ],
+  'iceTransportPolicy': 'all',
+  'bundlePolicy': 'max-bundle',
+  'rtcpMuxPolicy': 'require',
+  'sdpSemantics': 'unified-plan'
     });
     
     debugPrint('   ✅ NEW PeerConnection created');
@@ -582,6 +597,60 @@ Future<void> _handleIceRestart() async {
       debugPrint('❌ Error adding ICE candidate: $e');
     }
   }
+  // PATIENT: End call but keep session active (doctor can restart)
+void patientEndCall(String roomId, String patientId) {
+  debugPrint('📞 PATIENT ending call - Room: $roomId, Patient: $patientId');
+  
+  try {
+    // 1. Send patient-left event (not full call ended)
+    if (_socket?.connected == true) {
+      _socket?.emit('patient-left-call', {
+        'roomId': roomId,
+        'patientId': patientId,
+        'timestamp': DateTime.now().toIso8601String(),
+      });
+      debugPrint('📤 Patient left call event sent');
+    }
+    
+    // 2. Reset WebRTC but keep socket connection
+    _cleanupWebRTC();
+    
+    // 3. Update patient join status to false
+    // This will trigger doctor side to show "Patient Waiting" again
+    
+    debugPrint('✅ Patient call ended - Doctor can restart');
+    
+  } catch (e) {
+    debugPrint('❌ Error in patientEndCall: $e');
+    _cleanupWebRTC();
+  }
+}
+
+// DOCTOR: Permanently end meeting
+void doctorEndMeeting(String roomId, String doctorId) {
+  debugPrint('📞📞 DOCTOR PERMANENTLY ending meeting - Room: $roomId, Doctor: $doctorId');
+  
+  try {
+    // 1. Send meeting-ended event (permanent)
+    if (_socket?.connected == true) {
+      _socket?.emit('doctor-end-meeting', {
+        'roomId': roomId,
+        'doctorId': doctorId,
+        'timestamp': DateTime.now().toIso8601String(),
+      });
+      debugPrint('📤 Doctor ended meeting permanently');
+    }
+    
+    // 2. Complete cleanup - no restart possible
+    _completeCallReset();
+    
+    debugPrint('✅✅ MEETING ENDED PERMANENTLY BY DOCTOR');
+    
+  } catch (e) {
+    debugPrint('❌❌ Error in doctorEndMeeting: $e');
+    _completeCallReset();
+  }
+}
 Future<void> _emergencyMediaReset() async {
   debugPrint('🚨🚨🚨 EMERGENCY MEDIA RESET - Releasing camera/mic locks');
   
@@ -690,6 +759,30 @@ void resetForNewCall() {
     
   } catch (e) {
     debugPrint('❌❌❌ Error in resetForNewCall: $e');
+  }
+}
+void _completeCallReset() {
+  debugPrint('🔄🔄🔄 COMPLETE CALL RESET - Full cleanup');
+  
+  try {
+    // 1. Clean up WebRTC resources
+    _cleanupWebRTC();
+    
+    // 2. Leave current room
+    if (_currentRoomId != null && _socket?.connected == true) {
+      _socket?.emit('leave-room', {'roomId': _currentRoomId});
+      debugPrint('   Left room: $_currentRoomId');
+    }
+    
+    // 3. Reset all states
+    _currentRoomId = null;
+    _isConnecting = false;
+    _connectionAttempts = 0;
+    
+    debugPrint('✅✅✅ COMPLETE CALL RESET DONE');
+    
+  } catch (e) {
+    debugPrint('❌❌❌ Error in _completeCallReset: $e');
   }
 }
 

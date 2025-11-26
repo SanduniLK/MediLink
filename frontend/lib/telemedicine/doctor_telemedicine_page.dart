@@ -23,11 +23,13 @@ class DoctorTelemedicinePage extends StatefulWidget {
 
 class _DoctorTelemedicinePageState extends State<DoctorTelemedicinePage> {
   List<TelemedicineSession> _sessions = [];
+  List<TelemedicineSession> _filteredSessions = [];
   bool _isLoading = true;
   bool _hasError = false;
   String _errorMessage = '';
   bool _usingRealData = false;
   StreamSubscription? _sessionsSubscription;
+  String _selectedFilter = 'all';
 
   final Color _primaryColor = const Color(0xFF18A3B6);
   final Color _secondaryColor = const Color(0xFF32BACD);
@@ -39,6 +41,7 @@ class _DoctorTelemedicinePageState extends State<DoctorTelemedicinePage> {
   void initState() {
     super.initState();
     _loadDoctorSessions();
+   _setupPatientLeftListener();
   }
 
   @override
@@ -46,6 +49,29 @@ class _DoctorTelemedicinePageState extends State<DoctorTelemedicinePage> {
     _sessionsSubscription?.cancel();
     super.dispose();
   }
+  
+ void _applyFilter() {
+  switch (_selectedFilter) {
+    case 'scheduled':
+      _filteredSessions = _sessions.where((session) => session.status == 'Scheduled').toList();
+      break;
+    case 'in-progress':
+      _filteredSessions = _sessions.where((session) => session.status == 'In-Progress').toList();
+      break;
+    case 'completed':
+      _filteredSessions = _sessions.where((session) => session.status == 'Completed').toList();
+      break;
+    default:
+      _filteredSessions = List.from(_sessions);
+  }
+}
+
+void _setFilter(String filter) {
+  setState(() {
+    _selectedFilter = filter;
+    _applyFilter();
+  });
+}
 
   Future<void> _loadDoctorSessions() async {
     try {
@@ -133,6 +159,7 @@ void _debugSessionStatus(TelemedicineSession session) async {
       setState(() {
         _sessions = sessions;
         _isLoading = false;
+        _applyFilter();
         _usingRealData = true;
         _hasError = false;
       });
@@ -379,7 +406,33 @@ void _fixSessionDocument(TelemedicineSession session) async {
   }
 }
 
-// Add to your session card temporarily:
+
+void _setupPatientLeftListener() {
+  // Listen for patient left events from Firestore
+  FirebaseFirestore.instance
+      .collection('telemedicine_sessions')
+      .where('doctorId', isEqualTo: widget.doctorId)
+      .where('status', isEqualTo: 'In-Progress')
+      .snapshots()
+      .listen((snapshot) {
+    for (var doc in snapshot.docChanges) {
+      if (doc.type == DocumentChangeType.modified) {
+        final data = doc.doc.data() as Map<String, dynamic>;
+        final patientJoined = data['patientJoined'] ?? false;
+        final appointmentId = data['appointmentId'];
+        
+        debugPrint('🔄 Patient join status changed for $appointmentId: $patientJoined');
+        
+        // If patient left the call, update UI to show "Waiting Patient"
+        if (!patientJoined && mounted) {
+          setState(() {
+            // This will trigger the UI to show waiting state again
+          });
+        }
+      }
+    }
+  });
+}
 
 
   void _showError(String message) {
@@ -399,7 +452,7 @@ Widget _buildSessionCard(TelemedicineSession session) {
   return Card(
     margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
     elevation: 3,
-    color: _veryLightColor,
+    color: Colors.white,
     shape: RoundedRectangleBorder(
       borderRadius: BorderRadius.circular(12),
       side: BorderSide(color: _lightColor, width: 1),
@@ -448,18 +501,22 @@ Widget _buildSessionCard(TelemedicineSession session) {
                   Color statusColor = _getStatusColor(session.status);
                   
                   // Override status based on real-time join status
-                  if (patientJoined && doctorJoined) {
-                    statusText = 'Connected';
-                    statusColor = Colors.green;
-                  } else if (patientJoined && !doctorJoined) {
-                    statusText = 'Patient Joined';
-                    statusColor = Colors.green;
-                  } else if (session.status == 'In-Progress' && !patientJoined) {
-                    statusText = 'Waiting Patient';
-                    statusColor = Colors.orange;
-                  }else{
-                    
-                  }
+                  if (session.status == 'Completed') {
+      statusText = 'Completed';
+      statusColor = Colors.grey;
+    } else if (patientJoined && doctorJoined) {
+      statusText = 'Connected';
+      statusColor = Colors.green;
+    } else if (patientJoined && !doctorJoined) {
+      statusText = 'Patient Joined';
+      statusColor = Colors.green;
+    } else if (session.status == 'In-Progress' && !patientJoined) {
+      statusText = 'Waiting Patient';
+      statusColor = Colors.orange;
+    } else if (session.status == 'Scheduled') {
+      statusText = 'Scheduled';
+      statusColor = _secondaryColor;
+    }
                   
                   return Container(
                     padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
@@ -510,24 +567,31 @@ Widget _buildSessionCard(TelemedicineSession session) {
                 builder: (context, sessionSnapshot) {
                   final sessionData = sessionSnapshot.data;
                   final consultationStarted = sessionData?['status'] == 'In-Progress' || session.status == 'In-Progress';
-                  
+                  final sessionCompleted = sessionData?['status'] == 'Completed' || session.status == 'Completed';
                   return Column(
                     children: [
                       const SizedBox(height: 8),
                       
                       // DYNAMIC STATUS BASED ON REAL-TIME DATA
-                      if (!consultationStarted) ...[
+                      if (!consultationStarted && !sessionCompleted) ...[
                         _buildStatusDetailRow(
                           icon: Icons.schedule,
                           text: 'Ready to start consultation',
                           statusColor: _primaryColor,
                         ),
-                      ] else if (consultationStarted && !patientJoined) ...[
+                      ] else if (consultationStarted && !patientJoined && !sessionCompleted) ...[
                         _buildStatusDetailRow(
                           icon: Icons.notifications_active,
                           text: 'Consultation started - Waiting for patient...',
                           statusColor: Colors.orange,
                         ),
+                      ]else if (patientJoined && !doctorJoined && !sessionCompleted) ...[
+                     _buildStatusDetailRow(
+    icon: Icons.check_circle,
+    text: 'Patient Joined 👤 - Ready for you!',
+    statusColor: Colors.green,
+  ),
+
                         const SizedBox(height: 8),
                         Container(
                           padding: const EdgeInsets.all(8),
@@ -548,54 +612,16 @@ Widget _buildSessionCard(TelemedicineSession session) {
                             ],
                           ),
                         ),
-                      ] else if (patientJoined && !doctorJoined) ...[
+                      ] 
+                      else if (sessionCompleted) ...[
                         _buildStatusDetailRow(
-                          icon: Icons.check_circle,
-                          text: 'Patient Joined 👤 - Ready for you!',
-                          statusColor: Colors.green,
-                        ),
-                        const SizedBox(height: 12),
-                        // JOIN MEETING BUTTON - Only when patient has joined
-                        SizedBox(
-                          width: double.infinity,
-                          child: ElevatedButton(
-                            onPressed: () => _joinConsultationAsDoctor(session),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.green,
-                              padding: const EdgeInsets.symmetric(vertical: 12),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(8),
-                              ),
-                              elevation: 3,
-                            ),
-                            child: Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Icon(
-                                  session.isVideoCall ? Icons.videocam : Icons.phone,
-                                  color: Colors.white,
-                                ),
-                                const SizedBox(width: 8),
-                                Text(
-                                  session.isVideoCall ? 'JOIN VIDEO MEETING' : 'JOIN AUDIO CALL',
-                                  style: TextStyle(
-                                    color: Colors.white,
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 14,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      ] else if (patientJoined && doctorJoined) ...[
-                        _buildStatusDetailRow(
-                          icon: Icons.check_circle,
-                          text: 'Both Joined ✅ - In Consultation',
+                          icon: Icons.done_all,
+                          text: 'Consultation Completed',
                           statusColor: Colors.green,
                         ),
                       ],
                     ],
+                    
                   );
                 },
               );
@@ -617,21 +643,27 @@ Widget _buildSessionCard(TelemedicineSession session) {
                   builder: (context, sessionSnapshot) {
                     final sessionData = sessionSnapshot.data;
                     final consultationStarted = sessionData?['status'] == 'In-Progress' || session.status == 'In-Progress';
-                    
+                    final sessionCompleted = sessionData?['status'] == 'Completed' || session.status == 'Completed';
+
+                    debugPrint('🔍 Session: ${session.appointmentId}');
+                    debugPrint('   Consultation Started: $consultationStarted');
+                    debugPrint('   Patient Joined: $patientJoined');
+                    debugPrint('   Doctor Joined: ${joinStatus['doctorJoined']}');
+                    debugPrint('   Session Completed: $sessionCompleted');
+
                     // Show START button only if consultation hasn't started AND patient hasn't joined
-                    if (!consultationStarted && !patientJoined) {
+                    if (!consultationStarted  && !sessionCompleted) {
                       return _buildStartButton(session);
                     }
                     
                     // Show connected state if both in call
-                    if (patientJoined && joinStatus['doctorJoined'] == true) {
-                      return _buildConnectedState();
-                    }
+                    if (consultationStarted && !joinStatus['doctorJoined'] && !sessionCompleted) {
+                      return _buildJoinButton(session);
+                }
                     
-                    // If consultation started but patient hasn't joined, show waiting state
-                    if (consultationStarted && !patientJoined) {
-                      return _buildWaitingForPatientState();
-                    }
+                    if (consultationStarted && joinStatus['doctorJoined'] && !sessionCompleted) {
+                      return _buildConnectedState();
+             }
                     
                     return const SizedBox.shrink();
                   },
@@ -1066,36 +1098,41 @@ Widget _buildWaitingForPatientState() {
   }
 
   Widget _buildEmpty() {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(Icons.video_call, size: 64, color: _accentColor),
-          const SizedBox(height: 16),
-          Text(
-            'No Telemedicine Sessions',
-            style: TextStyle(
-              fontSize: 16,
-              color: _primaryColor,
-            ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            'No demo sessions available',
-            style: TextStyle(color: _secondaryColor),
-          ),
-          const SizedBox(height: 16),
-          ElevatedButton(
-            onPressed: _loadDoctorSessions,
-            style: ElevatedButton.styleFrom(
-              backgroundColor: _primaryColor,
-            ),
-            child: const Text('REFRESH'),
-          ),
-        ],
-      ),
-    );
+  String message = 'No telemedicine sessions available';
+  if (_selectedFilter != 'all') {
+    message = 'No ${_selectedFilter.replaceAll('-', ' ')} sessions';
   }
+  
+  return Center(
+    child: Column(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        Icon(Icons.video_call, size: 64, color: _accentColor),
+        const SizedBox(height: 16),
+        Text(
+          _selectedFilter == 'all' ? 'No Sessions' : 'No ${_selectedFilter.replaceAll('-', ' ').toUpperCase()}',
+          style: TextStyle(
+            fontSize: 16,
+            color: _primaryColor,
+          ),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          message,
+          style: TextStyle(color: _secondaryColor),
+        ),
+        const SizedBox(height: 16),
+        ElevatedButton(
+          onPressed: _loadDoctorSessions,
+          style: ElevatedButton.styleFrom(
+            backgroundColor: _primaryColor,
+          ),
+          child: const Text('REFRESH'),
+        ),
+      ],
+    ),
+  );
+}
 
   Widget _buildSessionList() {
     return Column(
@@ -1124,45 +1161,117 @@ Widget _buildWaitingForPatientState() {
               ],
             ),
           ),
-        Padding(
-          padding: const EdgeInsets.all(16),
-          child: Card(
-            color: _lightColor,
-            elevation: 2,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
+       // Statistics card - NOW CLICKABLE
+Padding(
+  padding: const EdgeInsets.all(16),
+  child: Card(
+    color: _lightColor,
+    elevation: 2,
+    shape: RoundedRectangleBorder(
+      borderRadius: BorderRadius.circular(12),
+    ),
+    child: Padding(
+      padding: const EdgeInsets.all(16),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceAround,
+        children: [
+          _buildClickableStatCard(
+            'All', 
+            _sessions.length, 
+            const Color.fromARGB(255, 173, 158, 17),
+            'all',
+            _selectedFilter == 'all'
+          ),
+          _buildClickableStatCard(
+            'Scheduled', 
+            _sessions.where((s) => s.status == 'Scheduled').length, 
+            _primaryColor, 
+            'scheduled',
+            _selectedFilter == 'scheduled'
+          ),
+          _buildClickableStatCard(
+            'In Progress', 
+            _sessions.where((s) => s.status == 'In-Progress').length, 
+            Colors.orange, 
+            'in-progress',
+            _selectedFilter == 'in-progress'
+          ),
+          _buildClickableStatCard(
+            'Completed', 
+            _sessions.where((s) => s.status == 'Completed').length, 
+            Colors.green, 
+            'completed',
+            _selectedFilter == 'completed'
+          ),
+        ],
+      ),
+    ),
+  ),
+),
+        Expanded(
+  child: RefreshIndicator(
+    onRefresh: _loadDoctorSessions,
+    backgroundColor: _veryLightColor,
+    color: _primaryColor,
+    child: ListView.builder(
+      padding: const EdgeInsets.only(bottom: 16),
+      itemCount: _filteredSessions.length, // CHANGE THIS
+      itemBuilder: (context, index) {
+        return _buildSessionCard(_filteredSessions[index]); // CHANGE THIS
+      },
+    ),
+  ),
+),
+      ],
+    );
+  }
+Widget _buildClickableStatCard(String title, int count, Color color, String filter, bool isSelected) {
+  return GestureDetector(
+    onTap: () => _setFilter(filter),
+    child: Column(
+      children: [
+        Container(
+          width: 50,
+          height: 50,
+          decoration: BoxDecoration(
+            color: isSelected ? color.withOpacity(0.2) : _veryLightColor,
+            shape: BoxShape.circle,
+            border: Border.all(
+              color: color, 
+              width: isSelected ? 3 : 2,
             ),
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceAround,
-                children: [
-                  _buildStatCard('Scheduled', _sessions.where((s) => s.status == 'Scheduled').length, _primaryColor),
-                  _buildStatCard('In Progress', _sessions.where((s) => s.status == 'In-Progress').length, Colors.orange),
-                  _buildStatCard('Completed', _sessions.where((s) => s.status == 'Completed').length, Colors.green),
-                ],
+            boxShadow: isSelected ? [
+              BoxShadow(
+                color: color.withOpacity(0.3),
+                blurRadius: 8,
+                offset: Offset(0, 2),
+              )
+            ] : [],
+          ),
+          child: Center(
+            child: Text(
+              count.toString(),
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+                color: color,
               ),
             ),
           ),
         ),
-        Expanded(
-          child: RefreshIndicator(
-            onRefresh: _loadDoctorSessions,
-            backgroundColor: _veryLightColor,
-            color: _primaryColor,
-            child: ListView.builder(
-              padding: const EdgeInsets.only(bottom: 16),
-              itemCount: _sessions.length,
-              itemBuilder: (context, index) {
-                return _buildSessionCard(_sessions[index]);
-              },
-            ),
+        const SizedBox(height: 8),
+        Text(
+          title,
+          style: TextStyle(
+            fontSize: 12,
+            color: isSelected ? color : _primaryColor,
+            fontWeight: isSelected ? FontWeight.bold : FontWeight.w600,
           ),
         ),
       ],
-    );
-  }
-
+    ),
+  );
+}
   Widget _buildStatCard(String title, int count, Color color) {
     return Column(
       children: [

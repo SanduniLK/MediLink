@@ -456,12 +456,17 @@ Future<void> _joinRoomsAndStartCall() async {
     // Start call if doctor
     if (widget.userType == 'doctor') {
       debugPrint('👨‍⚕️ Doctor starting call...');
-      await _startCallAsDoctor();
-    } else {
-      debugPrint('👤 Patient waiting for call...');
+      // Doctor starts as waiting for patient to join
       if (mounted) {
         setState(() {
-          _callStatus = 'waiting';
+          _callStatus = 'waiting_for_patient';
+        });
+      }
+    } else {
+      debugPrint('👤 Patient waiting for doctor...');
+      if (mounted) {
+        setState(() {
+          _callStatus = 'waiting_for_doctor';
         });
       }
     }
@@ -568,6 +573,10 @@ void _setupTelemedicineCallbacks() {
       setState(() {});
     }
   };
+  
+   
+  
+
   _telemedicine.onConnectionError = (error) {
     debugPrint('❌ Connection error: $error');
     if (mounted) {
@@ -590,7 +599,14 @@ void _setupTelemedicineCallbacks() {
       });
     }
   };
-
+ _telemedicine.onCallAnswered = (data) {
+    debugPrint('✅ Remote user answered the call: $data');
+    if (mounted) {
+      setState(() {
+        _callStatus = 'connected';
+      });
+    }
+  };
   _telemedicine.onCallRejected = (data) {
     debugPrint('❌ Remote user rejected the call: $data');
     if (mounted) {
@@ -670,7 +686,34 @@ void _setupTelemedicineCallbacks() {
     debugPrint('🧊 Handling ICE candidate from remote: $data');
     await _telemedicine.handleICECandidate(data['candidate']);
   };
-
+_telemedicine.onCallEnded = (data) {
+    debugPrint('📞 Call ended by remote: $data');
+    if (mounted) {
+      setState(() {
+        _callStatus = 'ended';
+      });
+      _showError('Call ended by remote user');
+      Navigator.pop(context);
+    }
+  };
+  _telemedicine.onUserJoined = (data) {
+    debugPrint('👤 User joined room: $data');
+    // If doctor sees patient joined, update status
+    if (widget.userType == 'doctor' && _callStatus == 'waiting') {
+      if (mounted) {
+        setState(() {
+          _callStatus = 'connecting';
+        });
+      }
+    }
+  };
+   _telemedicine.onUserLeft = (data) {
+    debugPrint('🚪 User left room: $data');
+    if (mounted) {
+      _showError('Remote user left the call');
+      Navigator.pop(context);
+    }
+  };
   _telemedicine.onLocalStream = (stream) {
   debugPrint('📹 Local stream received');
   _localRenderer.srcObject = stream;
@@ -689,6 +732,7 @@ _telemedicine.onRemoteStream = (stream) {
   }
   _cancelIceTimeoutMonitor();
 };
+
 _telemedicine.onMediaStateChanged = (data) {
     debugPrint('🎛️ REMOTE MEDIA STATE CHANGE: $data');
     debugPrint('   From: ${data['from']}');
@@ -700,6 +744,7 @@ _telemedicine.onMediaStateChanged = (data) {
       // Show indicator that remote user muted/unmuted
     }
   };
+  
 }
  void _toggleVideo() {
     setState(() {
@@ -759,7 +804,7 @@ Future<void> _setMaxVolume() async {
 }
 
 void _endCall() {
-  debugPrint('📞📞📞 COMPLETE CALL ENDING PROCESS STARTING...');
+  debugPrint('📞📞📞 ENDING CALL - User: ${widget.userType}');
   
   try {
     // 1. Update UI immediately
@@ -799,28 +844,24 @@ void _endCall() {
         _targetUserId = null;
         _connectionRetries = 0;
       });
+      
+      debugPrint('✅ Doctor permanently ended meeting');
     }
-    
-    debugPrint('✅✅✅ CALL ENDED COMPLETELY - Ready for new call');
-    
-    // 6. Navigate back after cleanup
-    Future.delayed(const Duration(milliseconds: 300), () {
+
+    // Complete cleanup
+    _completeCallCleanup();
+
+    // Navigate back
+    Future.delayed(Duration(milliseconds: 500), () {
       if (mounted) {
         Navigator.pop(context);
       }
     });
-    
+
   } catch (e) {
     debugPrint('❌❌❌ Error in _endCall: $e');
-    
-    // Emergency cleanup even if there's an error
-    _localRenderer.srcObject = null;
-    _remoteRenderer.srcObject = null;
-    
-    // Still navigate back
-    if (mounted) {
-      Navigator.pop(context);
-    }
+    _completeCallCleanup();
+    if (mounted) Navigator.pop(context);
   }
 }
 // Add this method to handle starting a new call after ending previous one
@@ -1006,17 +1047,26 @@ void _checkSocketStatus() {
   }
 }
 
-  Future<void> _startCallAsDoctor() async {
+Future<void> _startCallAsDoctor() async {
   try {
+    // VALIDATE CLEAN STATE FIRST
+    await _validateCleanStateBeforeCall();
+    
     if (_targetUserId == null) {
       debugPrint('❌ No target user ID available');
-      // Try to get it again
       await _getTargetUserId();
       
       if (_targetUserId == null) {
         _showError('Cannot start call: Patient ID not found');
         return;
       }
+    }
+
+    // UPDATE DOCTOR STATUS TO CONNECTING
+    if (mounted) {
+      setState(() {
+        _callStatus = 'connecting';
+      });
     }
 
     debugPrint('📞 Creating WebRTC offer...');
@@ -1036,21 +1086,22 @@ void _checkSocketStatus() {
       _targetUserId!,
       offer,
     );
-     debugPrint('🔄 Attempting to send doctor started notification...');
-    debugPrint('   Patient ID: $_targetUserId');
-    debugPrint('   Doctor Name: ${widget.userName}');
-    debugPrint('   Appointment ID: ${widget.appointmentId}');
     
-    
-        debugPrint('✅ Consultation offer sent successfully');
+    debugPrint('✅ Consultation offer sent successfully');
     _startIceTimeoutMonitor();
     
   } catch (e) {
     debugPrint('❌ Error starting call: $e');
     _showError('Failed to start call: $e');
+    
+    // Reset status on error
+    if (mounted) {
+      setState(() {
+        _callStatus = 'waiting';
+      });
+    }
   }
 }
-
   Future<void> _handleIncomingCallAsPatient(dynamic callData) async {
     try {
       debugPrint('📞 Handling incoming call: $callData');
@@ -1133,17 +1184,17 @@ void _handleIceFailure() {
     }
   });
 }
-  Future<void> _answerIncomingCall(dynamic callData) async {
+Future<void> _answerIncomingCall(dynamic callData) async {
   try {
-    debugPrint('✅ Answering incoming call...');
+    // VALIDATE CLEAN STATE FIRST
+    await _validateCleanStateBeforeCall();
     
     if (!mounted) return;
     
     setState(() {
       _callStatus = 'connecting';
     });
-    
-    // **ENSURE WEBRTC IS INITIALIZED BEFORE ANSWERING**
+
     if (!_telemedicine.isReady) {
       debugPrint('🔄 Initializing WebRTC before answering call...');
       await _telemedicine.initializeWebRTC(widget.consultationType == 'video');
@@ -1152,7 +1203,7 @@ void _handleIceFailure() {
     final answer = await _telemedicine.createAnswer();
     _telemedicine.answerCall(callData['roomId'], answer);
 
-     final doctorId = callData['callerId'];
+    final doctorId = callData['callerId'];
     if (doctorId != null) {
       await FirestoreService.createPatientJoinedNotification(
         doctorId: doctorId,
@@ -1229,6 +1280,69 @@ Future<void> _joinRoomsBasedOnFlow() async {
   } catch (e) {
     debugPrint('❌ Error in flow-based room joining: $e');
     rethrow;
+  }
+}
+Future<void> _completeCallCleanup() async {
+  debugPrint('🧹🧹🧹 COMPLETE CALL CLEANUP STARTING');
+  
+  try {
+    // 1. Cancel ALL timers first
+    _connectionMonitor?.cancel();
+    _connectionMonitor = null;
+    _cancelIceTimeoutMonitor();
+
+    // 2. Reset all state variables
+    if (mounted) {
+      setState(() {
+        _callStatus = 'ended';
+        _isVideoEnabled = false;
+        _isAudioEnabled = false;
+        _connectionRetries = 0;
+      });
+    }
+
+    // 3. Clear renderers
+    _localRenderer.srcObject = null;
+    _remoteRenderer.srcObject = null;
+
+    // 4. Force TelemedicineService cleanup
+    _telemedicine.resetForNewCall();
+
+    // 5. Wait for resources to release
+    await Future.delayed(Duration(milliseconds: 1500));
+
+    debugPrint('✅✅✅ CALL CLEANUP COMPLETE - Ready for new call');
+
+  } catch (e) {
+    debugPrint('❌ Cleanup error: $e');
+  }
+}
+Future<void> _validateCleanStateBeforeCall() async {
+  debugPrint('🔍 PRE-CALL STATE VALIDATION');
+  
+  // Check if we need cleanup from previous call
+  bool needsCleanup = false;
+  
+  if (_callStatus != 'ended') {
+    debugPrint('⚠️ Previous call not properly ended - status: $_callStatus');
+    needsCleanup = true;
+  }
+  
+  if (_localRenderer.srcObject != null) {
+    debugPrint('⚠️ Local renderer still has stream');
+    needsCleanup = true;
+  }
+  
+  if (_connectionMonitor != null) {
+    debugPrint('⚠️ Connection monitor still running');
+    needsCleanup = true;
+  }
+
+  if (needsCleanup) {
+    debugPrint('🔄 Forcing cleanup before new call...');
+    await _completeCallCleanup();
+  } else {
+    debugPrint('✅ Clean state confirmed');
   }
 }
   void _rejectIncomingCall(dynamic callData) {
@@ -1675,6 +1789,7 @@ Widget _buildControlPanel(Color lightColor, Color primaryColor, Color secondaryC
           Colors.red,
           isEndCall: true,
         ),
+ 
       ],
     ),
   );
@@ -1837,6 +1952,7 @@ void dispose() {
   // 2. End call through service
   _telemedicine.endCall(widget.userType);
   
+   _completeCallCleanup();
   // 3. Clear renderers
   _localRenderer.srcObject = null;
   _remoteRenderer.srcObject = null;

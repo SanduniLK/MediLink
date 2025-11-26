@@ -623,4 +623,19 @@ static Future<void> createConsultationCompletedNotification({
     debugPrint('❌ ERROR CREATING COMPLETION NOTIFICATION: $e');
   }
 }
+static Future<void> updatePatientLeftCall(String appointmentId) async {
+  try {
+    await FirebaseFirestore.instance
+        .collection('telemedicine_sessions')
+        .doc(appointmentId)
+        .update({
+      'patientJoined': false,
+      'lastPatientLeft': DateTime.now(),
+    });
+    debugPrint('✅ Patient left call status updated');
+  } catch (e) {
+    debugPrint('❌ Error updating patient left call: $e');
+    rethrow;
+  }
+}
 }

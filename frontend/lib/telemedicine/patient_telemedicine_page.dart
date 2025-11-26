@@ -1,3 +1,4 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:frontend/model/telemedicine_session.dart';
 import 'package:frontend/telemedicine/consultation_screen.dart';
@@ -12,6 +13,7 @@ class PatientTelemedicinePage extends StatefulWidget {
     Key? key,
     required this.patientId,
     required this.patientName,
+    
   }) : super(key: key);
 
   @override
@@ -20,11 +22,17 @@ class PatientTelemedicinePage extends StatefulWidget {
 
 class _PatientTelemedicinePageState extends State<PatientTelemedicinePage> {
   List<TelemedicineSession> _sessions = [];
+   List<TelemedicineSession> _filteredSessions = []; 
   bool _isLoading = true;
   bool _hasError = false;
   String _errorMessage = '';
   bool _usingRealData = false;
   StreamSubscription? _sessionsSubscription;
+  String _selectedFilter = 'all';
+
+
+
+  
 
   // Color scheme
   final Color _primaryColor = const Color(0xFF18A3B6);
@@ -33,10 +41,13 @@ class _PatientTelemedicinePageState extends State<PatientTelemedicinePage> {
   final Color _lightColor = const Color(0xFFB2DEE6);
   final Color _veryLightColor = const Color(0xFFDDF0F5);
 
+
+ 
   @override
   void initState() {
     super.initState();
     _loadPatientSessions();
+    
   }
 
   @override
@@ -45,6 +56,27 @@ class _PatientTelemedicinePageState extends State<PatientTelemedicinePage> {
     super.dispose();
   }
 
+void _applyFilter() {
+  switch (_selectedFilter) {
+    case 'scheduled':
+      _filteredSessions = _sessions.where((session) => session.status == 'Scheduled').toList();
+      break;
+    case 'in-progress':
+      _filteredSessions = _sessions.where((session) => session.status == 'In-Progress').toList();
+      break;
+    case 'completed':
+      _filteredSessions = _sessions.where((session) => session.status == 'Completed').toList();
+      break;
+    default:
+      _filteredSessions = List.from(_sessions);
+  }
+}
+void _setFilter(String filter) {
+  setState(() {
+    _selectedFilter = filter;
+    _applyFilter();
+  });
+}
   Future<void> _loadPatientSessions() async {
     try {
       if (mounted) {
@@ -101,6 +133,7 @@ class _PatientTelemedicinePageState extends State<PatientTelemedicinePage> {
     if (mounted) {
       setState(() {
         _sessions = sessions;
+        _applyFilter();
         _isLoading = false;
         _usingRealData = true;
         _hasError = false;
@@ -143,14 +176,7 @@ void _joinConsultation(TelemedicineSession session) async {
       ),
     );
 
-    // Update session status to In-Progress in Firestore if not already
-    if (session.status != 'In-Progress') {
-      await FirestoreService.updateSessionStatus(
-        appointmentId: session.appointmentId,
-        status: 'In-Progress',
-        startedAt: DateTime.now(),
-      );
-    }
+    
     
     debugPrint('🔄 Updating patient join status...');
     await FirestoreService.updateSessionJoinStatus(
@@ -204,6 +230,16 @@ void _joinConsultation(TelemedicineSession session) async {
     _showError('Failed to join consultation: $e');
   }
 }
+// NEW METHOD: Check if patient can join the consultation
+bool _canPatientJoin(TelemedicineSession session) {
+  // Patient can only join if:
+  // 1. Session is in progress
+  // 2. Session is not completed
+  // 3. Doctor has started the consultation (doctorHasJoined is true)
+  return session.status == 'In-Progress' ;
+         
+         
+}
 
   void _showError(String message) {
     if (mounted) {
@@ -217,11 +253,12 @@ void _joinConsultation(TelemedicineSession session) async {
     }
   }
 
+
   Widget _buildSessionCard(TelemedicineSession session) {
     return Card(
       margin: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       elevation: 3,
-      color: _veryLightColor,
+      color: Colors.white,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(12),
         side: BorderSide(color: _lightColor, width: 1),
@@ -288,11 +325,7 @@ void _joinConsultation(TelemedicineSession session) async {
             
             SizedBox(height: 8),
             
-            _buildDetailRow(
-              icon: Icons.attach_money,
-              text: 'Fees: ₹${session.fees}',
-              isPrice: true,
-            ),
+            
 
             if (session.date != null) ...[
               SizedBox(height: 8),
@@ -305,18 +338,18 @@ void _joinConsultation(TelemedicineSession session) async {
             SizedBox(height: 16),
             
             // Action button
-            if (session.canStart && session.status != 'Completed')
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton(
-                  onPressed: () => _joinConsultation(session),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: _primaryColor,
-                    padding: EdgeInsets.symmetric(vertical: 12),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                  ),
+            if (_canPatientJoin(session))
+  SizedBox(
+    width: double.infinity,
+    child: ElevatedButton(
+      onPressed: () => _joinConsultation(session),
+      style: ElevatedButton.styleFrom(
+        backgroundColor: _primaryColor,
+        padding: EdgeInsets.symmetric(vertical: 12),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(8),
+        ),
+      ),
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
@@ -524,7 +557,7 @@ void _joinConsultation(TelemedicineSession session) async {
               ? _buildError()
               : _sessions.isEmpty
                   ? _buildEmpty()
-                  : _buildSessionList(),
+                  : setupCallListener(),
     );
   }
 
@@ -619,7 +652,7 @@ void _joinConsultation(TelemedicineSession session) async {
     );
   }
 
-  Widget _buildSessionList() {
+  Widget setupCallListener() {
     return Column(
       children: [
         // Live data banner
@@ -648,27 +681,54 @@ void _joinConsultation(TelemedicineSession session) async {
             ),
           ),
         // Statistics card
-        Padding(
-          padding: EdgeInsets.all(16),
-          child: Card(
-            color: _lightColor,
-            elevation: 2,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Padding(
-              padding: EdgeInsets.all(16),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceAround,
-                children: [
-                  _buildStatCard('Scheduled', _sessions.where((s) => s.status == 'Scheduled').length, _primaryColor),
-                  _buildStatCard('In Progress', _sessions.where((s) => s.status == 'In-Progress').length, Colors.orange),
-                  _buildStatCard('Completed', _sessions.where((s) => s.status == 'Completed').length, Colors.green),
-                ],
-              ),
-            ),
+        // Statistics card - NOW CLICKABLE
+Padding(
+  padding: EdgeInsets.all(16),
+  child: Card(
+    color: _lightColor,
+    elevation: 2,
+    shape: RoundedRectangleBorder(
+      borderRadius: BorderRadius.circular(12),
+    ),
+    child: Padding(
+      padding: EdgeInsets.all(16),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceAround,
+        children: [
+          _buildClickableStatCard(
+            'All', 
+            _sessions.length, 
+            _primaryColor, 
+            'all',
+            _selectedFilter == 'all'
           ),
-        ),
+          _buildClickableStatCard(
+            'Scheduled', 
+            _sessions.where((s) => s.status == 'Scheduled').length, 
+            _primaryColor, 
+            'scheduled',
+            _selectedFilter == 'scheduled'
+          ),
+          _buildClickableStatCard(
+            'In Progress', 
+            _sessions.where((s) => s.status == 'In-Progress').length, 
+            Colors.orange, 
+            'in-progress',
+            _selectedFilter == 'in-progress'
+          ),
+          _buildClickableStatCard(
+            'Completed', 
+            _sessions.where((s) => s.status == 'Completed').length, 
+            Colors.green, 
+            'completed',
+            _selectedFilter == 'completed'
+          ),
+        ],
+      ),
+    ),
+  ),
+),
+
         // Sessions list
         Expanded(
           child: RefreshIndicator(
@@ -677,9 +737,9 @@ void _joinConsultation(TelemedicineSession session) async {
             color: _primaryColor,
             child: ListView.builder(
               padding: EdgeInsets.only(bottom: 16),
-              itemCount: _sessions.length,
+              itemCount: _filteredSessions.length,
               itemBuilder: (context, index) {
-                return _buildSessionCard(_sessions[index]);
+                return _buildSessionCard(_filteredSessions[index]);
               },
             ),
           ),
@@ -687,7 +747,84 @@ void _joinConsultation(TelemedicineSession session) async {
       ],
     );
   }
-
+Widget _buildClickableStatCard(String title, int count, Color color, String filter, bool isSelected) {
+  return GestureDetector(
+    onTap: () => _setFilter(filter),
+    child: Column(
+      children: [
+        Container(
+          width: 50,
+          height: 50,
+          decoration: BoxDecoration(
+            color: isSelected ? color.withOpacity(0.2) : _veryLightColor,
+            shape: BoxShape.circle,
+            border: Border.all(
+              color: color, 
+              width: isSelected ? 3 : 2,
+            ),
+            boxShadow: isSelected ? [
+              BoxShadow(
+                color: color.withOpacity(0.3),
+                blurRadius: 8,
+                offset: Offset(0, 2),
+              )
+            ] : [],
+          ),
+          child: Center(
+            child: Text(
+              count.toString(),
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+                color: color,
+              ),
+            ),
+          ),
+        ),
+        SizedBox(height: 8),
+        Text(
+          title,
+          style: TextStyle(
+            fontSize: 12,
+            color: isSelected ? color : _primaryColor,
+            fontWeight: isSelected ? FontWeight.bold : FontWeight.w600,
+          ),
+        ),
+      ],
+    ),
+  );
+}
+Stream<Map<String, dynamic>?> _getSessionStatusStream(String appointmentId) {
+  return FirebaseFirestore.instance
+      .collection('telemedicine_sessions')
+      .where('appointmentId', isEqualTo: appointmentId)
+      .snapshots()
+      .map((snapshot) {
+        if (snapshot.docs.isNotEmpty) {
+          return snapshot.docs.first.data();
+        }
+        return null;
+      });
+}
+Widget _buildStatusDetailRow({required IconData icon, required String text, required Color statusColor}) {
+  return Row(
+    children: [
+      Icon(
+        icon,
+        color: statusColor,
+        size: 20,
+      ),
+      SizedBox(width: 8),
+      Text(
+        text,
+        style: TextStyle(
+          color: statusColor,
+          fontWeight: FontWeight.bold,
+        ),
+      ),
+    ],
+  );
+}
   Widget _buildStatCard(String title, int count, Color color) {
     return Column(
       children: [
