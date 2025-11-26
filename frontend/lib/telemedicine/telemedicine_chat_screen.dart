@@ -1,4 +1,3 @@
-// telemedicine_chat_screen.dart - COMPLETE CORRECTED VERSION FOR PATIENTS
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -32,42 +31,37 @@ class _TelemedicineChatScreenState extends State<TelemedicineChatScreen> {
   final ChatService _chatService = ChatService();
   final FirebaseAuth _auth = FirebaseAuth.instance;
   final ScrollController _scrollController = ScrollController();
-  bool _isUploading = false; // ADD THIS MISSING VARIABLE
+  bool _isUploading = false;
+  List<Map<String, dynamic>> _messages = []; // ADD THIS
 
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
+    _setupMessageListener(); // ADD THIS
+    
+    // Debug to see what's happening
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _chatService.debugChatRoom(widget.chatRoomId);
+      _chatService.debugAllMessages(widget.chatRoomId);
+    });
   }
 
-  void _sendMessage() async {
-    final message = _messageController.text.trim();
-    if (message.isEmpty) return;
-
-    final user = _auth.currentUser;
-    if (user == null) return;
-
-    try {
-      await _chatService.sendMessage(
-        chatRoomId: widget.chatRoomId,
-        message: message,
-        senderId: user.uid,
-        senderName: widget.patientName,
-        senderRole: 'patient',
-      );
-
-      _messageController.clear();
-      _scrollToBottom();
-    } catch (e) {
+  // ADD THIS METHOD
+  void _setupMessageListener() {
+    _chatService.getMessages(widget.chatRoomId).listen((messages) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to send: $e')),
-        );
+        setState(() {
+          _messages = messages;
+        });
+        _scrollToBottom();
       }
-    }
+    }, onError: (error) {
+      debugPrint('❌ Error in message stream: $error');
+    });
   }
 
-  // === FILE SHARING METHODS FOR PATIENT ===
+
+
   void _sendFileMessage(File file, String fileName) async {
     if (!mounted) return;
     
@@ -189,7 +183,10 @@ class _TelemedicineChatScreenState extends State<TelemedicineChatScreen> {
     try {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Downloading ${message['fileName']}...')),
+          SnackBar(
+            content: Text('Downloading ${message['fileName']}...'),
+            duration: Duration(seconds: 5),
+          ),
         );
       }
 
@@ -197,23 +194,39 @@ class _TelemedicineChatScreenState extends State<TelemedicineChatScreen> {
         message['fileUrl'],
         message['fileName'],
       );
-    } catch (e) {
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error opening file: $e')),
+          SnackBar(
+            content: Text('File opened successfully!'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } catch (e) {
+      debugPrint('❌ Error opening file: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error opening file: $e. Please check permissions.'),
+            backgroundColor: Colors.red,
+            duration: Duration(seconds: 5),
+          ),
         );
       }
     }
   }
 
   void _scrollToBottom() {
-    if (_scrollController.hasClients) {
-      _scrollController.animateTo(
-        _scrollController.position.maxScrollExtent,
-        duration: Duration(milliseconds: 300),
-        curve: Curves.easeOut,
-      );
-    }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_scrollController.hasClients) {
+        _scrollController.animateTo(
+          _scrollController.position.maxScrollExtent,
+          duration: Duration(milliseconds: 300),
+          curve: Curves.easeOut,
+        );
+      }
+    });
   }
 
   @override
@@ -229,35 +242,27 @@ class _TelemedicineChatScreenState extends State<TelemedicineChatScreen> {
           Expanded(
             child: Stack(
               children: [
-                StreamBuilder<List<Map<String, dynamic>>>(
-                  stream: _chatService.getMessages(widget.chatRoomId),
-                  builder: (context, snapshot) {
-                    if (snapshot.hasError) {
-                      return Center(child: Text('Error loading messages'));
-                    }
-
-                    if (snapshot.connectionState == ConnectionState.waiting) {
-                      return Center(child: CircularProgressIndicator());
-                    }
-
-                    final messages = snapshot.data ?? [];
-
-                    WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
-
-                    if (messages.isEmpty) {
-                      return Center(child: Text('No messages yet. Start the conversation!'));
-                    }
-
-                    return ListView.builder(
-                      controller: _scrollController,
-                      padding: EdgeInsets.all(16),
-                      itemCount: messages.length,
-                      itemBuilder: (context, index) {
-                        return _buildMessage(messages[index]);
-                      },
-                    );
-                  },
-                ),
+                // REPLACE StreamBuilder with this:
+                _messages.isEmpty
+                    ? Center(
+                        child: Text(
+                          'No messages yet.\nStart the conversation!',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            fontSize: 16,
+                            color: Colors.grey[600],
+                          ),
+                        ),
+                      )
+                    : ListView.builder(
+                        controller: _scrollController,
+                        padding: EdgeInsets.all(16),
+                        itemCount: _messages.length,
+                        itemBuilder: (context, index) {
+                          return _buildMessage(_messages[index]);
+                        },
+                      ),
+                
                 if (_isUploading)
                   Positioned(
                     top: 0,
@@ -273,12 +278,41 @@ class _TelemedicineChatScreenState extends State<TelemedicineChatScreen> {
       ),
     );
   }
+void _sendMessage() async {
+  final message = _messageController.text.trim();
+  if (message.isEmpty) return;
 
+  final user = _auth.currentUser;
+  if (user == null) return;
+
+  // Determine if current user is doctor or patient
+  final bool isDoctor = user.uid == widget.doctorId;
+  
+  try {
+    await _chatService.sendMessage(
+      chatRoomId: widget.chatRoomId,
+      message: message,
+      senderId: user.uid,
+      senderName: isDoctor ? widget.doctorName : widget.patientName,
+      senderRole: isDoctor ? 'doctor' : 'patient', // Dynamic role
+    );
+
+    _messageController.clear();
+  } catch (e) {
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to send: $e')),
+      );
+    }
+  }
+}
   Widget _buildMessage(Map<String, dynamic> message) {
     final isMe = message['senderId'] == widget.patientId;
-    final time = DateFormat('HH:mm').format(
-      DateTime.fromMillisecondsSinceEpoch(message['timestamp']),
-    );
+    final timestamp = message['timestamp'];
+    final time = timestamp != null 
+        ? DateFormat('HH:mm').format(
+            DateTime.fromMillisecondsSinceEpoch(timestamp))
+        : '';
 
     // Check if message is a file
     if (message['type'] == 'file') {
@@ -309,7 +343,7 @@ class _TelemedicineChatScreenState extends State<TelemedicineChatScreen> {
                 crossAxisAlignment: isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
                 children: [
                   Text(
-                    message['text'],
+                    message['text'] ?? '',
                     style: TextStyle(
                       color: isMe ? Colors.white : Colors.black87,
                     ),
@@ -361,7 +395,7 @@ class _TelemedicineChatScreenState extends State<TelemedicineChatScreen> {
                 elevation: 2,
                 color: isMe ? Color(0xFF18A3B6) : Colors.white,
                 child: InkWell(
-                  onTap: () => _handleFileTap(message), // FIXED: Now this method is used
+                  onTap: () => _handleFileTap(message),
                   borderRadius: BorderRadius.circular(12),
                   child: Padding(
                     padding: EdgeInsets.all(12),
@@ -445,14 +479,12 @@ class _TelemedicineChatScreenState extends State<TelemedicineChatScreen> {
       ),
       child: Row(
         children: [
-          // File picker button - PATIENTS CAN NOW SEND FILES TOO!
           IconButton(
             icon: Icon(Icons.attach_file, color: Color(0xFF18A3B6)),
-            onPressed: _isUploading ? null : _showFilePicker, // FIXED: Now this method is used
+            onPressed: _isUploading ? null : _showFilePicker,
             tooltip: 'Attach file',
           ),
           SizedBox(width: 4),
-          // Message input field
           Expanded(
             child: TextField(
               controller: _messageController,
@@ -467,7 +499,6 @@ class _TelemedicineChatScreenState extends State<TelemedicineChatScreen> {
             ),
           ),
           SizedBox(width: 8),
-          // Send button
           CircleAvatar(
             backgroundColor: Color(0xFF18A3B6),
             child: IconButton(

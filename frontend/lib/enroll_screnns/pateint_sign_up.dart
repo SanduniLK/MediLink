@@ -60,7 +60,40 @@ class _SignUpPageState extends State<SignUpPage> {
     _ownerController.dispose();
     super.dispose();
   }
-
+// MARK: Date Picker Method for Calendar Selection
+Future<void> _selectDate() async {
+  final DateTime? picked = await showDatePicker(
+    context: context,
+    initialDate: DateTime.now().subtract(const Duration(days: 365 * 18)),
+    firstDate: DateTime(1900),
+    lastDate: DateTime.now().subtract(const Duration(days: 365 * 5)),
+    builder: (context, child) {
+      return Theme(
+        data: Theme.of(context).copyWith(
+          colorScheme: const ColorScheme.light(
+            primary: _deepTeal,
+            onPrimary: Colors.white,
+            onSurface: Colors.black,
+          ),
+          textButtonTheme: TextButtonThemeData(
+            style: TextButton.styleFrom(
+              foregroundColor: _brightCyan,
+            ),
+          ),
+        ),
+        child: child!,
+      );
+    },
+  );
+  
+  if (picked != null) {
+    final formattedDate = DateFormat('yyyy-MM-dd').format(picked);
+    setState(() {
+      _dobController.text = formattedDate;
+    });
+    _calculateAge(formattedDate);
+  }
+}
   void _calculateAge(String dob) {
     try {
       DateTime birthDate = DateFormat("yyyy-MM-dd").parse(dob);
@@ -109,7 +142,7 @@ class _SignUpPageState extends State<SignUpPage> {
         "fullname": _fullnameController.text.trim(),
         "email": _emailController.text.trim(),
         "uid": uid,
-        "isEmailVerified": false, // ✅ All users start as not verified
+        "isEmailVerified": false, 
         "createdAt": FieldValue.serverTimestamp(),
       });
 
@@ -160,7 +193,7 @@ class _SignUpPageState extends State<SignUpPage> {
         });
       }
 
-      // ✅ SUCCESS MESSAGE
+      //  SUCCESS MESSAGE
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text("Registration successful! Please verify your email."),
@@ -168,7 +201,7 @@ class _SignUpPageState extends State<SignUpPage> {
         ),
       );
 
-      // ✅ REDIRECT TO EMAIL VERIFICATION PAGE FOR ALL USERS
+      //  REDIRECT TO EMAIL VERIFICATION PAGE FOR ALL USERS
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(
@@ -323,24 +356,53 @@ class _SignUpPageState extends State<SignUpPage> {
               ),
 
               // Date of Birth (only for patient and doctor)
-              if (_role != "pharmacy") ...[
-                const SizedBox(height: 12),
-                TextFormField(
-                  controller: _dobController,
-                  decoration: _inputDecoration("Date of Birth (yyyy-MM-dd)", Icons.calendar_month),
-                  onChanged: _calculateAge,
-                  keyboardType: TextInputType.datetime,
-                  validator: (val) => val!.isEmpty ? "Enter DOB (yyyy-MM-dd)" : null,
-                ),
-                if (_age != null)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 4, left: 8),
-                    child: Text(
-                      "Age: $_age years",
-                      style: TextStyle(color: _deepTeal, fontWeight: FontWeight.bold),
-                    ),
-                  ),
-              ],
+          
+if (_role != "pharmacy") ...[
+  const SizedBox(height: 12),
+  Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      TextFormField(
+        controller: _dobController,
+        readOnly: true, // Prevent manual typing
+        decoration: InputDecoration(
+          labelText: "Date of Birth",
+          prefixIcon: Icon(Icons.calendar_today, color: Colors.grey.shade600),
+          labelStyle: TextStyle(color: Colors.grey.shade600),
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: BorderSide(color: Colors.grey.shade300, width: 1.5),
+          ),
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: BorderSide(color: Colors.grey.shade300, width: 1.5),
+          ),
+          focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: const BorderSide(color: _brightCyan, width: 2),
+          ),
+          filled: true,
+          fillColor: Colors.white,
+          contentPadding: const EdgeInsets.symmetric(vertical: 16.0, horizontal: 12.0),
+          suffixIcon: IconButton(
+            icon: const Icon(Icons.calendar_month, color: _deepTeal),
+            onPressed: _selectDate,
+          ),
+        ),
+        validator: (val) => val!.isEmpty ? "Please select date of birth" : null,
+        onTap: _selectDate, // Open calendar when tapping the field
+      ),
+      if (_age != null)
+        Padding(
+          padding: const EdgeInsets.only(top: 4, left: 8),
+          child: Text(
+            "Age: $_age years",
+            style: TextStyle(color: _deepTeal, fontWeight: FontWeight.bold),
+          ),
+        ),
+    ],
+  ),
+],
               const SizedBox(height: 12),
 
               // Patient-specific

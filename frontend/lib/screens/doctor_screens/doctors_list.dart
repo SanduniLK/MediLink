@@ -1,10 +1,10 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-
 import 'package:frontend/screens/patient_screens/book_appointment_page.dart';
 import 'package:intl/intl.dart';
 import 'package:frontend/screens/patient_screens/doctor_profile_screen.dart';
+
 class DoctorsListScreen extends StatefulWidget {
   const DoctorsListScreen({super.key});
 
@@ -14,13 +14,96 @@ class DoctorsListScreen extends StatefulWidget {
 
 class _DoctorsListScreenState extends State<DoctorsListScreen> {
   List<Map<String, dynamic>> doctors = [];
+  List<Map<String, dynamic>> filteredDoctors = [];
   bool isLoading = true;
   String errorMessage = '';
+
+  // Search and Filter variables
+  final TextEditingController searchController = TextEditingController();
+  String _searchQuery = '';
+  String _selectedSpecialization = 'All';
+  String _selectedHospital = 'All';
+ 
+  bool _showFilters = false;
+
+  // Available specializations and hospitals for filters
+  List<String> specializations = ['All'];
+  List<String> hospitals = ['All'];
 
   @override
   void initState() {
     super.initState();
     _loadDoctorsFromFirebase();
+    searchController.addListener(_onSearchChanged);
+  }
+
+  @override
+  void dispose() {
+    searchController.dispose();
+    super.dispose();
+  }
+
+  void _onSearchChanged() {
+    setState(() {
+      _searchQuery = searchController.text.toLowerCase();
+      _applyFilters();
+    });
+  }
+
+  void _applyFilters() {
+    List<Map<String, dynamic>> result = List.from(doctors);
+
+    // Apply search filter
+    if (_searchQuery.isNotEmpty) {
+      result = result.where((doctor) {
+        final name = doctor['fullname']?.toString().toLowerCase() ?? '';
+        final specialization = doctor['specialization']?.toString().toLowerCase() ?? '';
+        final hospital = doctor['hospital']?.toString().toLowerCase() ?? '';
+        final experience = doctor['experience']?.toString().toLowerCase() ?? '';
+
+        return name.contains(_searchQuery) ||
+            specialization.contains(_searchQuery) ||
+            hospital.contains(_searchQuery) ||
+            experience.contains(_searchQuery);
+      }).toList();
+    }
+
+    // Apply specialization filter
+    if (_selectedSpecialization != 'All') {
+      result = result.where((doctor) {
+        return doctor['specialization'] == _selectedSpecialization;
+      }).toList();
+    }
+
+    // Apply hospital filter
+    if (_selectedHospital != 'All') {
+      result = result.where((doctor) {
+        return doctor['hospital'] == _selectedHospital;
+      }).toList();
+    }
+
+    
+
+    setState(() {
+      filteredDoctors = result;
+    });
+  }
+
+  void _toggleFilters() {
+    setState(() {
+      _showFilters = !_showFilters;
+    });
+  }
+
+  void _resetFilters() {
+    setState(() {
+      _searchQuery = '';
+      _selectedSpecialization = 'All';
+      _selectedHospital = 'All';
+     
+      searchController.clear();
+      _applyFilters();
+    });
   }
 
   Future<void> _loadDoctorsFromFirebase() async {
@@ -47,6 +130,8 @@ class _DoctorsListScreenState extends State<DoctorsListScreen> {
       }
 
       List<Map<String, dynamic>> doctorsList = [];
+      Set<String> specializationSet = {'All'};
+      Set<String> hospitalSet = {'All'};
       
       for (var doc in querySnapshot.docs) {
         final data = doc.data();
@@ -63,7 +148,7 @@ class _DoctorsListScreenState extends State<DoctorsListScreen> {
           }
         }
 
-        doctorsList.add({
+        final doctorData = {
           'id': doc.id,
           'uid': data['uid'] ?? doc.id,
           'fullname': data['fullname'] ?? 'Dr. Unknown',
@@ -74,11 +159,20 @@ class _DoctorsListScreenState extends State<DoctorsListScreen> {
           'fees': (data['fees'] ?? 0.0).toDouble(),
           'profileImage': data['profileImage'], 
           'medicalCenters': medicalCenters,
-        });
+        };
+
+        doctorsList.add(doctorData);
+
+        // Add to filter options
+        specializationSet.add(doctorData['specialization']);
+        hospitalSet.add(doctorData['hospital']);
       }
 
       setState(() {
         doctors = doctorsList;
+        filteredDoctors = doctorsList;
+        specializations = specializationSet.toList();
+        hospitals = hospitalSet.toList();
       });
 
     } catch (e) {
@@ -103,67 +197,246 @@ class _DoctorsListScreenState extends State<DoctorsListScreen> {
             icon: const Icon(Icons.refresh),
             onPressed: _loadDoctorsFromFirebase,
           ),
+          IconButton(
+            icon: Icon(_showFilters ? Icons.filter_alt_off : Icons.filter_alt),
+            onPressed: _toggleFilters,
+            tooltip: 'Filter doctors',
+          ),
         ],
       ),
-      body: isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : errorMessage.isNotEmpty && doctors.isEmpty
-              ? Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      const Icon(Icons.medical_services, size: 64, color: Colors.grey),
-                      const SizedBox(height: 16),
-                      const Text(
-                        'No Doctors Available',
-                        style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        errorMessage,
-                        style: TextStyle(color: Colors.grey[600]),
-                        textAlign: TextAlign.center,
-                      ),
-                      const SizedBox(height: 16),
-                      ElevatedButton(
-                        onPressed: _loadDoctorsFromFirebase,
-                        child: const Text('Try Again'),
-                      ),
-                    ],
+      body: Column(
+        children: [
+          // Search Bar
+          Padding(
+            padding: const EdgeInsets.all(16.0),
+            child: Container(
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(12),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.grey.withOpacity(0.3),
+                    blurRadius: 4,
+                    offset: const Offset(0, 2),
                   ),
-                )
-              : Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    children: [
-                      Text(
-                        '${doctors.length} Doctor(s) Available',
-                        style: TextStyle(
-                          fontSize: 16,
-                          color: Colors.green[700],
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-                      
-                      Expanded(
-                        child: ListView.builder(
-                          itemCount: doctors.length,
-                          itemBuilder: (context, index) {
-                            final doctor = doctors[index];
-                            return _buildDoctorCard(doctor);
-                          },
-                        ),
-                      ),
-                    ],
+                ],
+              ),
+              child: TextField(
+                controller: searchController,
+                decoration: InputDecoration(
+                  hintText: 'Search doctors by name, specialty, hospital...',
+                  prefixIcon: const Icon(Icons.search, color: Colors.grey),
+                  border: InputBorder.none,
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  suffixIcon: _searchQuery.isNotEmpty ? IconButton(
+                    icon: const Icon(Icons.clear, size: 20),
+                    onPressed: () {
+                      searchController.clear();
+                    },
+                  ) : null,
+                ),
+              ),
+            ),
+          ),
+
+          // Filter Options
+          if (_showFilters) _buildFilterSection(),
+
+          // Results Count
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16.0),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  '${filteredDoctors.length} Doctor(s) Found',
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: Colors.green[700],
+                    fontWeight: FontWeight.bold,
                   ),
                 ),
+                if (_showFilters || _searchQuery.isNotEmpty)
+                  TextButton(
+                    onPressed: _resetFilters,
+                    child: const Text(
+                      'Reset Filters',
+                      style: TextStyle(color: Color(0xFF18A3B6)),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+
+          const SizedBox(height: 8),
+
+          // Doctors List
+          Expanded(
+            child: isLoading
+                ? const Center(child: CircularProgressIndicator())
+                : errorMessage.isNotEmpty && doctors.isEmpty
+                    ? Center(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            const Icon(Icons.medical_services, size: 64, color: Colors.grey),
+                            const SizedBox(height: 16),
+                            const Text(
+                              'No Doctors Available',
+                              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              errorMessage,
+                              style: TextStyle(color: Colors.grey[600]),
+                              textAlign: TextAlign.center,
+                            ),
+                            const SizedBox(height: 16),
+                            ElevatedButton(
+                              onPressed: _loadDoctorsFromFirebase,
+                              child: const Text('Try Again'),
+                            ),
+                          ],
+                        ),
+                      )
+                    : filteredDoctors.isEmpty
+                        ? _buildNoResultsWidget()
+                        : ListView.builder(
+                            itemCount: filteredDoctors.length,
+                            itemBuilder: (context, index) {
+                              final doctor = filteredDoctors[index];
+                              return _buildDoctorCard(doctor);
+                            },
+                          ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildFilterSection() {
+    return Container(
+      padding: const EdgeInsets.all(16.0),
+      margin: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+      decoration: BoxDecoration(
+        color: Colors.grey[50],
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.grey[300]!),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Filter Doctors',
+            style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+          ),
+          const SizedBox(height: 12),
+
+          // Specialization Filter
+          _buildFilterDropdown(
+            label: 'Specialization',
+            value: _selectedSpecialization,
+            items: specializations,
+            onChanged: (value) {
+              setState(() {
+                _selectedSpecialization = value!;
+                _applyFilters();
+              });
+            },
+          ),
+
+          const SizedBox(height: 12),
+
+          // Hospital Filter
+          _buildFilterDropdown(
+            label: 'Hospital',
+            value: _selectedHospital,
+            items: hospitals,
+            onChanged: (value) {
+              setState(() {
+                _selectedHospital = value!;
+                _applyFilters();
+              });
+            },
+          ),
+        ]
+      ),
+          
+    );
+  }
+
+  Widget _buildFilterDropdown({
+    required String label,
+    required String value,
+    required List<String> items,
+    required Function(String?) onChanged,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
+        ),
+        const SizedBox(height: 4),
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: Colors.grey[300]!),
+          ),
+          child: DropdownButton<String>(
+            value: value,
+            isExpanded: true,
+            underline: const SizedBox(),
+            items: items.map((String item) {
+              return DropdownMenuItem<String>(
+                value: item,
+                child: Text(item),
+              );
+            }).toList(),
+            onChanged: onChanged,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildNoResultsWidget() {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          const Icon(Icons.search_off, size: 64, color: Colors.grey),
+          const SizedBox(height: 16),
+          const Text(
+            'No Doctors Found',
+            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+          ),
+          const SizedBox(height: 8),
+          const Text(
+            'Try adjusting your search or filters',
+            style: TextStyle(color: Colors.grey),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 16),
+          ElevatedButton(
+            onPressed: _resetFilters,
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF18A3B6),
+            ),
+            child: const Text('Reset Filters'),
+          ),
+        ],
+      ),
     );
   }
 
   Widget _buildDoctorCard(Map<String, dynamic> doctor) {
     return Card(
-      margin: const EdgeInsets.only(bottom: 12),
+      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
       elevation: 2,
       child: ListTile(
         leading: _buildClickableDoctorAvatar(doctor),
@@ -201,86 +474,89 @@ class _DoctorsListScreenState extends State<DoctorsListScreen> {
       ),
     );
   }
- Widget _buildClickableDoctorAvatar(Map<String, dynamic> doctor) {
-  final String? profileImageUrl = doctor['profileImage'];
-  
-  return GestureDetector(
-    onTap: () {
-      _viewDoctorProfile(doctor);
-    },
-    child: CircleAvatar(
-      radius: 25,
-      backgroundColor: profileImageUrl != null && profileImageUrl.isNotEmpty
-          ? Colors.grey[200]
-          : const Color(0xFF18A3B6),
-      backgroundImage: profileImageUrl != null && profileImageUrl.isNotEmpty
-          ? NetworkImage(profileImageUrl)
-          : null,
-      // Remove onBackgroundImageError when backgroundImage is null
-      onBackgroundImageError: profileImageUrl != null && profileImageUrl.isNotEmpty
-          ? (exception, stackTrace) {
-              // Error handled silently - only called when image exists but fails to load
-            }
-          : null, // Set to null when no backgroundImage
-      child: profileImageUrl != null && profileImageUrl.isNotEmpty
-          ? null
-          : const Icon(Icons.person, color: Colors.white, size: 20),
-    ),
-  );
-}
-void _viewDoctorProfile(Map<String, dynamic> doctor) {
-  final String doctorId = doctor['uid'] ?? '';
-  
-  if (doctorId.isEmpty) {
-    print('❌ Doctor ID is empty');
-    return;
-  }
 
-  print('👨‍⚕️ Navigating to doctor profile: ${doctor['fullname']}');
-  print('   🆔 Doctor ID: $doctorId');
-  
-  Navigator.push(
-    context,
-    MaterialPageRoute(
-      builder: (context) => DoctorProfileScreen(
-        doctorId: doctorId,
-        doctorData: doctor,
-      ),
-    ),
-  );
-}
-Widget _buildDoctorAvatar(Map<String, dynamic> doctor) {
-  final String? profileImageUrl = doctor['profileImage'];
-  
-  print('🔄 Building doctor avatar:');
-  print('   - Doctor: ${doctor['fullname']}');
-  print('   - Profile Image URL: $profileImageUrl');
-  print('   - URL valid: ${profileImageUrl != null && profileImageUrl.isNotEmpty}');
-
-  if (profileImageUrl != null && profileImageUrl.isNotEmpty) {
-    return CircleAvatar(
-      radius: 25,
-      backgroundColor: Colors.grey[200],
-      backgroundImage: NetworkImage(profileImageUrl),
-      onBackgroundImageError: (exception, stackTrace) {
-        print('❌ Error loading doctor profile image: $exception');
-        print('❌ URL that failed: $profileImageUrl');
+  Widget _buildClickableDoctorAvatar(Map<String, dynamic> doctor) {
+    final String? profileImageUrl = doctor['profileImage'];
+    
+    return GestureDetector(
+      onTap: () {
+        _viewDoctorProfile(doctor);
       },
-    );
-  } else {
-    print('ℹ️ No profile image found for ${doctor['fullname']}, using default');
-    return const CircleAvatar(
-      radius: 25,
-      backgroundColor: Color(0xFF18A3B6),
-      child: Icon(Icons.person, color: Colors.white, size: 20),
+      child: CircleAvatar(
+        radius: 25,
+        backgroundColor: profileImageUrl != null && profileImageUrl.isNotEmpty
+            ? Colors.grey[200]
+            : const Color(0xFF18A3B6),
+        backgroundImage: profileImageUrl != null && profileImageUrl.isNotEmpty
+            ? NetworkImage(profileImageUrl)
+            : null,
+        onBackgroundImageError: profileImageUrl != null && profileImageUrl.isNotEmpty
+            ? (exception, stackTrace) {
+                // Error handled silently - only called when image exists but fails to load
+              }
+            : null, // Set to null when no backgroundImage
+        child: profileImageUrl != null && profileImageUrl.isNotEmpty
+            ? null
+            : const Icon(Icons.person, color: Colors.white, size: 20),
+      ),
     );
   }
-}
-Future<void> _fetchAndShowAvailableSchedules(Map<String, dynamic> doctor) async {
-  try {
-    setState(() {
-      isLoading = true;
-    });
+
+  void _viewDoctorProfile(Map<String, dynamic> doctor) {
+    final String doctorId = doctor['uid'] ?? '';
+    
+    if (doctorId.isEmpty) {
+      print('❌ Doctor ID is empty');
+      return;
+    }
+
+    print('👨‍⚕️ Navigating to doctor profile: ${doctor['fullname']}');
+    print('   🆔 Doctor ID: $doctorId');
+    
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => DoctorProfileScreen(
+          doctorId: doctorId,
+          doctorData: doctor,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDoctorAvatar(Map<String, dynamic> doctor) {
+    final String? profileImageUrl = doctor['profileImage'];
+    
+    print('🔄 Building doctor avatar:');
+    print('   - Doctor: ${doctor['fullname']}');
+    print('   - Profile Image URL: $profileImageUrl');
+    print('   - URL valid: ${profileImageUrl != null && profileImageUrl.isNotEmpty}');
+
+    if (profileImageUrl != null && profileImageUrl.isNotEmpty) {
+      return CircleAvatar(
+        radius: 25,
+        backgroundColor: Colors.grey[200],
+        backgroundImage: NetworkImage(profileImageUrl),
+        onBackgroundImageError: (exception, stackTrace) {
+          print('❌ Error loading doctor profile image: $exception');
+          print('❌ URL that failed: $profileImageUrl');
+        },
+      );
+    } else {
+      print('ℹ️ No profile image found for ${doctor['fullname']}, using default');
+      return const CircleAvatar(
+        radius: 25,
+        backgroundColor: Color(0xFF18A3B6),
+        child: Icon(Icons.person, color: Colors.white, size: 20),
+      );
+    }
+  }
+
+  Future<void> _fetchAndShowAvailableSchedules(Map<String, dynamic> doctor) async {
+    try {
+      setState(() {
+        isLoading = true;
+      });
 
     print('🔍 Fetching schedules for doctor: ${doctor['fullname']}');
     print('👨‍⚕️ Doctor UID: ${doctor['uid']}');

@@ -106,41 +106,123 @@ class ChatService {
 
   // ========== MESSAGE MANAGEMENT ==========
 
-  Future<void> sendMessage({
-    required String chatRoomId,
-    required String message,
-    required String senderId,
-    required String senderName,
-    required String senderRole,
-  }) async {
-    try {
-      final messagesRef = _database.ref('chatRooms/$chatRoomId/messages').push();
-      final messageId = messagesRef.key!;
-      
-      await messagesRef.set({
-        'id': messageId,
-        'text': message,
-        'senderId': senderId,
-        'senderName': senderName,
-        'senderRole': senderRole,
-        'timestamp': DateTime.now().millisecondsSinceEpoch,
-        'read': false,
-      });
-
-      // Update last message
-      await _database.ref('chatRooms/$chatRoomId').update({
-        'lastMessage': message,
-        'lastMessageTime': DateTime.now().millisecondsSinceEpoch,
-        'lastMessageSender': senderName,
-      });
-
-      debugPrint('✅ Message sent to: $chatRoomId');
-    } catch (e) {
-      debugPrint('❌ Error sending message: $e');
-      rethrow;
+ 
+Future<void> sendMessage({
+  required String chatRoomId,
+  required String message,
+  required String senderId,
+  required String senderName,
+  required String senderRole,
+}) async {
+  try {
+    // Get chat room details to identify receiver
+    final chatRoomRef = _database.ref('chatRooms/$chatRoomId');
+    final chatRoomSnapshot = await chatRoomRef.get();
+    
+    if (!chatRoomSnapshot.exists) {
+      throw Exception('Chat room not found');
     }
-  }
 
+    final chatRoomData = Map<String, dynamic>.from(
+      chatRoomSnapshot.value as Map<dynamic, dynamic>
+    );
+
+    String receiverId = '';
+    String receiverName = '';
+
+    // Determine receiver based on sender role
+    if (senderRole == 'doctor') {
+      receiverId = chatRoomData['patientId'] ?? '';
+      receiverName = await getPatientName(receiverId);
+    } else {
+      receiverId = chatRoomData['doctorId'] ?? '';
+      receiverName = await getDoctorName(receiverId);
+    }
+     final actualSenderName = senderRole == 'doctor' 
+        ? await getDoctorName(senderId)
+        : await getPatientName(senderId);
+
+    final messagesRef = _database.ref('chatRooms/$chatRoomId/messages').push();
+    final messageId = messagesRef.key!;
+    
+    final messageData = {
+      'id': messageId,
+      'text': message,
+      'senderId': senderId,
+      'senderName': actualSenderName,
+      
+      'senderRole': senderRole,
+      'receiverId': receiverId,
+      'receiverName': receiverName,
+      'timestamp': DateTime.now().millisecondsSinceEpoch,
+      'read': false,
+      'chatRoomId': chatRoomId,
+    };
+
+    await messagesRef.set(messageData);
+
+    // Update last message
+    await _database.ref('chatRooms/$chatRoomId').update({
+      'lastMessage': message,
+      'lastMessageTime': DateTime.now().millisecondsSinceEpoch,
+      'lastMessageSender': senderName,
+    });
+
+    debugPrint('✅ Message sent to: $chatRoomId');
+    debugPrint('   Sender: $senderName ($senderId)');
+    debugPrint('   Receiver: $receiverName ($receiverId)');
+  } catch (e) {
+    debugPrint('❌ Error sending message: $e');
+    rethrow;
+  }
+}
+Future<List<Map<String, dynamic>>> getUserChatRooms(String userId) async {
+  try {
+    debugPrint('🔍 Fetching chat rooms for user: $userId');
+    
+    final chatRoomsRef = _database.ref('chatRooms');
+    final snapshot = await chatRoomsRef.get();
+    
+    final chatRooms = <Map<String, dynamic>>[];
+    
+    if (snapshot.exists) {
+      final data = snapshot.value as Map<dynamic, dynamic>?;
+      
+      if (data != null) {
+        data.forEach((key, value) {
+          try {
+            final chatRoomData = Map<String, dynamic>.from(value as Map);
+            
+            // Check if user is participant in this chat room
+            final participants = chatRoomData['participants'] as Map<dynamic, dynamic>? ?? {};
+            final patientId = chatRoomData['patientId'];
+            final doctorId = chatRoomData['doctorId'];
+            
+            if (participants[userId] == true || patientId == userId || doctorId == userId) {
+              chatRoomData['id'] = key.toString();
+              chatRooms.add(chatRoomData);
+            }
+          } catch (e) {
+            debugPrint('❌ Error parsing chat room $key: $e');
+          }
+        });
+      }
+    }
+    
+    // Sort by last message time (newest first)
+    chatRooms.sort((a, b) {
+      final timeA = a['lastMessageTime'] ?? 0;
+      final timeB = b['lastMessageTime'] ?? 0;
+      return timeB.compareTo(timeA);
+    });
+    
+    debugPrint('✅ Found ${chatRooms.length} chat rooms for user: $userId');
+    return chatRooms;
+  } catch (e) {
+    debugPrint('❌ Error getting user chat rooms: $e');
+    return [];
+  }
+}
   // ========== FILE UPLOAD METHODS ==========
 
   Future<String> uploadFile({
@@ -195,7 +277,102 @@ class ChatService {
         return 'application/octet-stream';
     }
   }
+// ========== STREAMS FOR REAL-TIME UPDATES ==========
 
+Stream<List<Map<String, dynamic>>> getMessages(String chatRoomId) {
+  try {
+    final messagesRef = _database.ref('chatRooms/$chatRoomId/messages');
+    
+    return messagesRef.onValue.map((event) {
+      final messages = <Map<String, dynamic>>[];
+      
+      if (event.snapshot.exists) {
+        final data = event.snapshot.value as Map<dynamic, dynamic>?;
+        
+        if (data != null) {
+          data.forEach((key, value) {
+            try {
+              final messageData = Map<String, dynamic>.from(value as Map);
+              messageData['id'] = key.toString(); // Ensure ID is included
+              messages.add(messageData);
+            } catch (e) {
+              debugPrint('❌ Error parsing message $key: $e');
+            }
+          });
+        }
+      }
+      
+      // Sort by timestamp (oldest first)
+      messages.sort((a, b) {
+        final timestampA = a['timestamp'] ?? 0;
+        final timestampB = b['timestamp'] ?? 0;
+        return timestampA.compareTo(timestampB);
+      });
+      
+      debugPrint('📥 Realtime DB: Stream update - ${messages.length} messages');
+      
+      return messages;
+    });
+  } catch (e) {
+    debugPrint('❌ Realtime DB Error getting messages stream: $e');
+    return Stream.value([]);
+  }
+}
+Future<void> debugChatRoom(String chatRoomId) async {
+  try {
+    final ref = _database.ref('chatRooms/$chatRoomId');
+    final snapshot = await ref.get();
+    
+    debugPrint('🔍 DEBUG CHAT ROOM: $chatRoomId');
+    if (snapshot.exists) {
+      final data = snapshot.value as Map<dynamic, dynamic>;
+      debugPrint('📊 Chat room data: $data');
+    } else {
+      debugPrint('📊 Chat room does not exist');
+    }
+  } catch (e) {
+    debugPrint('❌ Error debugging chat room: $e');
+  }
+}
+
+Future<void> debugAllMessages(String chatRoomId) async {
+  try {
+    final messagesRef = _database.ref('chatRooms/$chatRoomId/messages');
+    final snapshot = await messagesRef.get();
+    
+    debugPrint('🔍 DEBUG MESSAGES FOR: $chatRoomId');
+    if (snapshot.exists) {
+      final data = snapshot.value as Map<dynamic, dynamic>?;
+      debugPrint('📨 Messages count: ${data?.length ?? 0}');
+      if (data != null) {
+        data.forEach((key, value) {
+          debugPrint('   - $key: ${value.toString()}');
+        });
+      }
+    } else {
+      debugPrint('📨 No messages found');
+    }
+  } catch (e) {
+    debugPrint('❌ Error debugging messages: $e');
+  }
+}
+// In your ChatService class, add this method:
+Future<int> getUnreadCountForDoctor(String chatRoomId, String doctorId) async {
+  try {
+    final snapshot = await FirebaseFirestore.instance
+        .collection('chat_rooms')
+        .doc(chatRoomId)
+        .collection('messages')
+        .where('read', isEqualTo: false)
+        .where('senderId', isNotEqualTo: doctorId)
+        .get();
+    
+    return snapshot.docs.length;
+  } catch (e) {
+    print('Error getting unread count: $e');
+    return 0;
+  }
+}
   // ========== FILE PICKER METHODS ==========
 
  Future<File?> pickImage() async {
@@ -466,27 +643,7 @@ Future<void> _saveToDownloads(File tempFile, String fileName) async {
 
   // ========== STREAMS FOR REAL-TIME UPDATES ==========
 
-  Stream<List<Map<String, dynamic>>> getMessages(String chatRoomId) {
-    return _database.ref('chatRooms/$chatRoomId/messages')
-        .orderByChild('timestamp')
-        .onValue
-        .map((event) {
-      final messages = <Map<String, dynamic>>[];
-      
-      if (event.snapshot.exists) {
-        final data = event.snapshot.value as Map<dynamic, dynamic>?;
-        if (data != null) {
-          data.forEach((key, value) {
-            final messageData = Map<String, dynamic>.from(value as Map);
-            messages.add(messageData);
-          });
-        }
-      }
-      
-      messages.sort((a, b) => (a['timestamp'] ?? 0).compareTo(b['timestamp'] ?? 0));
-      return messages;
-    });
-  }
+  
 
   Stream<List<Map<String, dynamic>>> getDoctorChatRooms(String doctorId) {
     return _database.ref('chatRooms')

@@ -32,19 +32,17 @@ class _SignInPageState extends State<SignInPage> {
   // ✅ Super Admin UID
   static const String superAdminAuthUid = "T3vM7ps10lcwrmxdkLJ7lSllyha2";
 
-  Future<void> _signin() async {
+ Future<void> _signin() async {
     if (!mounted) return;
-    setState(() => isLoading = true);
+    _safeSetState(() => isLoading = true);
 
     try {
       final email = _emailController.text.trim();
       final password = _passwordController.text.trim();
 
       if (email.isEmpty || password.isEmpty) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Please enter email and password.')),
-        );
-        setState(() => isLoading = false);
+        _showSnackBar('Please enter email and password.');
+        _safeSetState(() => isLoading = false);
         return;
       }
 
@@ -56,11 +54,7 @@ class _SignInPageState extends State<SignInPage> {
 
       // 2️⃣ IMMEDIATE CHECKS (no email verification required)
       if (uid == superAdminAuthUid) {
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (_) => SuperAdminDashboard()),
-        );
-        setState(() => isLoading = false);
+        _navigateTo(SuperAdminDashboard());
         return;
       }
 
@@ -68,15 +62,11 @@ class _SignInPageState extends State<SignInPage> {
       final medicalCenterQuery = await FirebaseFirestore.instance
           .collection("medical_centers")
           .where("email", isEqualTo: email)
-          .limit( 110)
+          .limit(110)
           .get();
 
       if (medicalCenterQuery.docs.isNotEmpty) {
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (_) => const AdminHomePage()),
-        );
-        setState(() => isLoading = false);
+        _navigateTo(const AdminHomePage());
         return;
       }
 
@@ -87,11 +77,9 @@ class _SignInPageState extends State<SignInPage> {
           .get();
 
       if (!userDoc.exists) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('User account not found.')),
-        );
+        _showSnackBar('User account not found.');
         await FirebaseAuth.instance.signOut();
-        setState(() => isLoading = false);
+        _safeSetState(() => isLoading = false);
         return;
       }
 
@@ -101,14 +89,9 @@ class _SignInPageState extends State<SignInPage> {
 
       // 4️⃣ EMAIL VERIFICATION CHECK FOR ALL USERS EXCEPT MEDICAL CENTER
       if (role != "medical_center" && !isEmailVerified) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Please verify your email before signing in.'),
-            backgroundColor: Colors.orange,
-          ),
-        );
+        _showSnackBar('Please verify your email before signing in.', isError: true);
         await FirebaseAuth.instance.signOut();
-        setState(() => isLoading = false);
+        _safeSetState(() => isLoading = false);
         return;
       }
 
@@ -127,22 +110,44 @@ class _SignInPageState extends State<SignInPage> {
           break;
         
         default:
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Unknown user role: $role')),
-          );
+          _showSnackBar('Unknown user role: $role');
           await FirebaseAuth.instance.signOut();
+          _safeSetState(() => isLoading = false);
       }
 
     } on FirebaseAuthException catch (e) {
       _handleAuthError(e);
     } catch (e) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text('Error: $e')));
+      _showSnackBar('Error: $e');
     } finally {
-      if (mounted) setState(() => isLoading = false);
+      _safeSetState(() => isLoading = false);
     }
   }
 
+  // Safe state update method
+  void _safeSetState(VoidCallback callback) {
+    if (mounted) {
+      setState(callback);
+    }
+  }
+void _showSnackBar(String message, {bool isError = false}) {
+    if (!mounted) return;
+    
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: isError ? Colors.orange : null,
+        duration: const Duration(seconds: 3),
+      ),
+    );
+  }
+   void _navigateTo(Widget page) {
+    if (!mounted) return;
+    Navigator.pushReplacement(
+      context,
+      MaterialPageRoute(builder: (_) => page),
+    );
+  }
   // PATIENT FLOW: Register → Email Verification → Sign In → Home Page
   Future<void> _handlePatientNavigation(String uid) async {
     final patientDoc = await FirebaseFirestore.instance

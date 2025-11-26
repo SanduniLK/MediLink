@@ -4,6 +4,7 @@ import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:frontend/model/telemedicine_session.dart';
+import 'package:frontend/screens/doctor_screens/prescription_screen.dart';
 import 'package:frontend/telemedicine/consultation_screen.dart';
 import '../../services/firestore_service.dart';
 
@@ -584,6 +585,7 @@ Widget _buildSessionCard(TelemedicineSession session) {
                           icon: Icons.notifications_active,
                           text: 'Consultation started - Waiting for patient...',
                           statusColor: Colors.orange,
+                          
                         ),
                       ]else if (patientJoined && !doctorJoined && !sessionCompleted) ...[
                      _buildStatusDetailRow(
@@ -773,7 +775,32 @@ Widget _buildWaitingForPatientState() {
       ),
     );
   }
+// ADD THIS METHOD FOR PRESCRIPTION BUTTON
+Widget _buildPrescriptionButton(TelemedicineSession session) {
+  return FloatingActionButton(
+    onPressed: () => _navigateToPrescriptionPage(session),
+    backgroundColor: const Color.fromARGB(255, 39, 176, 66),
+    foregroundColor: Colors.white,
+    child: const Icon(Icons.edit), // Pen icon
+    heroTag: 'prescription_${session.appointmentId}', // Unique hero tag
+  );
+}
 
+// ADD THIS METHOD TO HANDLE PRESCRIPTION NAVIGATION
+void _navigateToPrescriptionPage(TelemedicineSession session) {
+  debugPrint('📝 Navigating to prescription page for patient: ${session.patientName}');
+  
+  // Navigate to your prescription writing screen
+ 
+  Navigator.push(
+    context,
+    MaterialPageRoute(
+      builder: (context) => PrescriptionScreen(
+        
+      ),
+    ),
+  );
+}
   Widget _buildConnectedState() {
     return Container(
       padding: const EdgeInsets.symmetric(vertical: 12),
@@ -1028,6 +1055,10 @@ Widget _buildWaitingForPatientState() {
         ],
       ),
       backgroundColor: _veryLightColor,
+      floatingActionButton: _selectedFilter == 'in-progress' && _filteredSessions.isNotEmpty
+        ? _buildPrescriptionButton(_filteredSessions.first) 
+        : null,
+    floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
       body: _isLoading
           ? _buildLoading()
           : _hasError

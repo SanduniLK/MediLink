@@ -1,4 +1,3 @@
-// doctor_chat_screen.dart - CORRECTED VERSION
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:intl/intl.dart';
@@ -31,11 +30,31 @@ class _DoctorChatScreenState extends State<DoctorChatScreen> {
   final FirebaseAuth _auth = FirebaseAuth.instance;
   final ScrollController _scrollController = ScrollController();
   bool _isUploading = false;
+  List<Map<String, dynamic>> _messages = [];
 
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
+    _setupMessageListener();
+    
+    // Debug to see what's in the database
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _chatService.debugChatRoom(widget.chatRoomId);
+      _chatService.debugAllMessages(widget.chatRoomId);
+    });
+  }
+
+  void _setupMessageListener() {
+    _chatService.getMessages(widget.chatRoomId).listen((messages) {
+      if (mounted) {
+        setState(() {
+          _messages = messages;
+        });
+        _scrollToBottom();
+      }
+    }, onError: (error) {
+      debugPrint('❌ Error in message stream: $error');
+    });
   }
 
   void _sendMessage() async {
@@ -55,7 +74,6 @@ class _DoctorChatScreenState extends State<DoctorChatScreen> {
       );
 
       _messageController.clear();
-      _scrollToBottom();
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -182,52 +200,54 @@ class _DoctorChatScreenState extends State<DoctorChatScreen> {
     }
   }
 
-void _handleFileTap(Map<String, dynamic> message) async {
-  try {
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Downloading ${message['fileName']}...'),
-          duration: Duration(seconds: 5),
-        ),
-      );
-    }
+  void _handleFileTap(Map<String, dynamic> message) async {
+    try {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Downloading ${message['fileName']}...'),
+            duration: Duration(seconds: 5),
+          ),
+        );
+      }
 
-    await _chatService.downloadAndOpenFile(
-      message['fileUrl'],
-      message['fileName'],
-    );
+      await _chatService.downloadAndOpenFile(
+        message['fileUrl'],
+        message['fileName'],
+      );
 
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('File opened successfully!'),
-          backgroundColor: Colors.green,
-        ),
-      );
-    }
-  } catch (e) {
-    debugPrint('❌ Error opening file: $e');
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Error opening file: $e. Please check permissions.'),
-          backgroundColor: Colors.red,
-          duration: Duration(seconds: 5),
-        ),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('File opened successfully!'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } catch (e) {
+      debugPrint('❌ Error opening file: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error opening file: $e. Please check permissions.'),
+            backgroundColor: Colors.red,
+            duration: Duration(seconds: 5),
+          ),
+        );
+      }
     }
   }
-}
 
   void _scrollToBottom() {
-    if (_scrollController.hasClients) {
-      _scrollController.animateTo(
-        _scrollController.position.maxScrollExtent,
-        duration: Duration(milliseconds: 300),
-        curve: Curves.easeOut,
-      );
-    }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_scrollController.hasClients) {
+        _scrollController.animateTo(
+          _scrollController.position.maxScrollExtent,
+          duration: Duration(milliseconds: 300),
+          curve: Curves.easeOut,
+        );
+      }
+    });
   }
 
   @override
@@ -243,35 +263,26 @@ void _handleFileTap(Map<String, dynamic> message) async {
           Expanded(
             child: Stack(
               children: [
-                StreamBuilder<List<Map<String, dynamic>>>(
-                  stream: _chatService.getMessages(widget.chatRoomId),
-                  builder: (context, snapshot) {
-                    if (snapshot.hasError) {
-                      return Center(child: Text('Error loading messages'));
-                    }
-
-                    if (snapshot.connectionState == ConnectionState.waiting) {
-                      return Center(child: CircularProgressIndicator());
-                    }
-
-                    final messages = snapshot.data ?? [];
-
-                    WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
-
-                    if (messages.isEmpty) {
-                      return Center(child: Text('No messages yet. Start the conversation!'));
-                    }
-
-                    return ListView.builder(
-                      controller: _scrollController,
-                      padding: EdgeInsets.all(16),
-                      itemCount: messages.length,
-                      itemBuilder: (context, index) {
-                        return _buildMessage(messages[index]);
-                      },
-                    );
-                  },
-                ),
+                _messages.isEmpty
+                    ? Center(
+                        child: Text(
+                          'No messages yet.\nStart the conversation!',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            fontSize: 16,
+                            color: Colors.grey[600],
+                          ),
+                        ),
+                      )
+                    : ListView.builder(
+                        controller: _scrollController,
+                        padding: EdgeInsets.all(16),
+                        itemCount: _messages.length,
+                        itemBuilder: (context, index) {
+                          return _buildMessage(_messages[index]);
+                        },
+                      ),
+                
                 if (_isUploading)
                   Positioned(
                     top: 0,
@@ -290,16 +301,16 @@ void _handleFileTap(Map<String, dynamic> message) async {
 
   Widget _buildMessage(Map<String, dynamic> message) {
     final isMe = message['senderId'] == widget.doctorId;
-    final time = DateFormat('HH:mm').format(
-      DateTime.fromMillisecondsSinceEpoch(message['timestamp']),
-    );
+    final timestamp = message['timestamp'];
+    final time = timestamp != null 
+        ? DateFormat('HH:mm').format(
+            DateTime.fromMillisecondsSinceEpoch(timestamp))
+        : '';
 
-    // Check if message is a file
     if (message['type'] == 'file') {
       return _buildFileMessage(message, isMe, time);
     }
 
-    // Regular text message
     return Container(
       margin: EdgeInsets.symmetric(vertical: 4),
       child: Row(
@@ -308,7 +319,8 @@ void _handleFileTap(Map<String, dynamic> message) async {
           if (!isMe) 
             CircleAvatar(
               radius: 16,
-              child: Icon(Icons.person, size: 14),
+              backgroundColor: Colors.grey[300],
+              child: Icon(Icons.person, size: 14, color: Colors.grey[600]),
             ),
           Flexible(
             child: Container(
@@ -322,7 +334,7 @@ void _handleFileTap(Map<String, dynamic> message) async {
                 crossAxisAlignment: isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
                 children: [
                   Text(
-                    message['text'],
+                    message['text'] ?? '',
                     style: TextStyle(
                       color: isMe ? Colors.white : Colors.black87,
                     ),
@@ -353,7 +365,6 @@ void _handleFileTap(Map<String, dynamic> message) async {
   Widget _buildFileMessage(Map<String, dynamic> message, bool isMe, String time) {
     final String fileType = message['fileType'] ?? 'file';
     final String fileName = message['fileName'] ?? 'Unknown file';
-   
     final int fileSize = message['fileSize'] ?? 0;
 
     return Container(
@@ -364,7 +375,8 @@ void _handleFileTap(Map<String, dynamic> message) async {
           if (!isMe) 
             CircleAvatar(
               radius: 16,
-              child: Icon(Icons.person, size: 14),
+              backgroundColor: Colors.grey[300],
+              child: Icon(Icons.person, size: 14, color: Colors.grey[600]),
             ),
           Flexible(
             child: Container(
@@ -381,10 +393,8 @@ void _handleFileTap(Map<String, dynamic> message) async {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        // File icon based on type
                         _buildFileIcon(fileType),
                         SizedBox(height: 8),
-                        // File name
                         Text(
                           fileName,
                           style: TextStyle(
@@ -396,7 +406,6 @@ void _handleFileTap(Map<String, dynamic> message) async {
                           overflow: TextOverflow.ellipsis,
                         ),
                         SizedBox(height: 4),
-                        // File size and time
                         Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
@@ -461,14 +470,12 @@ void _handleFileTap(Map<String, dynamic> message) async {
       ),
       child: Row(
         children: [
-          // File picker button
           IconButton(
             icon: Icon(Icons.attach_file, color: Color(0xFF18A3B6)),
             onPressed: _isUploading ? null : _showFilePicker,
             tooltip: 'Attach file',
           ),
           SizedBox(width: 4),
-          // Message input field
           Expanded(
             child: TextField(
               controller: _messageController,
@@ -483,7 +490,6 @@ void _handleFileTap(Map<String, dynamic> message) async {
             ),
           ),
           SizedBox(width: 8),
-          // Send button
           CircleAvatar(
             backgroundColor: Color(0xFF18A3B6),
             child: IconButton(

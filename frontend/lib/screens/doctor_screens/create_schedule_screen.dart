@@ -776,15 +776,7 @@ Future<void> _loadMedicalCenters() async {
               
               const SizedBox(height: 16),
               
-              // Slot Duration
-              _buildSlider(
-                'Slot Duration (minutes)',
-                _slotDuration,
-                15,
-                120,
-                15,
-                (value) => setState(() { _slotDuration = value.toInt(); }),
-              ),
+              
               
               const SizedBox(height: 16),
               
@@ -794,8 +786,8 @@ Future<void> _loadMedicalCenters() async {
                 _maxAppointments,
                 1,
                 50,
-                1,
-                (value) => setState(() { _maxAppointments = value.toInt(); }),
+                49,
+                (value) => setState(() { _maxAppointments = value.round(); }),
               ),
               
               const SizedBox(height: 30),
@@ -1078,24 +1070,24 @@ Future<void> _loadMedicalCenters() async {
     );
   }
 
-  Widget _buildSlider(String label, int value, double min, double max, double divisions, ValueChanged<double> onChanged) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          '$label: $value',
-          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
-        ),
-        const SizedBox(height: 8),
-        Slider(
-          value: value.toDouble(),
-          min: min,
-          max: max,
-          divisions: divisions.toInt(),
-          onChanged: onChanged,
-          activeColor: const Color(0xFF18A3B6),
-        ),
-      ],
-    );
-  }
+ Widget _buildSlider(String label, int value, double min, double max, int divisions, ValueChanged<double> onChanged) {
+  return Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Text(
+        '$label: $value',
+        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+      ),
+      const SizedBox(height: 8),
+      Slider(
+        value: value.toDouble(),
+        min: min,
+        max: max,
+        divisions: divisions,
+        onChanged: onChanged,
+        activeColor: const Color(0xFF18A3B6),
+      ),
+    ],
+  );
+}
 }

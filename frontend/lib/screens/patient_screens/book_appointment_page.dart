@@ -36,6 +36,7 @@ class BookAppointmentPage extends StatefulWidget {
 
 class _BookAppointmentPageState extends State<BookAppointmentPage> {
   final TextEditingController notesController = TextEditingController();
+  final TextEditingController searchController = TextEditingController();
   
   String selectedConsultationType = 'physical';
   bool _checkingAvailability = false;
@@ -48,23 +49,66 @@ class _BookAppointmentPageState extends State<BookAppointmentPage> {
   List<String> availableConsultationTypes = ['physical']; // Default to physical
   String scheduleAppointmentType = 'physical'; // Main appointment type from schedule
   List<String> scheduleTelemedicineTypes = []; // Telemedicine subtypes from schedule
+  String _searchQuery = '';
+  List<String> _filteredConsultationTypes = [];
+  bool _showSearchBar = false;
+
 
   @override
   void initState() {
     super.initState();
     _checkAppointmentAvailability();
+    searchController.addListener(_onSearchChanged);
   }
+@override
+void dispose() {
+  searchController.dispose(); // Add this line
+  super.dispose();
+}
+void _onSearchChanged() {
+  setState(() {
+    _searchQuery = searchController.text.toLowerCase();
+    _filterConsultationTypes();
+  });
+}
 
+void _filterConsultationTypes() {
+  if (_searchQuery.isEmpty) {
+    _filteredConsultationTypes = availableConsultationTypes;
+  } else {
+    _filteredConsultationTypes = availableConsultationTypes.where((type) {
+      final formattedType = _formatConsultationType(type).toLowerCase();
+      return formattedType.contains(_searchQuery);
+    }).toList();
+  }
+}
+
+void _toggleSearchBar() {
+  setState(() {
+    _showSearchBar = !_showSearchBar;
+    if (!_showSearchBar) {
+      searchController.clear();
+      _searchQuery = '';
+      _filterConsultationTypes();
+    }
+  });
+}
   // ✅ FIXED: Check if widget is still mounted
   bool get isMounted => mounted;
 
   Future<void> _checkAppointmentAvailability() async {
     try {
-      if (isMounted) {
-        setState(() {
-          _checkingAvailability = true;
-        });
-      }
+     if (isMounted) {
+  setState(() {
+    _isSlotAvailable = _bookedAppointments < _maxAppointments;
+    _checkingAvailability = false;
+    if (availableConsultationTypes.isNotEmpty) {
+      selectedConsultationType = availableConsultationTypes.first;
+    }
+    _filterConsultationTypes(); // Add this line
+  });
+}
+
 
       print('🔍 Checking appointment availability...');
       print('📅 Schedule ID: ${widget.scheduleId}');

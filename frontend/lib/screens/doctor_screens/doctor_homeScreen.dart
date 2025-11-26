@@ -1,3 +1,6 @@
+import 'dart:async';
+
+import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -13,12 +16,13 @@ import 'package:frontend/screens/doctor_screens/prescription_screen.dart';
 
 
 import 'package:frontend/screens/doctor_screens/settings_screen.dart';
+import 'package:frontend/screens/doctor_screens/today_appointments_screen.dart';
 
 import 'package:frontend/screens/patient_screens/notifications.dart';
 import 'package:frontend/telemedicine/doctor_telemedicine_page.dart';
 import 'package:provider/provider.dart';
 
-// ADD THESE IMPORT FOR CHAT SCREENS
+
 import 'package:frontend/screens/doctor_screens/doctor_chat_screen.dart';
 import 'package:frontend/screens/doctor_screens/doctor_chat_list_screen.dart';
 
@@ -48,6 +52,9 @@ class _DoctorHomeScreenState extends State<DoctorHomeScreen> {
   final Color backgroundColor = const Color(0xFFDDF0F5);
   final Color lightBackground = const Color(0xFFF0F9FA);
 
+
+final Map<String, int> _unreadCounts = {};
+
   @override
   void initState() {
     super.initState();
@@ -55,7 +62,28 @@ class _DoctorHomeScreenState extends State<DoctorHomeScreen> {
     _loadTodayStats();
     _loadUnreadMessagesCount();
      _getDoctorInfo();
+     _startMessageListener();
+     _testSpecificImage();
   }
+  StreamSubscription? _messageSubscription;
+
+@override
+void dispose() {
+  _messageSubscription?.cancel();
+  super.dispose();
+}
+void _startMessageListener() {
+  final user = FirebaseAuth.instance.currentUser;
+  if (user == null) return;
+
+  _messageSubscription = FirebaseFirestore.instance
+      .collection('chat_rooms')
+      .where('doctorId', isEqualTo: user.uid)
+      .snapshots()
+      .listen((snapshot) {
+    _loadUnreadMessagesCount();
+  });
+}
 void _getDoctorInfo() {
     final user = FirebaseAuth.instance.currentUser;
     if (user != null) {
@@ -98,7 +126,102 @@ void _getDoctorInfo() {
       }
     }
   }
+final FirebaseStorage _storage = FirebaseStorage.instance;
+String? _doctorProfileImageUrl;
 
+// Add this method to load doctor profile image
+Future<void> _loadDoctorProfileImage() async {
+  try {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) {
+      print('❌ No user logged in');
+      return;
+    }
+
+    print('🔄 Loading profile image for doctor UID: ${user.uid}');
+
+    // Method 1: Try to find any image in the doctor's folder
+    try {
+      final doctorFolderRef = FirebaseStorage.instance.ref().child('doctor_profile_images/${user.uid}');
+      final result = await doctorFolderRef.listAll();
+      
+      print('📁 Found ${result.items.length} items in doctor folder');
+      
+      for (final item in result.items) {
+        print('📄 File: ${item.name}');
+        try {
+          final imageUrl = await item.getDownloadURL();
+          print('✅ Found profile image: $imageUrl');
+          setState(() {
+            _doctorProfileImageUrl = imageUrl;
+          });
+          return;
+        } catch (e) {
+          print('❌ Failed to get download URL for ${item.name}: $e');
+        }
+      }
+    } catch (e) {
+      print('❌ Error listing doctor folder: $e');
+    }
+
+    // Method 2: List all files in the root doctor_profile_images folder
+    try {
+      final rootRef = FirebaseStorage.instance.ref().child('doctor_profile_images');
+      final rootResult = await rootRef.listAll();
+      
+      print('📁 Root folder contains ${rootResult.items.length} items');
+      print('📁 Root folder contains ${rootResult.prefixes.length} prefixes');
+      
+      for (final prefix in rootResult.prefixes) {
+        print('📂 Folder: ${prefix.name}');
+      }
+      
+      for (final item in rootResult.items) {
+        print('📄 Root file: ${item.name}');
+        // Check if this might be a profile image
+        if (item.name.contains('profile') || item.name.contains('avatar')) {
+          try {
+            final imageUrl = await item.getDownloadURL();
+            print('✅ Found potential profile image in root: $imageUrl');
+            setState(() {
+              _doctorProfileImageUrl = imageUrl;
+            });
+            return;
+          } catch (e) {
+            print('❌ Failed to get download URL for root file ${item.name}: $e');
+          }
+        }
+      }
+    } catch (e) {
+      print('❌ Error listing root folder: $e');
+    }
+
+    print('❌ No suitable profile image found');
+    
+  } catch (e) {
+    print('💥 CRITICAL ERROR in _loadDoctorProfileImage: $e');
+  }
+}
+Future<void> _testSpecificImage() async {
+  try {
+    print('🔄 Testing specific image loading...');
+    
+    // Use the exact path from your storage
+    final testRef = FirebaseStorage.instance.ref(
+      'doctor_profile_images/EEtWgLQ9rke9O1W2rvAYbniIHNV2/profile_1761534089274.jpg'
+    );
+    
+    final testUrl = await testRef.getDownloadURL();
+    print('🎉 SPECIFIC IMAGE SUCCESS: $testUrl');
+    
+    setState(() {
+      _doctorProfileImageUrl = testUrl;
+    });
+  } catch (e) {
+    print('💥 SPECIFIC IMAGE FAILED: $e');
+    _loadDoctorProfileImage(); // Fall back to other methods
+  }
+}
   Future<void> _loadTodayStats() async {
     try {
       final user = FirebaseAuth.instance.currentUser;
@@ -129,25 +252,54 @@ void _getDoctorInfo() {
     }
   }
 
-  Future<void> _loadUnreadMessagesCount() async {
-    try {
-      final user = FirebaseAuth.instance.currentUser;
-      if (user == null) return;
+ // Get unread message counts for each chat room
+Future<void> _loadUnreadMessagesCount() async {
+  try {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
 
-      final appointmentsSnapshot = await FirebaseFirestore.instance
-          .collection('appointments')
-          .where('doctorId', isEqualTo: user.uid)
-          .where('hasUnreadMessages', isEqualTo: true)
-          .where('unreadFor', isEqualTo: user.uid)
+    // Reset unread counts
+    setState(() {
+      unreadMessagesCount = 0;
+    });
+
+    // Get all chat rooms for this doctor
+    final chatRoomsSnapshot = await FirebaseFirestore.instance
+        .collection('chat_rooms')
+        .where('doctorId', isEqualTo: user.uid)
+        .get();
+
+    int totalUnread = 0;
+
+    // Check each chat room for unread messages
+    for (final chatRoom in chatRoomsSnapshot.docs) {
+      final unreadSnapshot = await FirebaseFirestore.instance
+          .collection('chat_rooms')
+          .doc(chatRoom.id)
+          .collection('messages')
+          .where('read', isEqualTo: false)
+          .where('senderId', isNotEqualTo: user.uid)
           .get();
 
-      setState(() {
-        unreadMessagesCount = appointmentsSnapshot.docs.length;
-      });
-    } catch (e) {
-      print('Error loading unread messages: $e');
+      final roomUnread = unreadSnapshot.docs.length;
+      totalUnread += roomUnread;
+
+      // Store individual patient unread counts if needed
+      final patientId = chatRoom.data()['patientId'];
+      if (patientId != null) {
+        setState(() {
+          _unreadCounts[patientId] = roomUnread;
+        });
+      }
     }
+
+    setState(() {
+      unreadMessagesCount = totalUnread;
+    });
+  } catch (e) {
+    print('Error loading unread messages: $e');
   }
+}
 
   void _onItemTapped(int index) {
     setState(() {
@@ -163,6 +315,12 @@ void _getDoctorInfo() {
       MaterialPageRoute(builder: (context) => const DoctorAppointmentsScreen()),
     );
   }
+  void _navigateToTodayAppointments() {
+  Navigator.push(
+    context,
+    MaterialPageRoute(builder: (context) => const TodayAppointmentsScreen()),
+  );
+}
 
   void _navigateToSchedule() {
     if (doctorData != null) {
@@ -527,6 +685,7 @@ void _navigateTOfeedbackscreen(){
         await _loadDoctorData();
         await _loadTodayStats();
         await _loadUnreadMessagesCount();
+         await _loadDoctorProfileImage();
       },
       child: SingleChildScrollView(
         physics: const AlwaysScrollableScrollPhysics(),
@@ -546,113 +705,153 @@ void _navigateTOfeedbackscreen(){
     );
   }
 
-  Widget _buildWelcomeHeader() {
-    final doctorName = doctorData?['fullname'] ?? 'Dr. Silva';
-    final firstName = doctorName.split(' ').first;
+ Widget _buildWelcomeHeader() {
+  final doctorName = doctorData?['fullname'] ?? 'Dr. Silva';
+  final firstName = doctorName.split(' ').first;
 
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 20),
-      padding: const EdgeInsets.all(24),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            primaryColor,
-            secondaryColor,
-          ],
-        ),
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: [
-          BoxShadow(
-            color: primaryColor.withOpacity(0.3),
-            blurRadius: 15,
-            offset: const Offset(0, 5),
-          ),
+  return Container(
+    margin: const EdgeInsets.symmetric(horizontal: 20),
+    padding: const EdgeInsets.all(24),
+    decoration: BoxDecoration(
+      gradient: LinearGradient(
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
+        colors: [
+          primaryColor,
+          secondaryColor,
         ],
       ),
-      child: Row(
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Good ${_getGreeting()},',
-                  style: const TextStyle(
-                    color: Colors.white70,
-                    fontSize: 16,
-                  ),
+      borderRadius: BorderRadius.circular(20),
+      boxShadow: [
+        BoxShadow(
+          color: primaryColor.withOpacity(0.3),
+          blurRadius: 15,
+          offset: const Offset(0, 5),
+        ),
+      ],
+    ),
+    child: Row(
+      children: [
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Good ${_getGreeting()},',
+                style: const TextStyle(
+                  color: Colors.white70,
+                  fontSize: 16,
                 ),
-                const SizedBox(height: 4),
-                Text(
-                  'Dr. $firstName! 👋',
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 24,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  doctorData?['specialization'] ?? 'General Practitioner',
-                  style: const TextStyle(
-                    color: Colors.white70,
-                    fontSize: 14,
-                  ),
-                ),
-                const SizedBox(height: 16),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                  decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.2),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Text(
-                    'Ready for your consultations',
-                    style: TextStyle(
-                      color: Colors.white.withOpacity(0.9),
-                      fontSize: 12,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(width: 16),
-          // Enhanced Doctor Avatar with better styling
-          Container(
-            width: 80,
-            height: 80,
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: [
-                  Colors.white.withOpacity(0.3),
-                  Colors.white.withOpacity(0.1),
-                ],
               ),
-              shape: BoxShape.circle,
-              border: Border.all(color: Colors.white.withOpacity(0.4), width: 3),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withOpacity(0.1),
-                  blurRadius: 10,
-                  offset: const Offset(0, 5),
+              const SizedBox(height: 4),
+              Text(
+                'Dr. $firstName! 👋',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 24,
+                  fontWeight: FontWeight.bold,
                 ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                doctorData?['specialization'] ?? 'General Practitioner',
+                style: const TextStyle(
+                  color: Colors.white70,
+                  fontSize: 14,
+                ),
+              ),
+              const SizedBox(height: 16),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.2),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Text(
+                  'Ready for your consultations',
+                  style: TextStyle(
+                    color: Colors.white.withOpacity(0.9),
+                    fontSize: 12,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(width: 16),
+        // Enhanced Doctor Avatar with real profile image
+        Container(
+          width: 80,
+          height: 80,
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [
+                Colors.white.withOpacity(0.3),
+                Colors.white.withOpacity(0.1),
               ],
             ),
-            child: const Icon(
-              Icons.person,
-              color: Colors.white,
-              size: 40,
-            ),
+            shape: BoxShape.circle,
+            border: Border.all(color: Colors.white.withOpacity(0.4), width: 3),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.1),
+                blurRadius: 10,
+                offset: const Offset(0, 5),
+              ),
+            ],
           ),
-        ],
+          child: _buildProfileAvatar(),
+        ),
+      ],
+    ),
+  );
+}
+Widget _buildProfileAvatar() {
+  print('🖼️ Building profile avatar. Image URL: $_doctorProfileImageUrl');
+  
+  if (_doctorProfileImageUrl != null && _doctorProfileImageUrl!.isNotEmpty) {
+    return ClipOval(
+      child: Image.network(
+        _doctorProfileImageUrl!,
+        width: 80,
+        height: 80,
+        fit: BoxFit.cover,
+        loadingBuilder: (context, child, loadingProgress) {
+          if (loadingProgress == null) {
+            print('✅ Profile image loaded successfully');
+            return child;
+          }
+          print('⏳ Loading profile image...');
+          return Center(
+            child: CircularProgressIndicator(
+              value: loadingProgress.expectedTotalBytes != null
+                  ? loadingProgress.cumulativeBytesLoaded / loadingProgress.expectedTotalBytes!
+                  : null,
+              color: Colors.white,
+            ),
+          );
+        },
+        errorBuilder: (context, error, stackTrace) {
+          print('❌ Error loading profile image: $error');
+          return _buildDefaultAvatar();
+        },
       ),
     );
+  } else {
+    print('ℹ️ No profile image URL, using default avatar');
+    return _buildDefaultAvatar();
   }
+}
+
+Widget _buildDefaultAvatar() {
+  return const Icon(
+    Icons.person,
+    color: Colors.white,
+    size: 40,
+  );
+}
 
   String _getGreeting() {
     final hour = DateTime.now().hour;
@@ -755,181 +954,195 @@ void _navigateTOfeedbackscreen(){
   }
 
   Widget _buildQuickActionsSection() {
-    // Create color variations from your primary color
-    final Color primaryDark = const Color(0xFF12899B); // Darker shade
-    final Color primaryLight = const Color(0xFF5BC4D4); // Lighter shade
-    
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 20),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'Quick Actions',
-            style: TextStyle(
-              fontSize: 20,
-              fontWeight: FontWeight.bold,
-              color: primaryColor,
-            ),
-          ),
-          const SizedBox(height: 16),
-          GridView.count(
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            crossAxisCount: 3,
-            crossAxisSpacing: 12,
-            mainAxisSpacing: 12,
-            children: [
-              _buildQuickActionButton(
-                icon: Icons.calendar_today_outlined,
-                label: 'Appointments',
-                color: primaryDark,
-                onTap: _navigateToAppointments,
-              ),
-              _buildQuickActionButton(
-                icon: Icons.schedule_outlined,
-                label: 'Schedule',
-                color: primaryColor,
-                onTap: _navigateToSchedule,
-              ),
-              _buildQuickActionButton(
-                icon: Icons.people_outlined,
-                label: 'Patients',
-                color: primaryDark,
-                onTap: _navigateToPatients,
-              ),
-              _buildQuickActionButton(
-                icon: Icons.assignment_outlined,
-                label: 'Prescriptions',
-                color: primaryDark,
-                onTap: _navigateToPrescriptions,
-              ),
-              _buildQuickActionButton(
-                icon: Icons.queue_play_next,
-                label: 'Live Queue',
-                color: primaryDark,
-                onTap: _navigateToLiveQueue,
-                badgeCount: hasActiveQueue ? waitingPatientsCount : 0,
-              ),
-              _buildQuickActionButton(
-                icon: Icons.qr_code_scanner_outlined,
-                label: 'QR Scanner',
-                color: primaryDark,
-                onTap: _navigateToQRScanner,
-              ),
-              // NEW CHAT ACTION BUTTON
-              _buildQuickActionButton(
-                icon: Icons.chat_outlined,
-                label: 'Messages',
-                color: primaryDark,
-                onTap: _navigateToChatList,
-                badgeCount: unreadMessagesCount,
-              ),
-              _buildQuickActionButton(
-                icon: Icons.video_call_outlined,
-                label: 'Telemedicine',
-                color: primaryDark,
-                onTap: _navigateToVideoCalls,
-              ),
-              _buildQuickActionButton(
-                icon: Icons.medical_services_outlined,
-                label: 'Medical Records',
-                color: primaryDark,
-                onTap: () => _showComingSoonSnackBar('Medical Records'),
-              ),
-              _buildQuickActionButton(
-                icon: Icons.star_rate, 
-                label: 'feedback Dashboard', 
-                onTap: () => _navigateTOfeedbackscreen(), 
-                color: primaryDark)
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildQuickActionButton({
-    required IconData icon,
-    required String label,
-    required Color color,
-    required VoidCallback onTap,
-    int badgeCount = 0,
-  }) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(16),
-          boxShadow: [
-            BoxShadow(
-              color: primaryColor.withOpacity(0.05),
-              blurRadius: 6,
-              offset: const Offset(0, 3),
-            ),
-          ],
-          border: Border.all(
-            color: backgroundColor,
-            width: 1,
+  // Create color variations from your primary color
+  final Color primaryDark = const Color(0xFF12899B); // Darker shade
+  
+  return Padding(
+    padding: const EdgeInsets.symmetric(horizontal: 20),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Quick Actions',
+          style: TextStyle(
+            fontSize: 20,
+            fontWeight: FontWeight.bold,
+            color: primaryColor,
           ),
         ),
-        child: Stack(
+        const SizedBox(height: 16),
+        GridView.count(
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          crossAxisCount: 3,
+          crossAxisSpacing: 12,
+          mainAxisSpacing: 12,
+          childAspectRatio: 0.85, // ADD THIS LINE - crucial for alignment
           children: [
-            Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(12),
+            _buildQuickActionButton(
+              icon: Icons.calendar_today_outlined,
+              label: 'Appointments',
+              color: primaryDark,
+              onTap: _navigateToAppointments,
+            ),
+            _buildQuickActionButton(
+              icon: Icons.schedule_outlined,
+              label: 'Schedule',
+              color: primaryColor,
+              onTap: _navigateToSchedule,
+            ),
+            _buildQuickActionButton(
+              icon: Icons.people_outlined,
+              label: 'Patients',
+              color: primaryDark,
+              onTap: _navigateToPatients,
+            ),
+            _buildQuickActionButton(
+              icon: Icons.assignment_outlined,
+              label: 'Prescriptions',
+              color: primaryDark,
+              onTap: _navigateToPrescriptions,
+            ),
+            _buildQuickActionButton(
+              icon: Icons.queue_play_next,
+              label: 'Live Queue',
+              color: primaryDark,
+              onTap: _navigateToLiveQueue,
+              badgeCount: hasActiveQueue ? waitingPatientsCount : 0,
+            ),
+            _buildQuickActionButton(
+              icon: Icons.qr_code_scanner_outlined,
+              label: 'QR Scanner',
+              color: primaryDark,
+              onTap: _navigateToQRScanner,
+            ),
+            _buildQuickActionButton(
+              icon: Icons.chat_outlined,
+              label: 'Messages',
+              color: primaryDark,
+              onTap: _navigateToChatList,
+              badgeCount: unreadMessagesCount,
+            ),
+            _buildQuickActionButton(
+              icon: Icons.video_call_outlined,
+              label: 'Telemedicine',
+              color: primaryDark,
+              onTap: _navigateToVideoCalls,
+            ),
+            _buildQuickActionButton(
+              icon: Icons.medical_services_outlined,
+              label: 'Medical Records',
+              color: primaryDark,
+              onTap: () => _showComingSoonSnackBar('Medical Records'),
+            ),
+            _buildQuickActionButton(
+              icon: Icons.star_rate, 
+              label: 'Feedback', // Shortened label for better fit
+              onTap: _navigateTOfeedbackscreen, 
+              color: primaryDark
+            )
+          ],
+        ),
+      ],
+    ),
+  );
+}
+
+  Widget _buildQuickActionButton({
+  required IconData icon,
+  required String label,
+  required Color color,
+  required VoidCallback onTap,
+  int badgeCount = 0,
+}) {
+  return GestureDetector(
+    onTap: onTap,
+    child: Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: primaryColor.withOpacity(0.05),
+            blurRadius: 6,
+            offset: const Offset(0, 3),
+          ),
+        ],
+        border: Border.all(
+          color: backgroundColor,
+          width: 1,
+        ),
+      ),
+      child: Stack(
+        children: [
+          // Main content - Center everything
+          Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              // Center the icon container
+              Center(
+                child: Container(
+                  width: 42,
+                  height: 42,
                   decoration: BoxDecoration(
                     color: color.withOpacity(0.1),
                     shape: BoxShape.circle,
                   ),
-                  child: Icon(icon, color: color, size: 24),
-                ),
-                const SizedBox(height: 8),
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 4),
-                  child: Text(
-                    label,
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                      color: primaryColor,
-                    ),
-                    maxLines: 2,
-                  ),
-                ),
-              ],
-            ),
-            if (badgeCount > 0)
-              Positioned(
-                top: 4,
-                right: 4,
-                child: Container(
-                  padding: const EdgeInsets.all(4),
-                  decoration: BoxDecoration(
-                    color: Colors.red,
-                    shape: BoxShape.circle,
-                    border: Border.all(color: Colors.white, width: 1.5),
-                  ),
-                  child: Text(
-                    badgeCount > 9 ? '9+' : '$badgeCount',
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 8,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
+                  child: Icon(icon, color: color, size: 20),
                 ),
               ),
-          ],
-        ),
+              const SizedBox(height: 6),
+              // Center the text
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 4),
+                child: Text(
+                  label,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    color: primaryColor,
+                    height: 1.2,
+                  ),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ],
+          ),
+          // Badge
+          if (badgeCount > 0)
+            Positioned(
+              top: 2,
+              right: 2,
+              child: Container(
+                padding: const EdgeInsets.all(4),
+                decoration: BoxDecoration(
+                  color: Colors.red,
+                  shape: BoxShape.circle,
+                  border: Border.all(color: Colors.white, width: 1.5),
+                ),
+                constraints: const BoxConstraints(
+                  minWidth: 16,
+                  minHeight: 16,
+                ),
+                child: Text(
+                  badgeCount > 9 ? '9+' : '$badgeCount',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 8,
+                    fontWeight: FontWeight.bold,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+              ),
+            ),
+        ],
       ),
-    );
-  }
-
+    ),
+  );
+}
   Widget _buildRecentActivitySection() {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 20),
@@ -987,7 +1200,7 @@ void _navigateTOfeedbackscreen(){
                   title: 'Appointments Today',
                   subtitle: '$todayAppointmentsCount scheduled',
                   color: primaryColor,
-                  onTap: _navigateToAppointments,
+                  onTap: _navigateToTodayAppointments,
                 ),
                 const Divider(height: 24, color: Color(0xFFDDF0F5)),
                 _buildActivityItem(

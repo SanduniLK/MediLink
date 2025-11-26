@@ -2,12 +2,14 @@ import 'dart:ui';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:frontend/screens/Notifications/PatientNotificationPage.dart';
+import 'package:frontend/screens/doctor_screens/doctor_chat_list_screen.dart';
 
 // Import all necessary screens
 import 'package:frontend/screens/doctor_screens/doctors_list.dart';
 import 'package:frontend/screens/patient_screens/PatientProfileScreen.dart';
 import 'package:frontend/screens/patient_screens/ai_predications.dart';
 import 'package:frontend/screens/patient_screens/analysis_report.dart';
+import 'package:frontend/screens/patient_screens/doctor_patient_list_screen.dart';
 import 'package:frontend/screens/patient_screens/feedback_form_screen.dart';
 import 'package:frontend/screens/patient_screens/information.dart';
 import 'package:frontend/screens/patient_screens/medical_records_screen.dart';
@@ -80,12 +82,32 @@ void _getPatientInfo() {
 
   @override
   Widget build(BuildContext context) {
+    final currentUser = FirebaseAuth.instance.currentUser;
+  
+  // Handle case where user is not authenticated
+  if (currentUser == null) {
+    return Scaffold(
+      body: Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Text('User not authenticated'),
+            SizedBox(height: 20),
+            ElevatedButton(
+              onPressed: _signOut,
+              child: Text('Return to Login'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
     List<Widget> widgetOptions = <Widget>[
-      _buildHomePage(context),
-      PatientProfileScreen(uid: FirebaseAuth.instance.currentUser!.uid),
-      _buildSettingsPage(),
-      _buildNotificationsPage(),
-    ];
+    _buildHomePage(context),
+    PatientProfileScreen(uid: currentUser.uid), 
+    _buildSettingsPage(),
+    _buildNotificationsPage(),
+  ];
 
     return Scaffold(
       backgroundColor: kBackgroundColor,
@@ -616,6 +638,12 @@ Widget _buildHeader(double screenWidth) {
             },
             child: _buildActionButton(Icons.science_outlined, "Test Reports", kBrightCyan),
           ),
+          GestureDetector(
+            onTap: () {
+              _navigateToChatList(context);
+            },
+            child: _buildActionButton(Icons.message_rounded, "Messages", kBrightCyan),
+          ),
         ],
       ),
     );
@@ -653,7 +681,24 @@ Widget _buildHeader(double screenWidth) {
       ),
     );
   }
-
+void _navigateToChatList(BuildContext context) {
+  final user = FirebaseAuth.instance.currentUser;
+  if (user != null) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => ChatListScreen(),
+      ),
+    );
+  } else {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Please login to view messages'),
+        backgroundColor: Colors.red,
+      ),
+    );
+  }
+}
   // --- Summary/Info Sections ---
   Widget _buildHealthReportSummary() {
     return GestureDetector(

@@ -1,7 +1,11 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:frontend/model/telemedicine_session.dart';
+import 'package:frontend/screens/doctor_screens/doctor_chat_list_screen.dart';
+import 'package:frontend/screens/doctor_screens/doctor_chat_screen.dart';
+import 'package:frontend/services/chat_service.dart';
 import 'package:frontend/telemedicine/consultation_screen.dart';
+import 'package:frontend/telemedicine/telemedicine_chat_screen.dart';
 import '../../services/firestore_service.dart';
 import 'dart:async'; 
 
@@ -255,140 +259,185 @@ bool _canPatientJoin(TelemedicineSession session) {
 
 
   Widget _buildSessionCard(TelemedicineSession session) {
-    return Card(
-      margin: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      elevation: 3,
-      color: Colors.white,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-        side: BorderSide(color: _lightColor, width: 1),
-      ),
-      child: Padding(
-        padding: EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Header row
+  return Card(
+    margin: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+    elevation: 3,
+    color: Colors.white,
+    shape: RoundedRectangleBorder(
+      borderRadius: BorderRadius.circular(12),
+      side: BorderSide(color: _lightColor, width: 1),
+    ),
+    child: Padding(
+      padding: EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Header row
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Expanded(
+                child: Text(
+                  'Dr. ${session.doctorName}',
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: _primaryColor,
+                  ),
+                ),
+              ),
+              Container(
+                padding: EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                decoration: BoxDecoration(
+                  color: _getStatusColor(session.status),
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Text(
+                  session.status.toUpperCase(),
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          
+          SizedBox(height: 12),
+          
+          // Session details
+          _buildDetailRow(
+            icon: Icons.videocam,
+            text: session.isVideoCall ? 'Video Consultation' : 'Audio Consultation',
+          ),
+          
+          SizedBox(height: 8),
+          
+          _buildDetailRow(
+            icon: Icons.calendar_today,
+            text: '${_formatDate(session.createdAt)}',
+          ),
+          
+          if (session.medicalCenterName != null) ...[
+            SizedBox(height: 8),
+            _buildDetailRow(
+              icon: Icons.medical_services,
+              text: session.medicalCenterName!,
+            ),
+          ],
+          
+          SizedBox(height: 8),
+          
+          if (session.date != null) ...[
+            SizedBox(height: 8),
+            _buildDetailRow(
+              icon: Icons.schedule,
+              text: 'Date: ${session.date}',
+            ),
+          ],
+          
+          SizedBox(height: 16),
+          
+          // Action buttons row 
+          if (_canPatientJoin(session))
             Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
+                // JOIN BUTTON
                 Expanded(
-                  child: Text(
-                    'Dr. ${session.doctorName}',
-                    style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                      color: _primaryColor,
+                  child: ElevatedButton(
+                    onPressed: () => _joinConsultation(session),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: _primaryColor,
+                      padding: EdgeInsets.symmetric(vertical: 12),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.video_call, color: Colors.white),
+                        SizedBox(width: 8),
+                        Text(
+                          'JOIN CONSULTATION',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                 ),
+                SizedBox(width: 8),
+                // CHAT BUTTON
                 Container(
-                  padding: EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                  decoration: BoxDecoration(
-                    color: _getStatusColor(session.status),
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  child: Text(
-                    session.status.toUpperCase(),
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 12,
-                      fontWeight: FontWeight.bold,
+                  width: 50,
+                  child: ElevatedButton(
+                    onPressed: () => _navigateToChatScreen(session),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.green,
+                      padding: EdgeInsets.all(12),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
                     ),
+                    child: Icon(Icons.chat, color: Colors.white),
                   ),
                 ),
               ],
-            ),
-            
-            SizedBox(height: 12),
-            
-            // Session details
-            _buildDetailRow(
-              icon: Icons.videocam,
-              text: session.isVideoCall ? 'Video Consultation' : 'Audio Consultation',
-            ),
-            
-            SizedBox(height: 8),
-            
-            _buildDetailRow(
-              icon: Icons.calendar_today,
-              text: '${_formatDate(session.createdAt)}',
-            ),
-            
-            if (session.medicalCenterName != null) ...[
-              SizedBox(height: 8),
-              _buildDetailRow(
-                icon: Icons.medical_services,
-                text: session.medicalCenterName!,
+            )
+          else if (session.status == 'Completed')
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton(
+                onPressed: () {
+                  _showSessionDetails(session);
+                },
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: _primaryColor,
+                  side: BorderSide(color: _primaryColor),
+                  padding: EdgeInsets.symmetric(vertical: 12),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                ),
+                child: Text('VIEW DETAILS'),
               ),
-            ],
-            
-            SizedBox(height: 8),
-            
-            
+            ),
+        ],
+      ),
+    ),
+  );
+}
 
-            if (session.date != null) ...[
-              SizedBox(height: 8),
-              _buildDetailRow(
-                icon: Icons.schedule,
-                text: 'Date: ${session.date}',
-              ),
-            ],
-            
-            SizedBox(height: 16),
-            
-            // Action button
-            if (_canPatientJoin(session))
-  SizedBox(
-    width: double.infinity,
-    child: ElevatedButton(
-      onPressed: () => _joinConsultation(session),
-      style: ElevatedButton.styleFrom(
-        backgroundColor: _primaryColor,
-        padding: EdgeInsets.symmetric(vertical: 12),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(8),
-        ),
+void _navigateToChatScreen(TelemedicineSession session) {
+  debugPrint('💬 Navigating to chat screen with Dr. ${session.doctorName}');
+  
+  // Use the same chat room ID generation as ChatService
+  final chatRoomId = ChatService().generateChatRoomId(widget.patientId, session.doctorId);
+  
+  debugPrint('🔑 Generated Chat Room ID: $chatRoomId');
+  debugPrint('   Patient ID: ${widget.patientId}');
+  debugPrint('   Doctor ID: ${session.doctorId}');
+  
+  // Navigate to your chat screen
+  Navigator.push(
+    context,
+    MaterialPageRoute(
+      builder: (context) => TelemedicineChatScreen(
+        chatRoomId: chatRoomId, // Use the properly generated ID
+        patientId: widget.patientId,
+        patientName: widget.patientName,
+        doctorId: session.doctorId,
+        doctorName: session.doctorName,
+        sessionId: session.appointmentId,
       ),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(Icons.video_call, color: Colors.white),
-                      SizedBox(width: 8),
-                      Text(
-                        'JOIN CONSULTATION',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              )
-            else if (session.status == 'Completed')
-              SizedBox(
-                width: double.infinity,
-                child: OutlinedButton(
-                  onPressed: () {
-                    _showSessionDetails(session);
-                  },
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: _primaryColor,
-                    side: BorderSide(color: _primaryColor),
-                    padding: EdgeInsets.symmetric(vertical: 12),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                  ),
-                  child: Text('VIEW DETAILS'),
-                ),
-              ),
-          ],
-        ),
-      ),
-    );
-  }
+    ),
+  );
+}
+
 
   Widget _buildDetailRow({required IconData icon, required String text, bool isPrice = false}) {
     return Row(
