@@ -8,6 +8,7 @@ import 'package:frontend/screens/admin_screens/admin_doctor_manegment.dart' as d
 import 'package:frontend/enroll_screnns/sign_in_page.dart';
 import 'package:frontend/screens/admin_screens/admin_schedule_approval_screen.dart';
 import 'package:frontend/screens/admin_screens/admin_appointment_management.dart';
+import 'package:frontend/screens/admin_screens/admin_settings_screen.dart';
 import 'package:frontend/screens/admin_screens/admin_test_reports_screen.dart';
 import 'admin_feedback_management.dart'; // Import the new feedback management
 
@@ -80,26 +81,59 @@ class _AdminHomePageState extends State<AdminHomePage> {
   }
 
   void _onItemTapped(int index) {
-    setState(() {
-      _selectedIndex = index;
-    });
+    if (index == 1) { // Settings tab
+      if (_medicalCenterId != null && _medicalCenterName != null) {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => AdminSettingsScreen(
+              medicalCenterId: _medicalCenterId!,
+              medicalCenterName: _medicalCenterName!,
+            ),
+          ),
+        );
+      } else {
+        _showSnackBar('Loading medical center information...');
+      }
+    } else {
+      setState(() {
+        _selectedIndex = index;
+      });
+    }
   }
 
   // Settings screen
   Widget _buildSettingsScreen() {
-    return Center(
-      child: ElevatedButton.icon(
-        onPressed: () async {
-          await FirebaseAuth.instance.signOut();
-          Navigator.of(context).pushAndRemoveUntil(
-            MaterialPageRoute(
-              builder: (context) => const SignInPage(),
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Settings'),
+        backgroundColor: const Color(0xFF18A3B6),
+        foregroundColor: Colors.white,
+      ),
+      body: Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Text(
+              'Account Settings',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
             ),
-            (route) => false,
-          );
-        },
-        icon: const Icon(Icons.logout),
-        label: const Text("Sign Out"),
+            const SizedBox(height: 20),
+            ElevatedButton.icon(
+              onPressed: () async {
+                await FirebaseAuth.instance.signOut();
+                Navigator.of(context).pushAndRemoveUntil(
+                  MaterialPageRoute(
+                    builder: (context) => const SignInPage(),
+                  ),
+                  (route) => false,
+                );
+              },
+              icon: const Icon(Icons.logout),
+              label: const Text("Sign Out"),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -248,8 +282,7 @@ class _AdminHomePageState extends State<AdminHomePage> {
                       MaterialPageRoute(
                         builder: (context) => AdminScheduleApprovalScreen(
                           medicalCenterId: _medicalCenterId!,
-                            medicalCenterName: _medicalCenterName!
-
+                          medicalCenterName: _medicalCenterName!
                         ),
                       ),
                     );
@@ -260,32 +293,41 @@ class _AdminHomePageState extends State<AdminHomePage> {
                   label: 'Settings',
                   color: Colors.grey,
                   onTap: () {
-                    setState(() {
-                      _selectedIndex = 1;
-                    });
+                    if (_medicalCenterId != null && _medicalCenterName != null) {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => AdminSettingsScreen(
+                            medicalCenterId: _medicalCenterId!,
+                            medicalCenterName: _medicalCenterName!,
+                          ),
+                        ),
+                      );
+                    } else {
+                      _showSnackBar('Loading medical center information...');
+                    }
                   },
                 ),
-                // Add to the main actions grid in admin_home_page.dart
-_buildActionButton(
-  icon: Icons.assignment,
-  label: 'Test Reports',
-  color: const Color.fromARGB(255, 255, 36, 229),
-  onTap: () {
-    if (_medicalCenterId != null && _medicalCenterName != null) {
-      Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (context) => AdminTestReportsScreen(
-            medicalCenterId: _medicalCenterId!,
-            medicalCenterName: _medicalCenterName!,
-          ),
-        ),
-      );
-    } else {
-      _showSnackBar('Loading medical center information...');
-    }
-  },
-),
+                _buildActionButton(
+                  icon: Icons.assignment,
+                  label: 'Test Reports',
+                  color: const Color.fromARGB(255, 255, 36, 229),
+                  onTap: () {
+                    if (_medicalCenterId != null && _medicalCenterName != null) {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => AdminTestReportsScreen(
+                            medicalCenterId: _medicalCenterId!,
+                            medicalCenterName: _medicalCenterName!,
+                          ),
+                        ),
+                      );
+                    } else {
+                      _showSnackBar('Loading medical center information...');
+                    }
+                  },
+                ),
               ],
             ),
           ),
