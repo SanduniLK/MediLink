@@ -20,6 +20,7 @@ class FeedbackService {
     required bool wouldRecommend,
     List<String> categories = const [],
     bool anonymous = false,
+    required String feedbackType,
   }) async {
     try {
       print('📝 Submitting feedback to Firestore...');
@@ -40,6 +41,7 @@ class FeedbackService {
         'wouldRecommend': wouldRecommend,
         'categories': categories,
         'anonymous': anonymous,
+        'feedbackType': feedbackType,
         'status': 'approved',
         'createdAt': FieldValue.serverTimestamp(),
         'updatedAt': FieldValue.serverTimestamp(),

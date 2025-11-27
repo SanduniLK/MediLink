@@ -20,8 +20,10 @@ class _DoctorAppointmentsScreenState extends State<DoctorAppointmentsScreen> {
     _loadDoctorAppointments();
   }
 
+  // FIXED: Check mounted before setState
   Future<void> _loadDoctorAppointments() async {
     try {
+      if (!mounted) return;
       setState(() {
         isLoading = true;
         errorMessage = '';
@@ -29,6 +31,7 @@ class _DoctorAppointmentsScreenState extends State<DoctorAppointmentsScreen> {
 
       final currentUser = FirebaseAuth.instance.currentUser;
       if (currentUser == null) {
+        if (!mounted) return;
         setState(() {
           errorMessage = 'Please log in to view appointments';
           isLoading = false;
@@ -80,17 +83,21 @@ class _DoctorAppointmentsScreenState extends State<DoctorAppointmentsScreen> {
         });
       }
 
+      if (!mounted) return;
       setState(() {
         appointments = appointmentsList;
       });
 
     } catch (e) {
       print('❌ Error loading appointments: $e');
+      if (!mounted) return;
       setState(() {
         errorMessage = 'Failed to load appointments: $e';
       });
     } finally {
-      setState(() => isLoading = false);
+      if (mounted) {
+        setState(() => isLoading = false);
+      }
     }
   }
 

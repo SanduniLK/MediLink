@@ -594,16 +594,7 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
                     _showChangePasswordDialog();
                   },
                 ),
-                const Divider(),
-                ListTile(
-                  leading: const Icon(Icons.email, color: Colors.orange),
-                  title: const Text('Change Email'),
-                  subtitle: const Text('Update your email address'),
-                  trailing: const Icon(Icons.arrow_forward_ios, size: 16),
-                  onTap: () {
-                    _showChangeEmailDialog();
-                  },
-                ),
+                
                 
                 const Divider(),
  
@@ -766,91 +757,7 @@ Future<void> _signOut() async {
   }
 }
 
-  Future<void> _showChangeEmailDialog() async {
-    final newEmailController = TextEditingController();
-    final passwordController = TextEditingController();
-
-    return showDialog(
-      context: context,
-      builder: (context) {
-        return AlertDialog(
-          title: const Text('Change Email Address'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextFormField(
-                controller: newEmailController,
-                keyboardType: TextInputType.emailAddress,
-                decoration: const InputDecoration(
-                  labelText: 'New Email Address',
-                  border: OutlineInputBorder(),
-                ),
-              ),
-              const SizedBox(height: 12),
-              TextFormField(
-                controller: passwordController,
-                obscureText: true,
-                decoration: const InputDecoration(
-                  labelText: 'Current Password',
-                  border: OutlineInputBorder(),
-                ),
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Cancel'),
-            ),
-            ElevatedButton(
-              onPressed: () async {
-                try {
-                  final user = _auth.currentUser;
-                  final credential = EmailAuthProvider.credential(
-                    email: user!.email!,
-                    password: passwordController.text,
-                  );
-                  
-                  await user.reauthenticateWithCredential(credential);
-                  await user.verifyBeforeUpdateEmail(newEmailController.text.trim());
-                  
-                  // Update email in Firestore as well
-                  await _firestore
-                      .collection('medical_centers')
-                      .doc(widget.medicalCenterId)
-                      .update({'email': newEmailController.text.trim()});
-                  
-                  await _firestore
-                      .collection('admin')
-                      .doc(user.uid)
-                      .update({'email': newEmailController.text.trim()});
-                  
-                  Navigator.pop(context);
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('Verification email sent to new address'),
-                      backgroundColor: Colors.green,
-                    ),
-                  );
-                  
-                  // Reload data
-                  await _loadAdminData();
-                } catch (e) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text('Failed to update email: $e'),
-                      backgroundColor: Colors.red,
-                    ),
-                  );
-                }
-              },
-              child: const Text('Update Email'),
-            ),
-          ],
-        );
-      },
-    );
-  }
+  
 
   @override
   void dispose() {

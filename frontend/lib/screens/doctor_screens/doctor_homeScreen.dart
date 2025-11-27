@@ -89,7 +89,7 @@ void _getDoctorInfo() {
     if (user != null) {
       setState(() {
         doctorId = user.uid;
-        doctorName = user.displayName ?? 'Doctor'; // Get name from Firebase or default
+        doctorName = user.displayName ?? 'Doctor'; 
       });
     }
   }
@@ -129,7 +129,7 @@ void _getDoctorInfo() {
 final FirebaseStorage _storage = FirebaseStorage.instance;
 String? _doctorProfileImageUrl;
 
-// Add this method to load doctor profile image
+
 Future<void> _loadDoctorProfileImage() async {
   try {
     final user = FirebaseAuth.instance.currentUser;
@@ -140,7 +140,7 @@ Future<void> _loadDoctorProfileImage() async {
 
     print('🔄 Loading profile image for doctor UID: ${user.uid}');
 
-    // Method 1: Try to find any image in the doctor's folder
+    
     try {
       final doctorFolderRef = FirebaseStorage.instance.ref().child('doctor_profile_images/${user.uid}');
       final result = await doctorFolderRef.listAll();
@@ -164,7 +164,7 @@ Future<void> _loadDoctorProfileImage() async {
       print('❌ Error listing doctor folder: $e');
     }
 
-    // Method 2: List all files in the root doctor_profile_images folder
+    
     try {
       final rootRef = FirebaseStorage.instance.ref().child('doctor_profile_images');
       final rootResult = await rootRef.listAll();
@@ -206,7 +206,7 @@ Future<void> _testSpecificImage() async {
   try {
     print('🔄 Testing specific image loading...');
     
-    // Use the exact path from your storage
+    
     final testRef = FirebaseStorage.instance.ref(
       'doctor_profile_images/EEtWgLQ9rke9O1W2rvAYbniIHNV2/profile_1761534089274.jpg'
     );
@@ -248,7 +248,7 @@ Future<void> _testSpecificImage() async {
         hasActiveQueue = waitingPatientsCount > 0;
       });
     } catch (e) {
-      // Error loading today stats
+      
     }
   }
 
@@ -307,7 +307,7 @@ Future<void> _loadUnreadMessagesCount() async {
     });
   }
 
-  // ==================== NAVIGATION METHODS ====================
+  
   
   void _navigateToAppointments() {
     Navigator.push(
@@ -408,16 +408,7 @@ void _navigateTOfeedbackscreen(){
     );
   }
 
-  void _showComingSoonSnackBar(String feature) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('$feature - Coming Soon!'),
-        backgroundColor: primaryColor,
-        duration: const Duration(seconds: 2),
-      ),
-    );
-  }
-
+  
   @override
   Widget build(BuildContext context) {
     List<Widget> widgetOptions = <Widget>[
@@ -443,19 +434,7 @@ void _navigateTOfeedbackscreen(){
     return AppBar(
       backgroundColor: Colors.transparent,
       elevation: 0,
-      leading: Padding(
-        padding: const EdgeInsets.all(8.0),
-        child: Container(
-          decoration: BoxDecoration(
-            color: primaryColor,
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: IconButton(
-            icon: const Icon(Icons.arrow_back, color: Colors.white),
-            onPressed: () => Navigator.pop(context),
-          ),
-        ),
-      ),
+      
       title: Text(
         _selectedIndex == 0 
           ? 'Doctor Dashboard' 
@@ -472,7 +451,7 @@ void _navigateTOfeedbackscreen(){
         if (_selectedIndex == 0)
           Row(
             children: [
-              // Chat Icon with Badge
+              
               Padding(
                 padding: const EdgeInsets.all(8.0),
                 child: Stack(
@@ -518,7 +497,7 @@ void _navigateTOfeedbackscreen(){
                   ],
                 ),
               ),
-              // Notifications Icon
+             
               Padding(
                 padding: const EdgeInsets.all(8.0),
                 child: Container(
@@ -779,7 +758,7 @@ void _navigateTOfeedbackscreen(){
           ),
         ),
         const SizedBox(width: 16),
-        // Enhanced Doctor Avatar with real profile image
+        
         Container(
           width: 80,
           height: 80,
@@ -954,8 +933,8 @@ Widget _buildDefaultAvatar() {
   }
 
   Widget _buildQuickActionsSection() {
-  // Create color variations from your primary color
-  final Color primaryDark = const Color(0xFF12899B); // Darker shade
+  
+  final Color primaryDark = const Color(0xFF12899B); 
   
   return Padding(
     padding: const EdgeInsets.symmetric(horizontal: 20),
@@ -977,7 +956,7 @@ Widget _buildDefaultAvatar() {
           crossAxisCount: 3,
           crossAxisSpacing: 12,
           mainAxisSpacing: 12,
-          childAspectRatio: 0.85, // ADD THIS LINE - crucial for alignment
+          childAspectRatio: 0.85, 
           children: [
             _buildQuickActionButton(
               icon: Icons.calendar_today_outlined,
@@ -991,12 +970,7 @@ Widget _buildDefaultAvatar() {
               color: primaryColor,
               onTap: _navigateToSchedule,
             ),
-            _buildQuickActionButton(
-              icon: Icons.people_outlined,
-              label: 'Patients',
-              color: primaryDark,
-              onTap: _navigateToPatients,
-            ),
+            
             _buildQuickActionButton(
               icon: Icons.assignment_outlined,
               label: 'Prescriptions',
@@ -1029,15 +1003,10 @@ Widget _buildDefaultAvatar() {
               color: primaryDark,
               onTap: _navigateToVideoCalls,
             ),
-            _buildQuickActionButton(
-              icon: Icons.medical_services_outlined,
-              label: 'Medical Records',
-              color: primaryDark,
-              onTap: () => _showComingSoonSnackBar('Medical Records'),
-            ),
+           
             _buildQuickActionButton(
               icon: Icons.star_rate, 
-              label: 'Feedback', // Shortened label for better fit
+              label: 'Feedback',
               onTap: _navigateTOfeedbackscreen, 
               color: primaryDark
             )
@@ -1075,12 +1044,12 @@ Widget _buildDefaultAvatar() {
       ),
       child: Stack(
         children: [
-          // Main content - Center everything
+          
           Column(
             mainAxisAlignment: MainAxisAlignment.center,
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-              // Center the icon container
+              
               Center(
                 child: Container(
                   width: 42,
@@ -1093,7 +1062,7 @@ Widget _buildDefaultAvatar() {
                 ),
               ),
               const SizedBox(height: 6),
-              // Center the text
+              
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 4),
                 child: Text(

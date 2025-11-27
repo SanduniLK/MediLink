@@ -337,134 +337,216 @@ class _AdminHomePageState extends State<AdminHomePage> {
   }
 
   Widget _buildQuickStats() {
-    return FutureBuilder(
-      future: _getQuickStats(),
-      builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Center(child: CircularProgressIndicator());
-        }
-
-        final stats = snapshot.data as Map<String, dynamic>? ?? {
-          'totalPatientFeedback': 0,
-          'totalDoctorFeedback': 0,
-          'patientAvgRating': 0.0,
-          'doctorAvgRating': 0.0,
-        };
-
-        return Row(
-          children: [
-            _buildStatItem('Patient Reviews', stats['totalPatientFeedback'].toString(), Icons.person, Colors.blue),
-            const SizedBox(width: 10),
-            _buildStatItem('Doctor Reviews', stats['totalDoctorFeedback'].toString(), Icons.medical_services, Colors.purple),
-            const SizedBox(width: 10),
-            _buildStatItem('Patient Rating', stats['patientAvgRating'].toStringAsFixed(1), Icons.star, Colors.amber),
-            const SizedBox(width: 10),
-            _buildStatItem('Doctor Rating', stats['doctorAvgRating'].toStringAsFixed(1), Icons.rate_review, Colors.green),
-          ],
-        );
-      },
-    );
-  }
-
-  Future<Map<String, dynamic>> _getQuickStats() async {
-    try {
-      // Get all patient feedback
-      final patientFeedbackQuery = await FirebaseFirestore.instance
-          .collection('feedback')
-          .get();
-
-      final patientFeedbackForCenter = patientFeedbackQuery.docs
-          .where((doc) => doc['medicalCenterId'] == _medicalCenterId)
-          .toList();
-
-      // Get doctor feedback
-      final doctorFeedbackQuery = await FirebaseFirestore.instance
-          .collection('doctorMedicalCenterFeedback')
-          .where('medicalCenterId', isEqualTo: _medicalCenterId)
-          .get();
-
-      // Calculate average ratings
-      double patientAvgRating = 0.0;
-      if (patientFeedbackForCenter.isNotEmpty) {
-        double totalRating = 0;
-        int ratedCount = 0;
-        for (final doc in patientFeedbackForCenter) {
-          final rating = doc['rating'] ?? 0;
-          if (rating > 0) {
-            totalRating += rating;
-            ratedCount++;
-          }
-        }
-        patientAvgRating = ratedCount > 0 ? totalRating / ratedCount : 0.0;
+  return FutureBuilder(
+    future: _getQuickStats(),
+    builder: (context, snapshot) {
+      if (snapshot.connectionState == ConnectionState.waiting) {
+        return const Center(child: CircularProgressIndicator());
       }
 
-      double doctorAvgRating = 0.0;
-      if (doctorFeedbackQuery.docs.isNotEmpty) {
-        double totalRating = 0;
-        for (final doc in doctorFeedbackQuery.docs) {
-          final rating = doc['rating'] ?? 0;
-          totalRating += rating;
-        }
-        doctorAvgRating = totalRating / doctorFeedbackQuery.docs.length;
-      }
-
-      return {
-        'totalPatientFeedback': patientFeedbackForCenter.length,
-        'totalDoctorFeedback': doctorFeedbackQuery.docs.length,
-        'patientAvgRating': patientAvgRating,
-        'doctorAvgRating': doctorAvgRating,
-      };
-    } catch (e) {
-      debugPrint('Error getting quick stats: $e');
-      return {
+      final stats = snapshot.data as Map<String, dynamic>? ?? {
         'totalPatientFeedback': 0,
         'totalDoctorFeedback': 0,
+        'totalReviews': 0,
         'patientAvgRating': 0.0,
         'doctorAvgRating': 0.0,
+        'overallRating': 0.0,
       };
-    }
-  }
 
-  Widget _buildStatItem(String title, String value, IconData icon, Color color) {
-    return Expanded(
-      child: Container(
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(10),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.05),
-              blurRadius: 5,
-              offset: const Offset(0, 3),
-            ),
-          ],
-        ),
-        child: Column(
-          children: [
-            Icon(icon, size: 20, color: color),
-            const SizedBox(height: 5),
-            Text(
-              value,
-              style: const TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.bold,
-                color: Colors.black87,
-              ),
-            ),
-            Text(
-              title,
-              style: const TextStyle(
-                fontSize: 10,
-                color: Colors.grey,
-              ),
-              textAlign: TextAlign.center,
-            ),
-          ],
-        ),
-      ),
-    );
+      return Row(
+        children: [
+          _buildStatItem('Total Reviews', stats['totalReviews'].toString(), Icons.reviews, Colors.blue),
+          const SizedBox(width: 10),
+          _buildStatItem('Overall Rating', stats['overallRating'].toStringAsFixed(1), Icons.star, Colors.amber),
+          const SizedBox(width: 10),
+          _buildStatItem('Patient Reviews', stats['totalPatientFeedback'].toString(), Icons.person, Colors.green),
+          const SizedBox(width: 10),
+          _buildStatItem('Doctor Reviews', stats['totalDoctorFeedback'].toString(), Icons.medical_services, Colors.purple),
+        ],
+      );
+    },
+  );
+}
+
+Future<Map<String, dynamic>> _getQuickStats() async {
+  try {
+    // Get patient->medical center feedback
+    final patientFeedbackQuery = await FirebaseFirestore.instance
+        .collection('feedback')
+        .get();
+
+    final patientFeedbackForCenter = patientFeedbackQuery.docs
+        .where((doc) {
+          final data = doc.data();
+          final medicalCenterId = data['medicalCenterId'];
+          final doctorId = data['doctorId'];
+          final feedbackType = data['feedbackType'];
+          
+          // Only count patient->medical center feedback
+          final isPatientToMedicalCenter = (doctorId == null || doctorId.toString().isEmpty) && 
+                                       feedbackType == 'medical_center';
+          
+          return medicalCenterId == _medicalCenterId && isPatientToMedicalCenter;
+        })
+        .toList();
+
+    // Get doctor feedback
+    final doctorFeedbackQuery = await FirebaseFirestore.instance
+        .collection('doctorMedicalCenterFeedback')
+        .where('medicalCenterId', isEqualTo: _medicalCenterId)
+        .get();
+
+    // Calculate average ratings
+    double patientAvgRating = 0.0;
+    if (patientFeedbackForCenter.isNotEmpty) {
+      double totalRating = 0;
+      int ratedCount = 0;
+      for (final doc in patientFeedbackForCenter) {
+        final rating = doc['rating'] ?? 0;
+        if (rating > 0) {
+          totalRating += rating;
+          ratedCount++;
+        }
+      }
+      patientAvgRating = ratedCount > 0 ? totalRating / ratedCount : 0.0;
+    }
+
+    double doctorAvgRating = 0.0;
+    if (doctorFeedbackQuery.docs.isNotEmpty) {
+      double totalRating = 0;
+      int ratedCount = 0;
+      for (final doc in doctorFeedbackQuery.docs) {
+        final rating = doc['rating'] ?? 0;
+        if (rating > 0) {
+          totalRating += rating;
+          ratedCount++;
+        }
+      }
+      doctorAvgRating = ratedCount > 0 ? totalRating / ratedCount : 0.0;
+    }
+
+    // Calculate overall combined rating (weighted average)
+    double overallRating = 0.0;
+    int totalReviews = patientFeedbackForCenter.length + doctorFeedbackQuery.docs.length;
+    
+    if (totalReviews > 0) {
+      // Simple average of all individual ratings
+      double totalRatingSum = 0;
+      int totalRatedCount = 0;
+      
+      // Add patient ratings
+      for (final doc in patientFeedbackForCenter) {
+        final rating = doc['rating'] ?? 0;
+        if (rating > 0) {
+          totalRatingSum += rating;
+          totalRatedCount++;
+        }
+      }
+      
+      // Add doctor ratings
+      for (final doc in doctorFeedbackQuery.docs) {
+        final rating = doc['rating'] ?? 0;
+        if (rating > 0) {
+          totalRatingSum += rating;
+          totalRatedCount++;
+        }
+      }
+      
+      overallRating = totalRatedCount > 0 ? totalRatingSum / totalRatedCount : 0.0;
+    }
+
+    return {
+      'totalPatientFeedback': patientFeedbackForCenter.length,
+      'totalDoctorFeedback': doctorFeedbackQuery.docs.length,
+      'totalReviews': totalReviews,
+      'patientAvgRating': patientAvgRating,
+      'doctorAvgRating': doctorAvgRating,
+      'overallRating': overallRating,
+    };
+  } catch (e) {
+    debugPrint('Error getting quick stats: $e');
+    return {
+      'totalPatientFeedback': 0,
+      'totalDoctorFeedback': 0,
+      'totalReviews': 0,
+      'patientAvgRating': 0.0,
+      'doctorAvgRating': 0.0,
+      'overallRating': 0.0,
+    };
   }
+}
+
+Widget _buildStatItem(String title, String value, IconData icon, Color color) {
+  bool isRating = title.contains('Rating');
+  double? numericValue = isRating ? double.tryParse(value) : null;
+  
+  return Expanded(
+    child: Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(10),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 5,
+            offset: const Offset(0, 3),
+          ),
+        ],
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 20, color: color),
+          const SizedBox(height: 5),
+          Text(
+            value,
+            style: TextStyle(
+              fontSize: isRating ? 18 : 16,
+              fontWeight: FontWeight.bold,
+              color: isRating && numericValue != null
+                  ? (numericValue >= 4.0 
+                      ? Colors.green 
+                      : numericValue >= 3.0 
+                          ? Colors.orange 
+                          : Colors.black87)
+                  : Colors.black87,
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            title,
+            style: const TextStyle(
+              fontSize: 10,
+              color: Colors.grey,
+            ),
+            textAlign: TextAlign.center,
+          ),
+          if (isRating && numericValue != null && numericValue > 0) ...[
+            const SizedBox(height: 4),
+            SizedBox(
+              height: 12, // Constrain the height
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: List.generate(5, (index) {
+                  return SizedBox(
+                    width: 12, // Constrain the width
+                    height: 12, // Constrain the height
+                    child: Icon(
+                      index < numericValue.round() ? Icons.star : Icons.star_border,
+                      color: Colors.amber,
+                      size: 12,
+                    ),
+                  );
+                }),
+              ),
+            ),
+          ],
+        ],
+      ),
+    ),
+  );
+}
 
   Widget _buildActionButton({
     required IconData icon,

@@ -62,12 +62,18 @@ class _SignInPageState extends State<SignInPage> {
       final medicalCenterQuery = await FirebaseFirestore.instance
           .collection("medical_centers")
           .where("email", isEqualTo: email)
-          .limit(110)
+          .limit(1)
           .get();
 
       if (medicalCenterQuery.docs.isNotEmpty) {
-        _navigateTo(const AdminHomePage());
-        return;
+        final medicalCenterDoc = medicalCenterQuery.docs.first;
+        final medicalCenterId = medicalCenterDoc.id;
+        final medicalCenterName = medicalCenterDoc['name'];
+  
+  _navigateTo(AdminHomePage(
+ 
+  )); // AdminHomePage will fetch its own data
+  return;
       }
 
       // 3️⃣ GET USER ROLE AND VERIFICATION STATUS

@@ -39,81 +39,92 @@ class _AdminFeedbackManagementState extends State<AdminFeedbackManagement> with 
   }
 
   Future<void> _loadAllFeedbackData() async {
-    try {
-      setState(() {
-        _isLoading = true;
-        _errorMessage = null;
-      });
+  try {
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
 
-      debugPrint('Loading feedback for medical center: ${widget.medicalCenterId}');
+    debugPrint('Loading feedback for medical center: ${widget.medicalCenterId}');
 
-      // Load Patient Feedback
-      final patientSnapshot = await FirebaseFirestore.instance
-          .collection('feedback')
-          .get();
+    // Load Patient Feedback - ONLY patient->medical center feedback
+    final patientSnapshot = await FirebaseFirestore.instance
+        .collection('feedback')
+        .get();
 
-      debugPrint('Found ${patientSnapshot.docs.length} total patient feedback documents');
+    debugPrint('Found ${patientSnapshot.docs.length} total patient feedback documents');
 
-      final patientFeedback = patientSnapshot.docs
-          .where((doc) {
-            final medicalCenterId = doc['medicalCenterId'];
-            final status = doc['status'];
-            final matches = medicalCenterId == widget.medicalCenterId && status == 'approved';
-            if (matches) {
-              debugPrint('Found patient feedback: ${doc.id} - ${doc['patientName']}');
-            }
-            return matches;
-          })
-          .map((doc) {
-            final data = doc.data();
-            return {
-              'id': doc.id,
-              'type': 'patient',
-              ...data,
-              'createdAt': data['createdAt']?.toDate() ?? DateTime.now(),
-            };
-          }).toList();
+    final patientFeedback = patientSnapshot.docs
+        .where((doc) {
+          final data = doc.data();
+          final medicalCenterId = data['medicalCenterId'];
+          final doctorId = data['doctorId'];
+          final status = data['status'];
+          final feedbackType = data['feedbackType'];
+          
+          // Only show patient->medical center feedback (no doctorId or empty doctorId)
+          final isPatientToMedicalCenter = (doctorId == null || doctorId.toString().isEmpty) && 
+                                         feedbackType == 'medical_center';
+          
+          final matches = medicalCenterId == widget.medicalCenterId && 
+                        status == 'approved' && 
+                        isPatientToMedicalCenter;
+          
+          if (matches) {
+            debugPrint('Found patient->medical center feedback: ${doc.id} - ${data['patientName']}');
+          }
+          return matches;
+        })
+        .map((doc) {
+          final data = doc.data();
+          return {
+            'id': doc.id,
+            'type': 'patient',
+            ...data,
+            'createdAt': data['createdAt']?.toDate() ?? DateTime.now(),
+          };
+        }).toList();
 
-      debugPrint('Filtered to ${patientFeedback.length} patient feedback for this medical center');
+    debugPrint('Filtered to ${patientFeedback.length} patient->medical center feedback');
 
-      // Sort by date manually
-      patientFeedback.sort((a, b) => (b['createdAt'] as DateTime).compareTo(a['createdAt'] as DateTime));
+    // Sort by date manually
+    patientFeedback.sort((a, b) => (b['createdAt'] as DateTime).compareTo(a['createdAt'] as DateTime));
 
-      // Load Doctor Feedback
-      final doctorSnapshot = await FirebaseFirestore.instance
-          .collection('doctorMedicalCenterFeedback')
-          .where('medicalCenterId', isEqualTo: widget.medicalCenterId)
-          .get();
+    // Load Doctor Feedback (doctor->medical center)
+    final doctorSnapshot = await FirebaseFirestore.instance
+        .collection('doctorMedicalCenterFeedback')
+        .where('medicalCenterId', isEqualTo: widget.medicalCenterId)
+        .get();
 
-      debugPrint('Found ${doctorSnapshot.docs.length} doctor feedback documents');
+    debugPrint('Found ${doctorSnapshot.docs.length} doctor feedback documents');
 
-      final doctorFeedback = doctorSnapshot.docs.map((doc) {
-        final data = doc.data();
-        debugPrint('Found doctor feedback: ${doc.id} - ${data['doctorName']}');
-        return {
-          'id': doc.id,
-          'type': 'doctor',
-          ...data,
-          'createdAt': data['createdAt']?.toDate() ?? DateTime.now(),
-        };
-      }).toList();
+    final doctorFeedback = doctorSnapshot.docs.map((doc) {
+      final data = doc.data();
+      debugPrint('Found doctor feedback: ${doc.id} - ${data['doctorName']}');
+      return {
+        'id': doc.id,
+        'type': 'doctor',
+        ...data,
+        'createdAt': data['createdAt']?.toDate() ?? DateTime.now(),
+      };
+    }).toList();
 
-      setState(() {
-        _patientFeedback = patientFeedback;
-        _doctorFeedback = doctorFeedback;
-        _isLoading = false;
-      });
+    setState(() {
+      _patientFeedback = patientFeedback;
+      _doctorFeedback = doctorFeedback;
+      _isLoading = false;
+    });
 
-      debugPrint('Loading complete - Patient: ${_patientFeedback.length}, Doctor: ${_doctorFeedback.length}');
+    debugPrint('Loading complete - Patient->MedicalCenter: ${_patientFeedback.length}, Doctor->MedicalCenter: ${_doctorFeedback.length}');
 
-    } catch (e) {
-      debugPrint('Error loading feedback: $e');
-      setState(() {
-        _isLoading = false;
-        _errorMessage = 'Failed to load feedback: $e';
-      });
-    }
+  } catch (e) {
+    debugPrint('Error loading feedback: $e');
+    setState(() {
+      _isLoading = false;
+      _errorMessage = 'Failed to load feedback: $e';
+    });
   }
+}
 
   Widget _buildFeedbackStats() {
     final pendingPatient = _patientFeedback.where((f) => f['status'] == 'pending').length;
@@ -139,8 +150,7 @@ class _AdminFeedbackManagementState extends State<AdminFeedbackManagement> with 
         children: [
           _buildStatCircle(totalPatient, 'Patient Reviews', Colors.blue, Icons.person),
           _buildStatCircle(totalDoctor, 'Doctor Reviews', Colors.purple, Icons.medical_services),
-          _buildStatCircle(approvedPatient, 'Approved', Colors.green, Icons.check_circle),
-          _buildStatCircle(pendingPatient, 'Pending', Colors.orange, Icons.pending),
+        
         ],
       ),
     );
@@ -272,19 +282,9 @@ class _AdminFeedbackManagementState extends State<AdminFeedbackManagement> with 
     final status = feedback['status'] ?? 'approved';
     final isAnonymous = feedback['anonymous'] ?? false;
 
-    Color statusColor = Colors.green;
-    IconData statusIcon = Icons.check_circle;
-    String statusText = 'APPROVED';
+    
 
-    if (status == 'pending') {
-      statusColor = Colors.orange;
-      statusIcon = Icons.pending;
-      statusText = 'PENDING';
-    } else if (status == 'rejected') {
-      statusColor = Colors.red;
-      statusIcon = Icons.cancel;
-      statusText = 'REJECTED';
-    }
+    
 
     return Card(
       elevation: 3,
@@ -329,13 +329,7 @@ class _AdminFeedbackManagementState extends State<AdminFeedbackManagement> with 
                           fontWeight: FontWeight.bold,
                         ),
                       ),
-                      Text(
-                        'About Dr. $doctorName',
-                        style: TextStyle(
-                          color: Colors.grey[600],
-                          fontSize: 14,
-                        ),
-                      ),
+                     
                       Text(
                         _formatDate(createdAt),
                         style: TextStyle(
@@ -349,29 +343,7 @@ class _AdminFeedbackManagementState extends State<AdminFeedbackManagement> with 
                 Column(
                   crossAxisAlignment: CrossAxisAlignment.end,
                   children: [
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: statusColor.withOpacity(0.1),
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: statusColor),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(statusIcon, size: 14, color: statusColor),
-                          const SizedBox(width: 4),
-                          Text(
-                            statusText,
-                            style: TextStyle(
-                              fontSize: 10,
-                              fontWeight: FontWeight.bold,
-                              color: statusColor,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
+                 
                     const SizedBox(height: 8),
                     Row(
                       children: List.generate(5, (index) {

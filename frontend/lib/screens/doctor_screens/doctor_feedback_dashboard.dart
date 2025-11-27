@@ -247,12 +247,7 @@ class _DoctorFeedbackDashboardState extends State<DoctorFeedbackDashboard> {
       child: Row(
         children: [
           _buildTabButton('My Feedback', 'my_feedback'),
-          _buildTabButton(
-            _medicalCenters.isEmpty 
-                ? 'Medical Center' 
-                : 'Med Center (${_medicalCenters.length})', 
-            'medical_center_feedback'
-          ),
+          
           _buildTabButton('My Reviews', 'my_reviews'),
         ],
       ),
@@ -291,100 +286,320 @@ class _DoctorFeedbackDashboardState extends State<DoctorFeedbackDashboard> {
   }
 
   Widget _buildStatisticsCard() {
-    final filteredFeedback = _getFilteredFeedback();
-    
-    double averageRating = 0;
-    int totalReviews = filteredFeedback.length;
-    Map<int, int> ratingDistribution = {1: 0, 2: 0, 3: 0, 4: 0, 5: 0};
+  final filteredFeedback = _getFilteredFeedback();
+  
+  double averageRating = 0;
+  int totalReviews = filteredFeedback.length;
+  Map<int, int> ratingDistribution = {1: 0, 2: 0, 3: 0, 4: 0, 5: 0};
 
-    if (totalReviews > 0) {
-      double totalRating = 0;
-      for (final feedback in filteredFeedback) {
-        final rating = feedback['rating'] ?? 0;
-        totalRating += rating;
-        ratingDistribution[rating] = (ratingDistribution[rating] ?? 0) + 1;
-      }
-      averageRating = totalRating / totalReviews;
+  if (totalReviews > 0) {
+    double totalRating = 0;
+    for (final feedback in filteredFeedback) {
+      final rating = feedback['rating'] ?? 0;
+      totalRating += rating;
+      ratingDistribution[rating] = (ratingDistribution[rating] ?? 0) + 1;
     }
+    averageRating = totalRating / totalReviews;
+  }
 
-    String title;
-    if (_selectedTab == 'my_feedback') {
-      title = 'Patient Feedback About Me';
-    } else if (_selectedTab == 'medical_center_feedback') {
-      title = 'Patient Feedback About Medical Centers';
-    } else {
-      title = 'My Medical Center Reviews';
-    }
+  String title;
+  IconData titleIcon;
+  Color primaryColor = const Color(0xFF18A3B6);
+  Color secondaryColor = const Color(0xFFB2DEE6);
+  
+  if (_selectedTab == 'my_feedback') {
+    title = 'Patient Feedback About Me';
+    titleIcon = Icons.people_outline;
+  } else {
+    title = 'My Medical Center Reviews';
+    titleIcon = Icons.local_hospital;
+  }
 
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16),
-      child: Card(
-        elevation: 3,
+  return Padding(
+    padding: const EdgeInsets.symmetric(horizontal: 16),
+    child: Card(
+      elevation: 6,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Container(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              Colors.white,
+              secondaryColor.withOpacity(0.1),
+            ],
+          ),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(
+            color: primaryColor.withOpacity(0.1),
+            width: 1,
+          ),
+        ),
         child: Padding(
-          padding: const EdgeInsets.all(16),
+          padding: const EdgeInsets.all(20),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
-                title,
-                style: const TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
-                  color: Color(0xFF18A3B6),
-                ),
-              ),
-              const SizedBox(height: 12),
+              // Header with Icon
               Row(
-                mainAxisAlignment: MainAxisAlignment.spaceAround,
                 children: [
-                  _buildStatItem('Average', '${averageRating.toStringAsFixed(1)} ⭐'),
-                  _buildStatItem('Total', '$totalReviews'),
-                  _buildStatItem('5 Star', '${ratingDistribution[5] ?? 0}'),
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: primaryColor.withOpacity(0.1),
+                      shape: BoxShape.circle,
+                    ),
+                    child: Icon(
+                      titleIcon,
+                      color: primaryColor,
+                      size: 20,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      title,
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                        color: primaryColor,
+                      ),
+                    ),
+                  ),
                 ],
               ),
-              if (_selectedTab == 'my_reviews' && _medicalCenters.isNotEmpty)
-                Padding(
-                  padding: const EdgeInsets.only(top: 8),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
+              const SizedBox(height: 16),
+
+              if (_selectedTab == 'my_reviews' && _medicalCenters.isNotEmpty) ...[
+                // Beautiful Call-to-Action for Writing Reviews
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.centerLeft,
+                      end: Alignment.centerRight,
+                      colors: [
+                        primaryColor.withOpacity(0.05),
+                        primaryColor.withOpacity(0.1),
+                      ],
+                    ),
+                    borderRadius: BorderRadius.circular(15),
+                    border: Border.all(
+                      color: primaryColor.withOpacity(0.2),
+                    ),
+                  ),
+                  child: Column(
                     children: [
-                      IconButton(
-                        icon: const Icon(Icons.add_comment, size: 18),
-                        onPressed: _showMedicalCenterFeedbackDialog,
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(
+                            Icons.star_outline,
+                            color: primaryColor,
+                            size: 20,
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            'Share Your Experience',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w600,
+                              color: primaryColor,
+                            ),
+                          ),
+                        ],
                       ),
-                      const Text(
-                        'Add Review',
-                        style: TextStyle(fontSize: 12, color: Color(0xFF18A3B6)),
+                      const SizedBox(height: 8),
+                      Text(
+                        'Help other doctors by sharing your experience working at medical centers',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.grey[600],
+                          height: 1.4,
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      ElevatedButton.icon(
+                        icon: const Icon(Icons.rate_review, size: 16),
+                        onPressed: _showMedicalCenterFeedbackDialog,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: primaryColor,
+                          foregroundColor: Colors.white,
+                          elevation: 2,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 20,
+                            vertical: 10,
+                          ),
+                        ),
+                        label: const Text(
+                          'Write Review',
+                          style: TextStyle(
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
                       ),
                     ],
                   ),
                 ),
+              ] else if (_selectedTab == 'my_feedback') ...[
+                // Statistics Display for Patient Feedback
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceAround,
+                  children: [
+                    _buildStatItem(
+                      'Average Rating',
+                      '${averageRating.toStringAsFixed(1)}',
+                      Icons.star_rate_rounded,
+                      Colors.amber,
+                    ),
+                    _buildStatItem(
+                      'Total Reviews',
+                      '$totalReviews',
+                      Icons.reviews_outlined,
+                      primaryColor,
+                    ),
+                    _buildStatItem(
+                      '5★ Ratings',
+                      '${ratingDistribution[5] ?? 0}',
+                      Icons.thumb_up_outlined,
+                      Colors.green,
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                
+                // Rating Distribution Bar Chart
+                if (totalReviews > 0) ...[
+                  _buildRatingDistribution(ratingDistribution, totalReviews),
+                ],
+              ],
             ],
           ),
         ),
       ),
-    );
-  }
+    ),
+  );
+}
 
-  Widget _buildStatItem(String label, String value) {
-    return Column(
-      children: [
-        Text(
-          value,
-          style: const TextStyle(
-            fontSize: 18,
-            fontWeight: FontWeight.bold,
-            color: Color(0xFF18A3B6),
-          ),
+Widget _buildStatItem(String label, String value, IconData icon, Color color) {
+  return Column(
+    children: [
+      Container(
+        padding: const EdgeInsets.all(8),
+        decoration: BoxDecoration(
+          color: color.withOpacity(0.1),
+          shape: BoxShape.circle,
         ),
-        Text(
-          label,
-          style: const TextStyle(fontSize: 10, color: Colors.grey),
+        child: Icon(
+          icon,
+          color: color,
+          size: 20,
         ),
-      ],
-    );
-  }
+      ),
+      const SizedBox(height: 6),
+      Text(
+        value,
+        style: TextStyle(
+          fontSize: 18,
+          fontWeight: FontWeight.bold,
+          color: color,
+        ),
+      ),
+      const SizedBox(height: 2),
+      Text(
+        label,
+        textAlign: TextAlign.center,
+        style: const TextStyle(
+          fontSize: 10,
+          color: Colors.grey,
+        ),
+      ),
+    ],
+  );
+}
 
+Widget _buildRatingDistribution(Map<int, int> distribution, int totalReviews) {
+  return Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      const Text(
+        'Rating Distribution',
+        style: TextStyle(
+          fontSize: 12,
+          fontWeight: FontWeight.w600,
+          color: Colors.grey,
+        ),
+      ),
+      const SizedBox(height: 8),
+      Column(
+        children: [5, 4, 3, 2, 1].map((rating) {
+          final count = distribution[rating] ?? 0;
+          final percentage = totalReviews > 0 ? (count / totalReviews) * 100 : 0;
+          
+          return Padding(
+            padding: const EdgeInsets.only(bottom: 6),
+            child: Row(
+              children: [
+                Text(
+                  '$rating★',
+                  style: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w500,
+                    color: Colors.grey,
+                  ),
+                 
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: LinearProgressIndicator(
+                    value: percentage / 100,
+                    backgroundColor: Colors.grey[200],
+                    valueColor: AlwaysStoppedAnimation<Color>(
+                      _getRatingColor(rating),
+                    ),
+                    borderRadius: BorderRadius.circular(4),
+                    minHeight: 8,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  '${percentage.toStringAsFixed(0)}%',
+                  style: TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.w500,
+                    color: Colors.grey[600],
+                  ),
+                  
+                ),
+              ],
+            ),
+          );
+        }).toList(),
+      ),
+    ],
+  );
+}
+
+Color _getRatingColor(int rating) {
+  switch (rating) {
+    case 5: return Colors.green;
+    case 4: return Colors.lightGreen;
+    case 3: return Colors.amber;
+    case 2: return Colors.orange;
+    case 1: return Colors.red;
+    default: return Colors.grey;
+  }
+}
+
+ 
   Widget _buildFeedbackList() {
     final filteredFeedback = _getFilteredFeedback();
 

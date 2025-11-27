@@ -1,6 +1,7 @@
 import 'dart:ui';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:frontend/enroll_screnns/sign_in_page.dart';
 import 'package:frontend/screens/Notifications/PatientNotificationPage.dart';
 import 'package:frontend/screens/doctor_screens/doctor_chat_list_screen.dart';
 
@@ -47,39 +48,137 @@ class _MedicalHomeScreenState extends State<MedicalHomeScreen> {
     _getPatientInfo();
   }
 void _getPatientInfo() {
+  try {
     final user = FirebaseAuth.instance.currentUser;
     if (user != null) {
-      setState(() {
-        patientId = user.uid;
-        patientName = user.displayName ?? 'Patient'; // Get name from Firebase or default
-      });
+      // ADD mounted CHECK
+      if (mounted) {
+        setState(() {
+          patientId = user.uid;
+          patientName = user.displayName ?? 'Patient';
+        });
+      }
     }
+  } catch (e) {
+    print('❌ Error getting patient info: $e');
   }
+}
 
-  void _getPatientId() {
+void _getPatientId() {
+  try {
     final user = FirebaseAuth.instance.currentUser;
     if (user != null) {
-      setState(() {
-        patientId = user.uid;
-      });
+      // ADD mounted CHECK
+      if (mounted) {
+        setState(() {
+          patientId = user.uid;
+        });
+      }
     }
+  } catch (e) {
+    print('❌ Error getting patient ID: $e');
   }
-
+}
   void _onItemTapped(int index) {
     setState(() {
       _selectedIndex = index;
     });
   }
 
-  Future<void> _signOut() async {
-    try {
-      await FirebaseAuth.instance.signOut();
-      Navigator.pushNamedAndRemoveUntil(context, '/login', (route) => false);
-    } catch (e) {
-      print("Error signing out: $e");
+ Future<void> _signOut() async {
+  bool success = false;
+  
+  try {
+    print('🔄 Starting patient sign-out process...');
+    
+    final user = FirebaseAuth.instance.currentUser;
+    print('👤 Current patient: ${user?.uid}');
+    print('📧 Current email: ${user?.email}');
+    
+    await Future.delayed(const Duration(milliseconds: 100));
+    
+    // Perform sign out
+    await FirebaseAuth.instance.signOut();
+    
+    print('✅ Firebase sign-out successful');
+    
+    // Verify sign out worked
+    final userAfterSignOut = FirebaseAuth.instance.currentUser;
+    if (userAfterSignOut == null) {
+      print('✅ Verification: Patient is now null');
+      success = true;
+    } else {
+      print('❌ Verification: Patient still exists: ${userAfterSignOut.uid}');
+    }
+    
+    // Navigate to login screen using MaterialPageRoute
+    if (!mounted) return;
+    
+    // Import your login screen and use MaterialPageRoute
+    Navigator.pushAndRemoveUntil(
+      context,
+      MaterialPageRoute(builder: (context) => const SignInPage()), // Replace with your actual login screen
+      (route) => false,
+    );
+    
+    print('✅ Navigation to login completed');
+    
+  } catch (e, stackTrace) {
+    print('❌ Patient sign out error: $e');
+    print('📝 Stack trace: $stackTrace');
+    
+    if (!mounted) return;
+    
+    // Show error message to user
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Sign out failed: ${e.toString()}'),
+        backgroundColor: Colors.red,
+        duration: const Duration(seconds: 3),
+      ),
+    );
+  }
+}
+Future<void> _forceSignOut() async {
+  try {
+    print('💥 FORCE SIGN-OUT INITIATED');
+    
+    // Clear any local state first
+    if (mounted) {
+      setState(() {
+        patientId = null;
+        patientName = null;
+      });
+    }
+    
+    // Sign out from Firebase
+    await FirebaseAuth.instance.signOut();
+    
+    // Force clear any cached credentials
+    await Future.delayed(const Duration(milliseconds: 500));
+    
+    // Navigate to login no matter what
+    if (mounted) {
+      Navigator.pushNamedAndRemoveUntil(
+        context, 
+        '/welcome',  // CHANGED TO '/welcome' as fallback
+        (route) => false,
+      );
+    }
+    
+  } catch (e) {
+    print('💥 Force sign-out error: $e');
+    
+    // Last resort - try to navigate anyway
+    if (mounted) {
+      Navigator.pushNamedAndRemoveUntil(
+        context, 
+        '/welcome',  // CHANGED TO '/welcome'
+        (route) => false,
+      );
     }
   }
-
+}
   @override
   Widget build(BuildContext context) {
     final currentUser = FirebaseAuth.instance.currentUser;
@@ -139,111 +238,174 @@ Widget _buildNotificationsPage() {
     );
   }
   // --- Settings Page ---
-  Widget _buildSettingsPage() {
-    return Scaffold(
-      backgroundColor: kBackgroundColor,
-      body: Padding(
-        padding: const EdgeInsets.all(20.0),
-        child: SingleChildScrollView(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                'Settings',
-                style: TextStyle(
-                  fontSize: 28,
-                  fontWeight: FontWeight.bold,
-                  color: kDeepTeal,
+ Widget _buildSettingsPage() {
+  return Scaffold(
+    backgroundColor: kBackgroundColor,
+    body: Padding(
+      padding: const EdgeInsets.all(20.0),
+      child: SingleChildScrollView(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Settings',
+              style: TextStyle(
+                fontSize: 28,
+                fontWeight: FontWeight.bold,
+                color: kDeepTeal,
+              ),
+            ),
+            const SizedBox(height: 30),
+            Card(
+              elevation: 4,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(15),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.all(16.0),
+                child: Column(
+                  children: [
+                    _buildSettingsOption(
+                      icon: Icons.notifications,
+                      title: 'Notifications',
+                      subtitle: 'Manage your notifications',
+                      onTap: () {},
+                    ),
+                    const Divider(),
+                    _buildSettingsOption(
+                      icon: Icons.security,
+                      title: 'Privacy & Security',
+                      subtitle: 'Control your privacy settings',
+                      onTap: () {},
+                    ),
+                    const Divider(),
+                    _buildSettingsOption(
+                      icon: Icons.help,
+                      title: 'Help & Support',
+                      subtitle: 'Get help and contact support',
+                      onTap: () {},
+                    ),
+                    const Divider(),
+                    _buildSettingsOption(
+                      icon: Icons.info,
+                      title: 'About',
+                      subtitle: 'Learn more about MediLink',
+                      onTap: () {},
+                    ),
+                  ],
                 ),
               ),
-              const SizedBox(height: 30),
-              Card(
-                elevation: 4,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(15),
-                ),
-                child: Padding(
-                  padding: const EdgeInsets.all(16.0),
-                  child: Column(
+            ),
+            const SizedBox(height: 30),
+            
+            // Sign Out Button with Confirmation
+            Center(
+              child: SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: () => _showSignOutConfirmation(),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.red,
+                    padding: const EdgeInsets.symmetric(vertical: 15),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                  child: const Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      _buildSettingsOption(
-                        icon: Icons.notifications,
-                        title: 'Notifications',
-                        subtitle: 'Manage your notifications',
-                        onTap: () {},
-                      ),
-                      const Divider(),
-                      _buildSettingsOption(
-                        icon: Icons.security,
-                        title: 'Privacy & Security',
-                        subtitle: 'Control your privacy settings',
-                        onTap: () {},
-                      ),
-                      const Divider(),
-                      _buildSettingsOption(
-                        icon: Icons.help,
-                        title: 'Help & Support',
-                        subtitle: 'Get help and contact support',
-                        onTap: () {},
-                      ),
-                      const Divider(),
-                      _buildSettingsOption(
-                        icon: Icons.info,
-                        title: 'About',
-                        subtitle: 'Learn more about MediLink',
-                        onTap: () {},
+                      Icon(Icons.logout, color: Colors.white),
+                      SizedBox(width: 10),
+                      Text(
+                        'Sign Out',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.white,
+                        ),
                       ),
                     ],
                   ),
                 ),
               ),
-              const SizedBox(height: 30),
-              Center(
-                child: SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton(
-                    onPressed: _signOut,
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.red,
-                      padding: const EdgeInsets.symmetric(vertical: 15),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                    ),
-                    child: const Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(Icons.logout, color: Colors.white),
-                        SizedBox(width: 10),
-                        Text(
-                          'Sign Out',
-                          style: TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.white,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
+            ),
+            
+            // Debug button (remove in production)
+            const SizedBox(height: 20),
+            Center(
+              child: OutlinedButton(
+                onPressed: _debugAuthState,
+                child: const Text('Debug Auth State'),
+              ),
+            ),
+            
+            const SizedBox(height: 20),
+            Center(
+              child: Text(
+                'MediLink v1.0.0',
+                style: TextStyle(
+                  color: Colors.grey[600],
+                  fontSize: 14,
                 ),
               ),
-              const SizedBox(height: 20),
-              Center(
-                child: Text(
-                  'MediLink v1.0.0',
-                  style: TextStyle(
-                    color: Colors.grey[600],
-                    fontSize: 14,
-                  ),
-                ),
-              ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
-    );
-  }
+    ),
+  );
+}
+void _debugAuthState() {
+  final user = FirebaseAuth.instance.currentUser;
+  showDialog(
+    context: context,
+    builder: (context) => AlertDialog(
+      title: const Text('Auth Debug Info'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('Patient: ${user?.uid ?? "null"}'),
+          Text('Email: ${user?.email ?? "null"}'),
+          Text('Verified: ${user?.emailVerified ?? "null"}'),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Close'),
+        ),
+      ],
+    ),
+  );
+}
+void _showSignOutConfirmation() {
+  showDialog(
+    context: context,
+    builder: (BuildContext context) {
+      return AlertDialog(
+        title: const Text('Sign Out'),
+        content: const Text('Are you sure you want to sign out?'),
+        actions: [
+          TextButton(
+            child: const Text('Cancel'),
+            onPressed: () => Navigator.of(context).pop(),
+          ),
+          TextButton(
+            child: const Text(
+              'Sign Out',
+              style: TextStyle(color: Colors.red),
+            ),
+            onPressed: () {
+              Navigator.of(context).pop();
+              _signOut();
+            },
+          ),
+        ],
+      );
+    },
+  );
+}
 
   Widget _buildSettingsOption({
     required IconData icon,
