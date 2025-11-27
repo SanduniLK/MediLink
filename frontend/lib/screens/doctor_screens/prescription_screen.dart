@@ -97,7 +97,7 @@ class _PrescriptionScreenState extends State<PrescriptionScreen> {
           final data = doctorDoc.data();
           setState(() {
             _doctorNameController.text = data?['fullname'] ?? 'Dr. Rajesh Kumar';
-            _doctorRegNoController.text = data?['registrationNumber'] ?? 'MED12345';
+            _doctorRegNoController.text = data?['regNumber'] ?? 'MED12345';
             _medicalCenterController.text = data?['hospital'] ?? 'City Medical Center & Hospital';
           });
         } else {

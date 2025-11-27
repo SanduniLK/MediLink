@@ -1,15 +1,17 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:frontend/screens/Sadmin_screens/DoctorManagement.dart';
 import 'package:frontend/screens/Sadmin_screens/SuperAdminPharmacyApprovalScreen.dart';
+import 'package:frontend/screens/Sadmin_screens/patientManagement.dart';
 import 'package:intl/intl.dart';
 
 // Screens
 import 'package:frontend/screens/Sadmin_screens/analysisScreen.dart';
 import 'package:frontend/screens/Sadmin_screens/mediclecenteManagement.dart' as sadmin;
 import 'package:frontend/screens/Sadmin_screens/pharmacy_management.dart';
-import 'package:frontend/screens/admin_screens/admin_doctor_manegment.dart';
-import 'package:frontend/screens/admin_screens/admin_patient_management.dart';
+
+import 'package:frontend/screens/admin_screens/admin_patient_management.dart' hide PatientManagementScreen;
 import 'package:frontend/enroll_screnns/sign_in_page.dart' as enroll;
 
 class SuperAdminDashboard extends StatefulWidget {
@@ -103,7 +105,7 @@ class _SuperAdminDashboardState extends State<SuperAdminDashboard> {
   List<Widget> get _screens {
     return [
       SuperAdminHomePage(onNavigate: _navigateToScreen),
-      const DoctorManagementScreen(medicalCenterName: 'All Centers'),
+      const DoctorManagementScreenn(),
       const PatientManagementScreen(),
       const PharmacyManagementScreen(),
       // These screens are only accessible from drawer or quick actions

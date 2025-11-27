@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:frontend/screens/Sadmin_screens/SinglePatientProfileScreen.dart';
+
 
 class PatientManagementScreen extends StatefulWidget {
   const PatientManagementScreen({super.key});
@@ -11,7 +11,7 @@ class PatientManagementScreen extends StatefulWidget {
 }
 
 class _PatientManagementScreenState extends State<PatientManagementScreen> {
-  // Controllers
+  // Controllers for adding new patient
   final TextEditingController _nameController = TextEditingController();
   final TextEditingController _mobileController = TextEditingController();
   final TextEditingController _emailController = TextEditingController();
@@ -71,83 +71,120 @@ class _PatientManagementScreenState extends State<PatientManagementScreen> {
     );
   }
 
-  void _addPatient() {
-    _clearControllers();
+  
 
+  void _deletePatient(String docId) {
     showDialog(
       context: context,
-      builder: (BuildContext context) {
-        return StatefulBuilder(
-          builder: (context, setState) {
-            return AlertDialog(
-              title: const Text('Add New Patient'),
-              content: SingleChildScrollView(
-                child: Column(
-                  children: [
-                    _buildTextField(_nameController, 'Full Name'),
-                    _buildTextField(_mobileController, 'Mobile Number',
-                        TextInputType.phone),
-                    _buildTextField(_emailController, 'Email',
-                        TextInputType.emailAddress),
-                    _buildTextField(_addressController, 'Address'),
-                    _buildTextField(_dobController, 'Date of Birth'),
-                    _buildTextField(_ageController, 'Age', TextInputType.number),
-                  ],
-                ),
-              ),
-              actions: [
-                TextButton(
-                  child: const Text('Cancel'),
-                  onPressed: () => Navigator.of(context).pop(),
-                ),
-                ElevatedButton(
-                  child: const Text('Add'),
-                  onPressed: () async {
-                    if (_nameController.text.isNotEmpty &&
-                        _mobileController.text.isNotEmpty) {
-                      DocumentReference newDocRef = await FirebaseFirestore
-                          .instance
-                          .collection('patients')
-                          .add({
-                        'name': _nameController.text.trim(),
-                        'mobile': _mobileController.text.trim(),
-                        'email': _emailController.text.trim(),
-                        'dob': _dobController.text.trim(),
-                        'age': int.tryParse(_ageController.text) ?? 0,
-                        'address': _addressController.text.trim(),
-                        'createdAt': FieldValue.serverTimestamp(),
-                      });
-
-                      Navigator.of(context).pop();
-
-                      // Go to profile page
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (context) => SinglePatientProfileScreen(
-                            patientUid: newDocRef.id,
-                          ),
-                        ),
-                      );
-                    }
-                  },
-                ),
-              ],
-            );
-          },
-        );
-      },
+      builder: (context) => AlertDialog(
+        title: const Text('Confirm Delete'),
+        content: const Text('Are you sure you want to delete this patient?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () {
+              FirebaseFirestore.instance.collection('patients').doc(docId).delete();
+              Navigator.of(context).pop();
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('Patient deleted successfully')),
+              );
+            },
+            child: const Text('Delete', style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
     );
   }
 
-  void _deletePatient(String docId) {
-    FirebaseFirestore.instance.collection('patients').doc(docId).delete();
+  // Widget to display patient card with all details
+  Widget _buildPatientCard(DocumentSnapshot patient) {
+    final docId = patient.id;
+    final data = patient.data() as Map<String, dynamic>;
+
+    final name = data['fullname'] ?? "No Name";
+    final mobile = data['mobile'] ?? "No Mobile";
+    final email = data['email'] ?? "No Email";
+    
+    final address = data['address'] ?? "Not Provided";
+   
+    final gender = data['gender'] ?? "Not Provided";
+    
+
+    return Card(
+      margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      elevation: 3,
+      child: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Header with name and actions
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Expanded(
+                  child: Text(
+                    name,
+                    style: const TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.delete, color: Colors.red),
+                  onPressed: () => _deletePatient(docId),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            
+            // Contact Information
+            _buildInfoRow('📱', 'Mobile', mobile),
+            _buildInfoRow('📧', 'Email', email),
+            _buildInfoRow('📍', 'Address', address),
+                        
+            
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildInfoRow(String emoji, String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 2.0),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('$emoji ', style: const TextStyle(fontSize: 16)),
+          const SizedBox(width: 8),
+          Text(
+            '$label: ',
+            style: const TextStyle(fontWeight: FontWeight.w500),
+          ),
+          Expanded(
+            child: Text(
+              value,
+              style: TextStyle(
+                color: value == "Not Provided" || value == "None" 
+                    ? Colors.grey 
+                    : Colors.black87,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text("Patient Management")),
+      
       body: StreamBuilder<QuerySnapshot>(
         stream: FirebaseFirestore.instance
             .collection('patients')
@@ -156,59 +193,63 @@ class _PatientManagementScreenState extends State<PatientManagementScreen> {
         builder: (context, snapshot) {
           if (snapshot.hasError) {
             return Center(
-                child: Text("Error loading patients: ${snapshot.error}"));
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Icon(Icons.error_outline, size: 64, color: Colors.red),
+                  const SizedBox(height: 16),
+                  Text(
+                    "Error loading patients",
+                    style: TextStyle(fontSize: 18, color: Colors.grey.shade600),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    "${snapshot.error}",
+                    style: TextStyle(fontSize: 12, color: Colors.grey.shade500),
+                    textAlign: TextAlign.center,
+                  ),
+                ],
+              ),
+            );
           }
-          if (!snapshot.hasData) {
+          
+          if (snapshot.connectionState == ConnectionState.waiting) {
             return const Center(child: CircularProgressIndicator());
           }
 
           final patients = snapshot.data!.docs;
 
           if (patients.isEmpty) {
-            return const Center(child: Text("No patients found."));
+            return Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Icon(Icons.people_outline, size: 64, color: Colors.grey),
+                  const SizedBox(height: 16),
+                  const Text(
+                    "No patients found",
+                    style: TextStyle(fontSize: 18, color: Colors.grey),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    "Tap the + button to add your first patient",
+                    style: TextStyle(fontSize: 14, color: Colors.grey.shade500),
+                  ),
+                ],
+              ),
+            );
           }
 
           return ListView.builder(
             itemCount: patients.length,
             itemBuilder: (context, index) {
               final patient = patients[index];
-              final docId = patient.id;
-
-              final name = patient.data().toString().contains('name')
-                  ? patient['name']
-                  : "No Name";
-              final mobile = patient.data().toString().contains('mobile')
-                  ? patient['mobile']
-                  : "No Mobile";
-
-              return Card(
-                child: ListTile(
-                  onTap: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) => SinglePatientProfileScreen(
-                          patientUid: docId,
-                        ),
-                      ),
-                    );
-                  },
-                  title: Text(name),
-                  subtitle: Text("Mobile: $mobile"),
-                  trailing: IconButton(
-                    icon: const Icon(Icons.delete, color: Colors.red),
-                    onPressed: () => _deletePatient(docId),
-                  ),
-                ),
-              );
+              return _buildPatientCard(patient);
             },
           );
         },
       ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: _addPatient,
-        child: const Icon(Icons.add),
-      ),
+      
     );
   }
 }
