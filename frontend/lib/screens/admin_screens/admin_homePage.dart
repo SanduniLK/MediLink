@@ -482,7 +482,7 @@ Widget _buildStatItem(String title, String value, IconData icon, Color color) {
   
   return Expanded(
     child: Container(
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.all(10),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(10),
@@ -498,18 +498,15 @@ Widget _buildStatItem(String title, String value, IconData icon, Color color) {
         mainAxisSize: MainAxisSize.min,
         children: [
           Icon(icon, size: 20, color: color),
-          const SizedBox(height: 5),
+          const SizedBox(height: 6),
           Text(
             value,
             style: TextStyle(
-              fontSize: isRating ? 18 : 16,
+              fontSize: isRating ? 16 : 14,
               fontWeight: FontWeight.bold,
               color: isRating && numericValue != null
-                  ? (numericValue >= 4.0 
-                      ? Colors.green 
-                      : numericValue >= 3.0 
-                          ? Colors.orange 
-                          : Colors.black87)
+                  ? (numericValue >= 4.0 ? Colors.green : 
+                     numericValue >= 3.0 ? Colors.orange : Colors.red)
                   : Colors.black87,
             ),
           ),
@@ -523,22 +520,14 @@ Widget _buildStatItem(String title, String value, IconData icon, Color color) {
             textAlign: TextAlign.center,
           ),
           if (isRating && numericValue != null && numericValue > 0) ...[
-            const SizedBox(height: 4),
-            SizedBox(
-              height: 12, // Constrain the height
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: List.generate(5, (index) {
-                  return SizedBox(
-                    width: 12, // Constrain the width
-                    height: 12, // Constrain the height
-                    child: Icon(
-                      index < numericValue.round() ? Icons.star : Icons.star_border,
-                      color: Colors.amber,
-                      size: 12,
-                    ),
-                  );
-                }),
+            const SizedBox(height: 3),
+            // FIXED: Use text stars that fit in any space
+            Text(
+              '★' * numericValue.round() + '☆' * (5 - numericValue.round()),
+              style: const TextStyle(
+                color: Colors.amber,
+                fontSize: 11, // Very small
+                height: 1.0, // Tight line height
               ),
             ),
           ],

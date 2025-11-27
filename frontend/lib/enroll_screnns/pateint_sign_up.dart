@@ -60,7 +60,7 @@ class _SignUpPageState extends State<SignUpPage> {
     _ownerController.dispose();
     super.dispose();
   }
-// MARK: Date Picker Method for Calendar Selection
+// date picker
 Future<void> _selectDate() async {
   final DateTime? picked = await showDatePicker(
     context: context,
@@ -248,7 +248,96 @@ Future<void> _selectDate() async {
           const EdgeInsets.symmetric(vertical: 16.0, horizontal: 12.0),
     );
   }
+// Method to calculate overall rating for each medical center
+Future<Map<String, dynamic>> _getMedicalCenterRating(String medicalCenterId) async {
+  try {
+    // Get patient feedback for this medical center
+    final patientFeedbackQuery = await FirebaseFirestore.instance
+        .collection('feedback')
+        .where('medicalCenterId', isEqualTo: medicalCenterId)
+        .where('feedbackType', isEqualTo: 'medical_center')
+        .get();
 
+    // Get doctor feedback for this medical center
+    final doctorFeedbackQuery = await FirebaseFirestore.instance
+        .collection('doctorMedicalCenterFeedback')
+        .where('medicalCenterId', isEqualTo: medicalCenterId)
+        .get();
+
+    // Calculate average ratings
+    double patientAvgRating = 0.0;
+    if (patientFeedbackQuery.docs.isNotEmpty) {
+      double totalRating = 0;
+      int ratedCount = 0;
+      for (final doc in patientFeedbackQuery.docs) {
+        final rating = doc['rating'] ?? 0;
+        if (rating > 0) {
+          totalRating += rating;
+          ratedCount++;
+        }
+      }
+      patientAvgRating = ratedCount > 0 ? totalRating / ratedCount : 0.0;
+    }
+
+    double doctorAvgRating = 0.0;
+    if (doctorFeedbackQuery.docs.isNotEmpty) {
+      double totalRating = 0;
+      int ratedCount = 0;
+      for (final doc in doctorFeedbackQuery.docs) {
+        final rating = doc['rating'] ?? 0;
+        if (rating > 0) {
+          totalRating += rating;
+          ratedCount++;
+        }
+      }
+      doctorAvgRating = ratedCount > 0 ? totalRating / ratedCount : 0.0;
+    }
+
+    // Calculate overall combined rating
+    double overallRating = 0.0;
+    int totalReviews = patientFeedbackQuery.docs.length + doctorFeedbackQuery.docs.length;
+    
+    if (totalReviews > 0) {
+      double totalRatingSum = 0;
+      int totalRatedCount = 0;
+      
+      // Add patient ratings
+      for (final doc in patientFeedbackQuery.docs) {
+        final rating = doc['rating'] ?? 0;
+        if (rating > 0) {
+          totalRatingSum += rating;
+          totalRatedCount++;
+        }
+      }
+      
+      // Add doctor ratings
+      for (final doc in doctorFeedbackQuery.docs) {
+        final rating = doc['rating'] ?? 0;
+        if (rating > 0) {
+          totalRatingSum += rating;
+          totalRatedCount++;
+        }
+      }
+      
+      overallRating = totalRatedCount > 0 ? totalRatingSum / totalRatedCount : 0.0;
+    }
+
+    return {
+      'overallRating': overallRating,
+      'totalReviews': totalReviews,
+      'patientReviews': patientFeedbackQuery.docs.length,
+      'doctorReviews': doctorFeedbackQuery.docs.length,
+    };
+  } catch (e) {
+    debugPrint('Error getting medical center rating: $e');
+    return {
+      'overallRating': 0.0,
+      'totalReviews': 0,
+      'patientReviews': 0,
+      'doctorReviews': 0,
+    };
+  }
+}
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -541,59 +630,130 @@ if (_role != "pharmacy") ...[
                           print('✅ Loaded ${centers.length} medical centers');
                           
                           return Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: centers.map((doc) {
-                              final data = doc.data() as Map<String, dynamic>;
-                              final centerName = data['name'] ?? "Unnamed Center";
-                              final centerId = doc.id;
-                              
-                              // Debug: Print all available fields
-                              print('🏥 Medical Center: $centerName');
-                              print('   Available fields: ${data.keys.join(', ')}');
-                              
-                              return CheckboxListTile(
-                                contentPadding: EdgeInsets.zero,
-                                dense: true,
-                                title: Text(
-                                  centerName,
-                                  style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w500),
-                                ),
-                                subtitle: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    if (data['specialization'] != null && data['specialization'].toString().isNotEmpty)
-                                      Text(
-                                        "Specialty: ${data['specialization']}",
-                                        style: TextStyle(fontSize: 12, color: Colors.grey[600]),
-                                        overflow: TextOverflow.ellipsis,
-                                      ),
-                                    if (data['email'] != null && data['email'].toString().isNotEmpty)
-                                      Text(
-                                        "Email: ${data['email']}",
-                                        style: TextStyle(fontSize: 12, color: Colors.grey[600]),
-                                        overflow: TextOverflow.ellipsis,
-                                      ),
-                                    
-                                  ],
-                                ),
-                                value: _selectedMedicalCenters.any((center) => center['id'] == centerId),
-                                onChanged: (selected) {
-                                  setState(() {
-                                    if (selected == true) {
-                                      _selectedMedicalCenters.add({
-                                        'id': centerId,
-                                        'name': centerName
-                                      });
-                                    } else {
-                                      _selectedMedicalCenters.removeWhere((center) => center['id'] == centerId);
-                                    }
-                                  });
-                                },
-                                activeColor: _brightCyan,
-                                secondary: Icon(Icons.local_hospital, color: _deepTeal),
-                              );
-                            }).toList(),
+  crossAxisAlignment: CrossAxisAlignment.start,
+  children: centers.map((doc) {
+    final data = doc.data() as Map<String, dynamic>;
+    final centerName = data['name'] ?? "Unnamed Center";
+    final centerId = doc.id;
+    
+    return FutureBuilder<Map<String, dynamic>>(
+      future: _getMedicalCenterRating(centerId),
+      builder: (context, ratingSnapshot) {
+        final ratingData = ratingSnapshot.data ?? {
+          'overallRating': 0.0,
+          'totalReviews': 0,
+        };
+        final overallRating = ratingData['overallRating'] ?? 0.0;
+        
+        
+        return Card(
+          margin: const EdgeInsets.symmetric(vertical: 4),
+          elevation: 1,
+          child: CheckboxListTile(
+            contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            dense: true,
+            title: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  centerName,
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.black87,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                
+                // Rating display
+                if (overallRating > 0) ...[
+                  Row(
+                    children: [
+                      // Star rating
+                      Row(
+                        children: List.generate(5, (index) {
+                          return Icon(
+                            index < overallRating.round() 
+                                ? Icons.star 
+                                : Icons.star_border,
+                            color: Colors.amber,
+                            size: 16,
                           );
+                        }),
+                      ),
+                      const SizedBox(width: 6),
+                      // Rating number
+                      Text(
+                        overallRating.toStringAsFixed(1),
+                        style: const TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.black87,
+                        ),
+                      ),
+                     
+                      
+                      
+                    ],
+                  ),
+                ] else ...[
+                  Text(
+                    'No reviews yet',
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontStyle: FontStyle.italic,
+                      color: Colors.grey.shade500,
+                    ),
+                  ),
+                ],
+                
+                // Medical center details
+                if (data['specialization'] != null && data['specialization'].toString().isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 2),
+                    child: Text(
+                      "Specialty: ${data['specialization']}",
+                      style: TextStyle(fontSize: 12, color: Colors.grey[700]),
+                    ),
+                  ),
+                
+                if (data['address'] != null && data['address'].toString().isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 2),
+                    child: Text(
+                      "Address: ${data['address']}",
+                      style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+              ],
+            ),
+            value: _selectedMedicalCenters.any((center) => center['id'] == centerId),
+            onChanged: (selected) {
+              setState(() {
+                if (selected == true) {
+                  _selectedMedicalCenters.add({
+                    'id': centerId,
+                    'name': centerName
+                  });
+                } else {
+                  _selectedMedicalCenters.removeWhere((center) => center['id'] == centerId);
+                }
+              });
+            },
+            activeColor: _brightCyan,
+            secondary: Icon(
+              Icons.local_hospital,
+              color: _deepTeal,
+              size: 28,
+            ),
+          ),
+        );
+      },
+    );
+  }).toList(),
+);
                         },
                       ),
                     ],
