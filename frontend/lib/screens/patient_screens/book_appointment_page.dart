@@ -93,7 +93,7 @@ void _toggleSearchBar() {
     }
   });
 }
-  // ✅ FIXED: Check if widget is still mounted
+  
   bool get isMounted => mounted;
 
   Future<void> _checkAppointmentAvailability() async {
