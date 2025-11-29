@@ -109,7 +109,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     }
   }
 
-  // FIXED: Image Picker Method
+  //  Image Picker Method
   Future<void> _pickImage() async {
     try {
       // For mobile - use image_picker
@@ -126,7 +126,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
           await _uploadImageMobile(imageFile);
         }
       } 
-      // For web - use file_picker
+      
       else {
         FilePickerResult? result = await FilePicker.platform.pickFiles(
           type: FileType.image,
@@ -150,7 +150,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     }
   }
 
-  // FIXED: Upload for Mobile/Desktop
+  
   Future<void> _uploadImageMobile(File imageFile) async {
     try {
       setState(() => _isUploadingImage = true);
@@ -167,7 +167,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
       final fileExtension = imageFile.path.split('.').last.toLowerCase();
       final fileName = 'profile_$timestamp.$fileExtension';
       
-      // FIXED: Correct Firebase Storage reference
+      
       final Reference storageRef = FirebaseStorage.instance
           .ref()
           .child('doctor_profile_images')
@@ -210,7 +210,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     }
   }
 
-  // FIXED: Upload for Web
+  
   Future<void> _uploadImageWeb(Uint8List bytes, String fileName) async {
     try {
       setState(() => _isUploadingImage = true);
@@ -250,7 +250,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
         
         _showSuccessSnackBar('Profile image updated successfully!');
         
-        // Auto-save the profile image URL to Firestore
+        
         await _saveProfileImageToFirestore(downloadUrl);
       }
     } catch (e) {
@@ -260,7 +260,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     }
   }
 
-  // NEW: Save profile image URL to Firestore immediately
+
   Future<void> _saveProfileImageToFirestore(String imageUrl) async {
     try {
       await FirebaseFirestore.instance
@@ -295,61 +295,68 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   }
 
   Future<void> _saveProfile() async {
-    if (!_formKey.currentState!.validate()) {
-      _showErrorSnackBar('Please fill all required fields');
-      return;
+  if (!_formKey.currentState!.validate()) {
+    _showErrorSnackBar('Please fill all required fields');
+    return;
+  }
+
+  if (user == null) {
+    _showErrorSnackBar('User not logged in');
+    return;
+  }
+
+  if (_isSaving) return;
+
+  setState(() => _isSaving = true);
+
+  try {
+    _showLoadingSnackBar('Saving profile...');
+
+    final updateData = {
+      'fullname': _fullnameController.text.trim(),
+      'specialization': _specializationController.text.trim(),
+      'qualification': _qualificationController.text.trim(),
+      'experience': int.tryParse(_experienceController.text) ?? 0,
+      'hospital': _hospitalController.text.trim(),
+      'fees': double.tryParse(_feesController.text) ?? 0.0,
+      'license': _licenseController.text.trim(),
+      'email': _emailController.text.trim(),
+      'phone': _phoneController.text.trim(),
+      'dob': _dobController.text.trim(),
+      'profileImage': _profileImageUrl ?? '',
+      'updatedAt': FieldValue.serverTimestamp(),
+      'isProfileComplete': _isProfileComplete(),
+    };
+
+    await FirebaseFirestore.instance
+        .collection('doctors')
+        .doc(user!.uid)
+        .set(updateData, SetOptions(merge: true));
+
+    // Hide loading snackbar
+    ScaffoldMessenger.of(context).hideCurrentSnackBar();
+    
+    // Show success message
+    _showSuccessSnackBar('Profile updated successfully!');
+
+    // Wait a bit for user to see the success message
+    await Future.delayed(const Duration(milliseconds: 1500));
+
+    // FIX: Simply navigate back - the previous screen should handle data refresh
+    if (mounted) {
+      Navigator.pop(context);
     }
 
-    if (user == null) {
-      _showErrorSnackBar('User not logged in');
-      return;
-    }
-
-    if (_isSaving) return;
-
-    setState(() => _isSaving = true);
-
-    try {
-      _showLoadingSnackBar('Saving profile...');
-
-      final updateData = {
-        'fullname': _fullnameController.text.trim(),
-        'specialization': _specializationController.text.trim(),
-        'qualification': _qualificationController.text.trim(),
-        'experience': int.tryParse(_experienceController.text) ?? 0,
-        'hospital': _hospitalController.text.trim(),
-        'fees': double.tryParse(_feesController.text) ?? 0.0,
-        'license': _licenseController.text.trim(),
-        'email': _emailController.text.trim(),
-        'phone': _phoneController.text.trim(),
-        'dob': _dobController.text.trim(),
-        'profileImage': _profileImageUrl ?? '',
-        'updatedAt': FieldValue.serverTimestamp(),
-        'isProfileComplete': _isProfileComplete(),
-      };
-
-      await FirebaseFirestore.instance
-          .collection('doctors')
-          .doc(user!.uid)
-          .set(updateData, SetOptions(merge: true));
-
-      ScaffoldMessenger.of(context).hideCurrentSnackBar();
-      _showSuccessSnackBar('Profile updated successfully!');
-
-      Future.delayed(const Duration(seconds: 1), () {
-        if (mounted) {
-          Navigator.pop(context);
-        }
-      });
-
-    } catch (e) {
-      print('❌ Error saving profile: $e');
-      ScaffoldMessenger.of(context).hideCurrentSnackBar();
-      _showErrorSnackBar('Error saving profile: $e');
-    } finally {
+  } catch (e) {
+    print('❌ Error saving profile: $e');
+    ScaffoldMessenger.of(context).hideCurrentSnackBar();
+    _showErrorSnackBar('Error saving profile: $e');
+  } finally {
+    if (mounted) {
       setState(() => _isSaving = false);
     }
   }
+}
 
   bool _isProfileComplete() {
     return _fullnameController.text.isNotEmpty &&
@@ -549,13 +556,13 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     );
   }
 
-  ImageProvider _buildProfileImageProvider() {
+  ImageProvider? _buildProfileImageProvider() {
     if (_pickedImage != null) {
       return FileImage(_pickedImage!);
     } else if (_profileImageUrl != null && _profileImageUrl!.isNotEmpty) {
       return NetworkImage(_profileImageUrl!);
     } else {
-      return const AssetImage('assets/images/default_avatar.png');
+      return  null;
     }
   }
 

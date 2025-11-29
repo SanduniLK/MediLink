@@ -24,6 +24,7 @@ class _SignInPageState extends State<SignInPage> {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   bool isLoading = false;
+ bool _obscurePassword = true;
 
   static const Color _deepTeal = Color(0xFF18A3B6);
   static const Color _brightCyan = Color(0xFF32BACD);
@@ -350,13 +351,24 @@ void _showSnackBar(String message, {bool isError = false}) {
               decoration: InputDecoration(
                 labelText: "Password",
                 prefixIcon: const Icon(Icons.lock_outline, color: Colors.grey),
+                suffixIcon: IconButton(
+                  icon: Icon(
+                    _obscurePassword ? Icons.visibility_off : Icons.visibility,
+                    color: Colors.grey,
+                  ),
+                  onPressed: () {
+                    setState(() {
+                      _obscurePassword = !_obscurePassword;
+                    });
+                  },
+                ),
                 border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                 focusedBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
                   borderSide: const BorderSide(color: _brightCyan, width: 2),
                 ),
               ),
-              obscureText: true,
+              obscureText: _obscurePassword,
             ),
             const SizedBox(height: 30),
             isLoading

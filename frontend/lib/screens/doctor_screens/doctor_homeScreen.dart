@@ -63,7 +63,7 @@ final Map<String, int> _unreadCounts = {};
     _loadUnreadMessagesCount();
      _getDoctorInfo();
      _startMessageListener();
-     _testSpecificImage();
+     _loadDoctorProfileImage(); 
   }
   StreamSubscription? _messageSubscription;
 
@@ -140,18 +140,47 @@ Future<void> _loadDoctorProfileImage() async {
 
     print('🔄 Loading profile image for doctor UID: ${user.uid}');
 
-    
+    // First, check if we have a profile image URL in Firestore
+    final doctorDoc = await FirebaseFirestore.instance
+        .collection('doctors')
+        .doc(user.uid)
+        .get();
+
+    if (doctorDoc.exists) {
+      final profileImageUrl = doctorDoc.data()?['profileImage'];
+      if (profileImageUrl != null && profileImageUrl.isNotEmpty) {
+        print('✅ Found profile image URL in Firestore: $profileImageUrl');
+        setState(() {
+          _doctorProfileImageUrl = profileImageUrl;
+        });
+        return;
+      }
+    }
+
+    // If no URL in Firestore, search in Storage
     try {
       final doctorFolderRef = FirebaseStorage.instance.ref().child('doctor_profile_images/${user.uid}');
       final result = await doctorFolderRef.listAll();
       
       print('📁 Found ${result.items.length} items in doctor folder');
       
+      // Sort by name to get the most recent one
+      result.items.sort((a, b) => b.name.compareTo(a.name));
+      
       for (final item in result.items) {
         print('📄 File: ${item.name}');
         try {
           final imageUrl = await item.getDownloadURL();
           print('✅ Found profile image: $imageUrl');
+          
+          // Save this URL to Firestore for future use
+          await FirebaseFirestore.instance
+              .collection('doctors')
+              .doc(user.uid)
+              .update({
+                'profileImage': imageUrl,
+              });
+              
           setState(() {
             _doctorProfileImageUrl = imageUrl;
           });
@@ -164,38 +193,6 @@ Future<void> _loadDoctorProfileImage() async {
       print('❌ Error listing doctor folder: $e');
     }
 
-    
-    try {
-      final rootRef = FirebaseStorage.instance.ref().child('doctor_profile_images');
-      final rootResult = await rootRef.listAll();
-      
-      print('📁 Root folder contains ${rootResult.items.length} items');
-      print('📁 Root folder contains ${rootResult.prefixes.length} prefixes');
-      
-      for (final prefix in rootResult.prefixes) {
-        print('📂 Folder: ${prefix.name}');
-      }
-      
-      for (final item in rootResult.items) {
-        print('📄 Root file: ${item.name}');
-        // Check if this might be a profile image
-        if (item.name.contains('profile') || item.name.contains('avatar')) {
-          try {
-            final imageUrl = await item.getDownloadURL();
-            print('✅ Found potential profile image in root: $imageUrl');
-            setState(() {
-              _doctorProfileImageUrl = imageUrl;
-            });
-            return;
-          } catch (e) {
-            print('❌ Failed to get download URL for root file ${item.name}: $e');
-          }
-        }
-      }
-    } catch (e) {
-      print('❌ Error listing root folder: $e');
-    }
-
     print('❌ No suitable profile image found');
     
   } catch (e) {
@@ -206,17 +203,33 @@ Future<void> _testSpecificImage() async {
   try {
     print('🔄 Testing specific image loading...');
     
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) {
+      print('❌ No user logged in');
+      return;
+    }
+
+    // Get the current user's profile image from Firestore first
+    final doctorDoc = await FirebaseFirestore.instance
+        .collection('doctors')
+        .doc(user.uid)
+        .get();
+
+    if (doctorDoc.exists) {
+      final profileImageUrl = doctorDoc.data()?['profileImage'];
+      if (profileImageUrl != null && profileImageUrl.isNotEmpty) {
+        print('✅ Found profile image in Firestore: $profileImageUrl');
+        setState(() {
+          _doctorProfileImageUrl = profileImageUrl;
+        });
+        return;
+      }
+    }
+
+    // If no profile image in Firestore, try to find one in Storage
+    print('🔍 No profile image in Firestore, checking Storage...');
+    _loadDoctorProfileImage(); // Fall back to other methods
     
-    final testRef = FirebaseStorage.instance.ref(
-      'doctor_profile_images/EEtWgLQ9rke9O1W2rvAYbniIHNV2/profile_1761534089274.jpg'
-    );
-    
-    final testUrl = await testRef.getDownloadURL();
-    print('🎉 SPECIFIC IMAGE SUCCESS: $testUrl');
-    
-    setState(() {
-      _doctorProfileImageUrl = testUrl;
-    });
   } catch (e) {
     print('💥 SPECIFIC IMAGE FAILED: $e');
     _loadDoctorProfileImage(); // Fall back to other methods
@@ -301,11 +314,24 @@ Future<void> _loadUnreadMessagesCount() async {
   }
 }
 
-  void _onItemTapped(int index) {
+ void _onItemTapped(int index) {
+  if (index == 1) { 
+    
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (context) => EditProfileScreen()),
+    ).then((_) {
+    
+      _loadDoctorData();
+      _loadDoctorProfileImage();
+    });
+  } else {
+    
     setState(() {
       _selectedIndex = index;
     });
   }
+}
 
   
   
@@ -422,14 +448,23 @@ void _navigateTOfeedbackscreen(){
       appBar: _buildAppBar(),
       body: isLoading
           ? _buildLoadingState()
-          : IndexedStack(
-              index: _selectedIndex,
-              children: widgetOptions,
-            ),
+          : _buildCurrentScreen(),
+          
       bottomNavigationBar: _buildBottomNavigationBar(),
     );
   }
-
+Widget _buildCurrentScreen() {
+  switch (_selectedIndex) {
+    case 0:
+      return _buildHomePage(context);
+    case 1:
+      return EditProfileScreen();
+    case 2:
+      return const SettingsScreen();
+    default:
+      return _buildHomePage(context);
+  }
+}
   PreferredSizeWidget _buildAppBar() {
     return AppBar(
       backgroundColor: Colors.transparent,

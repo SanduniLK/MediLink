@@ -264,14 +264,7 @@ class _AdminHomePageState extends State<AdminHomePage> {
                     }
                   },
                 ),
-                _buildActionButton(
-                  icon: Icons.people,
-                  label: 'Manage Patients',
-                  color: Colors.purple,
-                  onTap: () {
-                    _showSnackBar('Manage Patients - Coming Soon');
-                  },
-                ),
+                
                 _buildActionButton(
                   icon: Icons.schedule,
                   label: 'Schedule Approval',

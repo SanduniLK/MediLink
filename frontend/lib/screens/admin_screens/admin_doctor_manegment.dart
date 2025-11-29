@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:frontend/screens/admin_screens/admin_doctor_profile.dart';
 import 'package:frontend/screens/patient_screens/doctor_profile_screen.dart';
 
 class DoctorManagementScreen extends StatefulWidget {
@@ -611,10 +612,7 @@ for (var center in medicalCenters) {
   Navigator.push(
     context,
     MaterialPageRoute(
-      builder: (context) => DoctorProfileScreen(
-        doctorId: doctorId,
-        doctorData: doctorData,
-      ),
+      builder: (context) => DoctorProfileScreeen(doctorId: doctorId, doctorData: doctorData),
     ),
   );
 }
