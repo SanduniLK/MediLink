@@ -60,6 +60,7 @@ class DoctorScheduleService {
     required String appointmentType, // ADD THIS PARAMETER
     required List<String> telemedicineTypes, // ADD THIS PARAMETER
     required DateTime scheduleDate,
+    required int maxAppointments,
    
   }) async {
     try {
@@ -78,8 +79,9 @@ class DoctorScheduleService {
         'weeklySchedule': weeklySchedule.map((day) => day.toJson()).toList(),
         'appointmentType': appointmentType, 
         'telemedicineTypes': telemedicineTypes, 
-        'scheduleDate': Timestamp.fromDate(scheduleDate), // ADD THIS - the actual booking date
-        'availableDate': DateFormat('yyyy-MM-dd').format(scheduleDate), // ADD THIS - for easy querying
+        'scheduleDate': Timestamp.fromDate(scheduleDate), 
+        'availableDate': DateFormat('yyyy-MM-dd').format(scheduleDate), 
+        'maxAppointments': maxAppointments,
         'adminApproved': false,
         'doctorConfirmed': false,
         'status': 'pending',

@@ -169,7 +169,7 @@ Future<void> _loadMedicalCenters() async {
       }
     }
 
-    // Remove duplicates based on ID
+    
     final uniqueCenters = centers.fold<Map<String, Map<String, dynamic>>>(
       {}, 
       (map, center) {
@@ -388,109 +388,110 @@ Future<void> _loadMedicalCenters() async {
     }
   }
 
-  Future<void> _createScheduleSlot() async {
-    if (_selectedMedicalCenter == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please select a medical center')),
-      );
-      return;
-    }
-
-    // MARK: Validate telemedicine types
-    if (_appointmentType == 'telemedicine' && _selectedTelemedicineTypes.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please select at least one telemedicine type')),
-      );
-      return;
-    }
-
-    try {
-      setState(() { isLoading = true; });
-
-      // Get selected medical center data
-      final selectedCenter = _medicalCenters.firstWhere(
-        (center) => center['id'] == _selectedMedicalCenter,
-      );
-
-      // Get doctor info
-      final doctorId = widget.doctor['uid'] ?? widget.doctor['id'] ?? '';
-      final doctorName = widget.doctor['fullname'] ?? widget.doctor['name'] ?? 'Unknown Doctor';
-      final medicalCenterAdminId = selectedCenter['adminId'] ?? '';
-
-      // Create a single day schedule for the selected date
-      final dayName = DateFormat('EEEE').format(_selectedDate).toLowerCase();
-      
-      final dailySchedule = DailySchedule(
-        day: dayName,
-        available: true,
-        timeSlots: [
-          TimeSlot(
-            startTime: '${_startTime.hour.toString().padLeft(2, '0')}:${_startTime.minute.toString().padLeft(2, '0')}',
-            endTime: '${_endTime.hour.toString().padLeft(2, '0')}:${_endTime.minute.toString().padLeft(2, '0')}',
-            slotDuration: _slotDuration,
-          ),
-        ],
-      );
-
-      // Create weekly schedule with only the selected day available
-      final weeklySchedule = [
-        DailySchedule(day: 'monday', available: dayName == 'monday', timeSlots: dayName == 'monday' ? dailySchedule.timeSlots : []),
-        DailySchedule(day: 'tuesday', available: dayName == 'tuesday', timeSlots: dayName == 'tuesday' ? dailySchedule.timeSlots : []),
-        DailySchedule(day: 'wednesday', available: dayName == 'wednesday', timeSlots: dayName == 'wednesday' ? dailySchedule.timeSlots : []),
-        DailySchedule(day: 'thursday', available: dayName == 'thursday', timeSlots: dayName == 'thursday' ? dailySchedule.timeSlots : []),
-        DailySchedule(day: 'friday', available: dayName == 'friday', timeSlots: dayName == 'friday' ? dailySchedule.timeSlots : []),
-        DailySchedule(day: 'saturday', available: dayName == 'saturday', timeSlots: dayName == 'saturday' ? dailySchedule.timeSlots : []),
-        DailySchedule(day: 'sunday', available: dayName == 'sunday', timeSlots: dayName == 'sunday' ? dailySchedule.timeSlots : []),
-      ];
-
-      print('💾 Saving schedule for:');
-      print('   Doctor: $doctorName ($doctorId)');
-      print('   Medical Center: ${selectedCenter['name']} ($_selectedMedicalCenter)');
-      print('   Date: ${DateFormat('EEEE, MMMM d, yyyy').format(_selectedDate)}');
-      print('   Time: ${_startTime.format(context)} - ${_endTime.format(context)}');
-      print('   Appointment Type: $_appointmentType');
-      // MARK: Added telemedicine types logging
-      if (_appointmentType == 'telemedicine') {
-        print('   Telemedicine Types: $_selectedTelemedicineTypes');
-      }
-
-      // Save using your DoctorScheduleService
-      await DoctorScheduleService.saveSchedule(
-        doctorId: doctorId,
-        doctorName: doctorName,
-        medicalCenterId: _selectedMedicalCenter!,
-        medicalCenterName: selectedCenter['name'],
-        medicalCenterAdminId: medicalCenterAdminId,
-        weeklySchedule: weeklySchedule,
-        appointmentType: _appointmentType,
-        telemedicineTypes: _appointmentType == 'telemedicine' ? _selectedTelemedicineTypes : [],
-        scheduleDate: _selectedDate,
-       
-      );
-
-      // Show success message
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Schedule created successfully! Waiting for admin approval.'),
-          backgroundColor: Colors.green,
-        ),
-      );
-      
-      Navigator.pop(context);
-
-    } catch (e) {
-      print('💥 Error creating schedule: $e');
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Error creating schedule: $e'),
-          backgroundColor: Colors.red,
-        ),
-      );
-    } finally {
-      setState(() { isLoading = false; });
-    }
+ Future<void> _createScheduleSlot() async {
+  if (_selectedMedicalCenter == null) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Please select a medical center')),
+    );
+    return;
   }
 
+  // Validate telemedicine types
+  if (_appointmentType == 'telemedicine' && _selectedTelemedicineTypes.isEmpty) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Please select at least one telemedicine type')),
+    );
+    return;
+  }
+
+  try {
+    setState(() { isLoading = true; });
+
+    // Get selected medical center data
+    final selectedCenter = _medicalCenters.firstWhere(
+      (center) => center['id'] == _selectedMedicalCenter,
+    );
+
+    // Get doctor info
+    final doctorId = widget.doctor['uid'] ?? widget.doctor['id'] ?? '';
+    final doctorName = widget.doctor['fullname'] ?? widget.doctor['name'] ?? 'Unknown Doctor';
+    final medicalCenterAdminId = selectedCenter['adminId'] ?? '';
+
+    // Create a single day schedule for the selected date
+    final dayName = DateFormat('EEEE').format(_selectedDate).toLowerCase();
+    
+    final dailySchedule = DailySchedule(
+      day: dayName,
+      available: true,
+      timeSlots: [
+        TimeSlot(
+          startTime: '${_startTime.hour.toString().padLeft(2, '0')}:${_startTime.minute.toString().padLeft(2, '0')}',
+          endTime: '${_endTime.hour.toString().padLeft(2, '0')}:${_endTime.minute.toString().padLeft(2, '0')}',
+          slotDuration: _slotDuration,
+          maxAppointments: _maxAppointments, 
+        ),
+      ],
+      maxAppointments: _maxAppointments
+    );
+
+    
+    final weeklySchedule = [
+      DailySchedule(day: 'monday', available: dayName == 'monday', timeSlots: dayName == 'monday' ? dailySchedule.timeSlots : [],maxAppointments: _maxAppointments,),
+      DailySchedule(day: 'tuesday', available: dayName == 'tuesday', timeSlots: dayName == 'tuesday' ? dailySchedule.timeSlots : [],maxAppointments: _maxAppointments,),
+      DailySchedule(day: 'wednesday', available: dayName == 'wednesday', timeSlots: dayName == 'wednesday' ? dailySchedule.timeSlots : [],maxAppointments: _maxAppointments,),
+      DailySchedule(day: 'thursday', available: dayName == 'thursday', timeSlots: dayName == 'thursday' ? dailySchedule.timeSlots : [],maxAppointments: _maxAppointments,),
+      DailySchedule(day: 'friday', available: dayName == 'friday', timeSlots: dayName == 'friday' ? dailySchedule.timeSlots : [],maxAppointments: _maxAppointments,),
+      DailySchedule(day: 'saturday', available: dayName == 'saturday', timeSlots: dayName == 'saturday' ? dailySchedule.timeSlots : [],maxAppointments: _maxAppointments,),
+      DailySchedule(day: 'sunday', available: dayName == 'sunday', timeSlots: dayName == 'sunday' ? dailySchedule.timeSlots : [],maxAppointments: _maxAppointments,),
+    ];
+
+    print('💾 Saving schedule for:');
+    print('   Doctor: $doctorName ($doctorId)');
+    print('   Medical Center: ${selectedCenter['name']} ($_selectedMedicalCenter)');
+    print('   Date: ${DateFormat('EEEE, MMMM d, yyyy').format(_selectedDate)}');
+    print('   Time: ${_startTime.format(context)} - ${_endTime.format(context)}');
+    print('   Appointment Type: $_appointmentType');
+    print('   Max Appointments: $_maxAppointments'); 
+    if (_appointmentType == 'telemedicine') {
+      print('   Telemedicine Types: $_selectedTelemedicineTypes');
+    }
+
+    
+    await DoctorScheduleService.saveSchedule(
+      doctorId: doctorId,
+      doctorName: doctorName,
+      medicalCenterId: _selectedMedicalCenter!,
+      medicalCenterName: selectedCenter['name'],
+      medicalCenterAdminId: medicalCenterAdminId,
+      weeklySchedule: weeklySchedule,
+      appointmentType: _appointmentType,
+      telemedicineTypes: _appointmentType == 'telemedicine' ? _selectedTelemedicineTypes : [],
+      scheduleDate: _selectedDate,
+      maxAppointments: _maxAppointments,
+    );
+
+    // Show success message
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Schedule created successfully! Waiting for admin approval.'),
+        backgroundColor: Colors.green,
+      ),
+    );
+    
+    Navigator.pop(context);
+
+  } catch (e) {
+    print('💥 Error creating schedule: $e');
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Error creating schedule: $e'),
+        backgroundColor: Colors.red,
+      ),
+    );
+  } finally {
+    setState(() { isLoading = false; });
+  }
+}
   // Date and Time Selection Methods
   Future<void> _selectDate() async {
     final DateTime? picked = await showDatePicker(

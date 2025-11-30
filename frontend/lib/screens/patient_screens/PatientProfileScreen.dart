@@ -393,11 +393,14 @@ class _PatientProfileScreenState extends State<PatientProfileScreen> {
                         style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                       ),
                       const SizedBox(height: 10),
-                      QrImageView(
-                        data: widget.uid,
-                        size: 120,
-                        backgroundColor: Colors.white,
-                      ),
+                      GestureDetector(
+          onTap: () => _showFullScreenQR(context),
+          child: QrImageView(
+            data: widget.uid,
+            size: 120,
+            backgroundColor: Colors.white,
+          ),
+        ),
                       const SizedBox(height: 10),
                       const Text(
                         'Scan for patient information',
@@ -438,7 +441,82 @@ class _PatientProfileScreenState extends State<PatientProfileScreen> {
       ),
     );
   }
-
+void _showFullScreenQR(BuildContext context) {
+  showDialog(
+    context: context,
+    builder: (BuildContext context) {
+      return Dialog(
+        backgroundColor: Colors.transparent,
+        insetPadding: const EdgeInsets.all(20),
+        child: Container(
+          width: double.infinity,
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(20),
+          ),
+          padding: const EdgeInsets.all(30),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text(
+                'Patient QR Code',
+                style: TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.black87,
+                ),
+              ),
+              const SizedBox(height: 20),
+              Container(
+                padding: const EdgeInsets.all(20),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: QrImageView(
+                  data: widget.uid,
+                  size: 250,
+                  backgroundColor: Colors.white,
+                ),
+              ),
+              const SizedBox(height: 15),
+              Text(
+                nameCtrl.text.isEmpty ? "Patient ID: ${widget.uid}" : nameCtrl.text,
+                style: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w500,
+                  color: Colors.black54,
+                ),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 10),
+              Text(
+                'ID: ${widget.uid}',
+                style: const TextStyle(
+                  fontSize: 12,
+                  color: Colors.grey,
+                ),
+              ),
+              const SizedBox(height: 20),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF18A3B6),
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                  ),
+                  child: const Text('Close'),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    },
+  );
+}
   Widget _buildProfileImageSection() {
     return Column(
       children: [

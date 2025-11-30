@@ -100,16 +100,16 @@ class _DoctorScheduleScreenState extends State<DoctorScheduleScreen> {
   }
 
   void _initializeSchedule() {
-    weeklySchedule = [
-      DailySchedule(day: 'monday', available: false, timeSlots: []),
-      DailySchedule(day: 'tuesday', available: false, timeSlots: []),
-      DailySchedule(day: 'wednesday', available: false, timeSlots: []),
-      DailySchedule(day: 'thursday', available: false, timeSlots: []),
-      DailySchedule(day: 'friday', available: false, timeSlots: []),
-      DailySchedule(day: 'saturday', available: false, timeSlots: []),
-      DailySchedule(day: 'sunday', available: false, timeSlots: []),
-    ];
-  }
+  weeklySchedule = [
+    DailySchedule(day: 'monday', available: false, timeSlots: [], maxAppointments: 10),
+    DailySchedule(day: 'tuesday', available: false, timeSlots: [], maxAppointments: 10),
+    DailySchedule(day: 'wednesday', available: false, timeSlots: [], maxAppointments: 10),
+    DailySchedule(day: 'thursday', available: false, timeSlots: [], maxAppointments: 10),
+    DailySchedule(day: 'friday', available: false, timeSlots: [], maxAppointments: 10),
+    DailySchedule(day: 'saturday', available: false, timeSlots: [], maxAppointments: 10),
+    DailySchedule(day: 'sunday', available: false, timeSlots: [], maxAppointments: 10),
+  ];
+}
 
   Future<void> _loadExistingSchedule() async {
     try {
@@ -132,14 +132,15 @@ class _DoctorScheduleScreenState extends State<DoctorScheduleScreen> {
   }
 
   void _toggleDayAvailability(int dayIndex) {
-    setState(() {
-      weeklySchedule[dayIndex] = DailySchedule(
-        day: weeklySchedule[dayIndex].day,
-        available: !weeklySchedule[dayIndex].available,
-        timeSlots: weeklySchedule[dayIndex].timeSlots,
-      );
-    });
-  }
+  setState(() {
+    weeklySchedule[dayIndex] = DailySchedule(
+      day: weeklySchedule[dayIndex].day,
+      available: !weeklySchedule[dayIndex].available,
+      timeSlots: weeklySchedule[dayIndex].timeSlots,
+      maxAppointments: weeklySchedule[dayIndex].maxAppointments, // ✅ ADD THIS
+    );
+  });
+}
 
   void _addTimeSlot(int dayIndex) {
     setState(() {
@@ -148,11 +149,13 @@ class _DoctorScheduleScreenState extends State<DoctorScheduleScreen> {
         startTime: '09:00',
         endTime: '17:00',
         slotDuration: 30,
+        maxAppointments: weeklySchedule[dayIndex].maxAppointments,
       ));
       weeklySchedule[dayIndex] = DailySchedule(
         day: weeklySchedule[dayIndex].day,
         available: true,
         timeSlots: newSlots,
+        maxAppointments: weeklySchedule[dayIndex].maxAppointments,
       );
     });
   }
@@ -165,6 +168,7 @@ class _DoctorScheduleScreenState extends State<DoctorScheduleScreen> {
         day: weeklySchedule[dayIndex].day,
         available: weeklySchedule[dayIndex].available,
         timeSlots: newSlots,
+        maxAppointments: weeklySchedule[dayIndex].maxAppointments,
       );
     });
   }
@@ -177,6 +181,7 @@ class _DoctorScheduleScreenState extends State<DoctorScheduleScreen> {
         day: weeklySchedule[dayIndex].day,
         available: newSlots.isNotEmpty,
         timeSlots: newSlots,
+        maxAppointments: weeklySchedule[dayIndex].maxAppointments,
       );
     });
   }
@@ -229,7 +234,8 @@ class _DoctorScheduleScreenState extends State<DoctorScheduleScreen> {
         weeklySchedule: weeklySchedule,
         appointmentType: 'physical',
         telemedicineTypes: [],
-        scheduleDate: DateTime.now(), // ADDED THIS LINE - using current date as schedule date
+        scheduleDate: DateTime.now(), 
+        maxAppointments: 10,
       );
       
       setState(() => isSaved = true);
@@ -588,6 +594,7 @@ class _DoctorScheduleScreenState extends State<DoctorScheduleScreen> {
                         startTime: value,
                         endTime: slot.endTime,
                         slotDuration: slot.slotDuration,
+                        maxAppointments: slot.maxAppointments,
                       ),
                     );
                   },
@@ -610,6 +617,7 @@ class _DoctorScheduleScreenState extends State<DoctorScheduleScreen> {
                         startTime: slot.startTime,
                         endTime: value,
                         slotDuration: slot.slotDuration,
+                        maxAppointments: slot.maxAppointments
                       ),
                     );
                   },
@@ -641,6 +649,7 @@ class _DoctorScheduleScreenState extends State<DoctorScheduleScreen> {
                         startTime: slot.startTime,
                         endTime: slot.endTime,
                         slotDuration: value!,
+                        maxAppointments: slot.maxAppointments,
                       ),
                     );
                   },

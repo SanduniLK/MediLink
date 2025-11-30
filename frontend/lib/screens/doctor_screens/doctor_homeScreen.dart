@@ -17,8 +17,10 @@ import 'package:frontend/screens/doctor_screens/prescription_screen.dart';
 
 import 'package:frontend/screens/doctor_screens/settings_screen.dart';
 import 'package:frontend/screens/doctor_screens/today_appointments_screen.dart';
+import 'package:frontend/screens/doctor_screens/written_prescribe.dart';
 
 import 'package:frontend/screens/patient_screens/notifications.dart';
+import 'package:frontend/screens/phamecy_screens/prescriptionImageScreen.dart';
 import 'package:frontend/telemedicine/doctor_telemedicine_page.dart';
 import 'package:provider/provider.dart';
 
@@ -359,12 +361,7 @@ Future<void> _loadUnreadMessagesCount() async {
     }
   }
 
-  void _navigateToPatients() {
-    Navigator.push(
-      context,
-      MaterialPageRoute(builder: (context) => const DoctorAppointmentsScreen()),
-    );
-  }
+ 
 
   void _navigateToPrescriptions() {
     Navigator.push(
@@ -424,6 +421,12 @@ void _navigateTOfeedbackscreen(){
   MaterialPageRoute(builder: (context) => DoctorFeedbackDashboard(),)
   );
 }
+void _navigateTowrittenPrescriptions() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (context) => AllPrescriptionsScreen())
+    );
+  }
   void _showErrorSnackBar(String message) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
@@ -1043,6 +1046,12 @@ Widget _buildDefaultAvatar() {
               icon: Icons.star_rate, 
               label: 'Feedback',
               onTap: _navigateTOfeedbackscreen, 
+              color: primaryDark
+            ),
+            _buildQuickActionButton(
+              icon: Icons.description, 
+              label: 'Written Prescriptions',
+              onTap: _navigateTowrittenPrescriptions, 
               color: primaryDark
             )
           ],

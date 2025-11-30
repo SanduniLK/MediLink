@@ -6,11 +6,13 @@ class TimeSlot {
   final String startTime;
   final String endTime;
   final int slotDuration;
+  final int maxAppointments;
 
   TimeSlot({
     required this.startTime,
     required this.endTime,
     this.slotDuration = 30,
+    required this.maxAppointments,
   });
 
   Map<String, dynamic> toJson() {
@@ -18,6 +20,7 @@ class TimeSlot {
       'startTime': startTime,
       'endTime': endTime,
       'slotDuration': slotDuration,
+      'maxAppointments': maxAppointments,
     };
   }
 
@@ -26,6 +29,7 @@ class TimeSlot {
       startTime: json['startTime'] ?? '',
       endTime: json['endTime'] ?? '',
       slotDuration: json['slotDuration'] ?? 30,
+      maxAppointments: json['maxAppointments'] ?? 10,
     );
   }
 }
@@ -34,11 +38,13 @@ class DailySchedule {
   final String day;
   final bool available;
   final List<TimeSlot> timeSlots;
+  final int maxAppointments;
 
   DailySchedule({
     required this.day,
     required this.available,
     required this.timeSlots,
+    required this.maxAppointments,
   });
 
   Map<String, dynamic> toJson() {
@@ -46,6 +52,8 @@ class DailySchedule {
       'day': day,
       'available': available,
       'timeSlots': timeSlots.map((slot) => slot.toJson()).toList(),
+      'maxAppointments': maxAppointments,
+      
     };
   }
 
@@ -56,6 +64,7 @@ class DailySchedule {
       timeSlots: (json['timeSlots'] as List? ?? [])
           .map((slot) => TimeSlot.fromJson(slot))
           .toList(),
+          maxAppointments: json['maxAppointments'] ?? 10,
     );
   }
 }
@@ -258,10 +267,15 @@ class DoctorSchedule {
 
   // Get time slots for a specific day
   List<TimeSlot> getTimeSlotsForDay(String day) {
-    final dailySchedule = weeklySchedule.firstWhere(
-      (schedule) => schedule.day == day,
-      orElse: () => DailySchedule(day: day, available: false, timeSlots: []),
-    );
-    return dailySchedule.timeSlots;
-  }
+  final dailySchedule = weeklySchedule.firstWhere(
+    (schedule) => schedule.day == day,
+    orElse: () => DailySchedule(
+      day: day, 
+      available: false, 
+      timeSlots: [],
+      maxAppointments: 10, // ✅ ADD THIS
+    ),
+  );
+  return dailySchedule.timeSlots;
+}
 }

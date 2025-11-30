@@ -44,11 +44,14 @@ class _BookAppointmentPageState extends State<BookAppointmentPage> {
   int _bookedAppointments = 0;
   int _maxAppointments = 0;
   bool _processingBooking = false;
+    double _medicalCenterFees = 0.0;
+  double get _totalAmount => widget.doctorFees + _medicalCenterFees;
+  bool _loadingMedicalCenterFees = false;
   
-  // MARK: Updated - Will be populated from schedule data
-  List<String> availableConsultationTypes = ['physical']; // Default to physical
-  String scheduleAppointmentType = 'physical'; // Main appointment type from schedule
-  List<String> scheduleTelemedicineTypes = []; // Telemedicine subtypes from schedule
+  
+  List<String> availableConsultationTypes = ['physical']; 
+  String scheduleAppointmentType = 'physical'; 
+  List<String> scheduleTelemedicineTypes = []; 
   String _searchQuery = '';
   List<String> _filteredConsultationTypes = [];
   bool _showSearchBar = false;
@@ -58,6 +61,7 @@ class _BookAppointmentPageState extends State<BookAppointmentPage> {
   void initState() {
     super.initState();
     _checkAppointmentAvailability();
+    _loadMedicalCenterFees();
     searchController.addListener(_onSearchChanged);
   }
 @override
@@ -71,7 +75,85 @@ void _onSearchChanged() {
     _filterConsultationTypes();
   });
 }
+Future<void> _loadMedicalCenterFees() async {
+  try {
+    print('🔄 START: Loading medical center fees...');
+    
+    if (isMounted) {
+      setState(() {
+        _loadingMedicalCenterFees = true;
+      });
+    }
 
+    // ADD THESE DEBUG PRINTS
+    print('📋 Medical Center Details from Widget:');
+    print('   - ID: ${widget.medicalCenterId}');
+    print('   - Name: ${widget.medicalCenterName}');
+    print('   - Expected Document ID: Pm7dsLwhLda5NHaBcIRKEq7QpSV2');
+
+    // Check if medicalCenterId is valid
+    if (widget.medicalCenterId.isEmpty) {
+      print('❌ ERROR: Medical Center ID is empty!');
+      if (isMounted) {
+        setState(() {
+          _medicalCenterFees = 0.0;
+        });
+      }
+      return;
+    }
+
+    print('🔍 Querying Firestore for medical center...');
+    print('   - Collection: medicalCenters');
+    print('   - Document ID: ${widget.medicalCenterId}');
+
+    final medicalCenterDoc = await FirebaseFirestore.instance
+        .collection('medical_centers')
+        .doc(widget.medicalCenterId)
+        .get();
+
+    print('📄 Firestore Response:');
+    print('   - Document exists: ${medicalCenterDoc.exists}');
+    
+    if (medicalCenterDoc.exists) {
+      final data = medicalCenterDoc.data()!;
+      print('   - Document ID in Firestore: ${medicalCenterDoc.id}');
+      print('   - All fields: ${data.keys.join(', ')}');
+      print('   - testFees value: ${data['testFees']}');
+      print('   - testFees type: ${data['testFees']?.runtimeType}');
+      print('   - name value: ${data['name']}');
+      
+      final testFees = (data['testFees'] as num?)?.toDouble() ?? 0.0;
+      
+      print('💰 Fee Calculation:');
+      print('   - Raw testFees from Firestore: ${data['testFees']}');
+      print('   - Converted to double: $testFees');
+      
+      if (isMounted) {
+        setState(() {
+          _medicalCenterFees = testFees;
+        });
+      }
+      
+      print('✅ SUCCESS: Medical Center Fees = Rs. $_medicalCenterFees');
+      print('✅ SUCCESS: Doctor Fees = Rs. ${widget.doctorFees}');
+      print('✅ SUCCESS: Total Amount = Rs. $_totalAmount');
+    } else {
+      print('❌ ERROR: No document found with ID: ${widget.medicalCenterId}');
+      print('❌ Expected document ID: Pm7dsLwhLda5NHaBcIRKEq7QpSV2');
+      print('❌ But received: ${widget.medicalCenterId}');
+      print('❌ IDs do not match!');
+    }
+  } catch (e) {
+    print('❌ EXCEPTION: Error loading medical center fees: $e');
+  } finally {
+    if (isMounted) {
+      setState(() {
+        _loadingMedicalCenterFees = false;
+      });
+    }
+    print('🏁 FINISHED: Loading medical center fees completed');
+  }
+}
 void _filterConsultationTypes() {
   if (_searchQuery.isEmpty) {
     _filteredConsultationTypes = availableConsultationTypes;
@@ -105,7 +187,7 @@ void _toggleSearchBar() {
     if (availableConsultationTypes.isNotEmpty) {
       selectedConsultationType = availableConsultationTypes.first;
     }
-    _filterConsultationTypes(); // Add this line
+    _filterConsultationTypes(); 
   });
 }
 
@@ -256,7 +338,7 @@ void _toggleSearchBar() {
       // Generate QR data
       final qrData = _generateQRData();
 
-      // ✅ PREPARE APPOINTMENT DATA WITHOUT TOKEN
+    
       final appointmentData = {
         'patientId': widget.patientId,
         'patientName': widget.patientName,
@@ -269,7 +351,9 @@ void _toggleSearchBar() {
         'time': widget.selectedTime,
         'appointmentType': selectedConsultationType,
         'patientNotes': notesController.text.trim(),
-        'fees': widget.doctorFees.toString(),
+        'fees': _totalAmount.toString(),
+        'doctorFees': widget.doctorFees.toString(),
+        'medicalCenterFees': _medicalCenterFees.toString(), 
         'status': 'pending',
         'paymentStatus': 'pending',
         'scheduleId': widget.scheduleId,
@@ -293,7 +377,7 @@ void _toggleSearchBar() {
           builder: (_) => PaymentScreen(
             appointmentData: appointmentData,
             
-            amount: widget.doctorFees,
+            amount: _totalAmount,
             doctorName: widget.doctorName,
             doctorSpecialty: widget.doctorSpecialty,
             selectedDate: widget.selectedDate,
@@ -305,7 +389,7 @@ void _toggleSearchBar() {
         ),
       );
 
-      // ✅ FIXED: Only refresh if we're still mounted
+      
       if (isMounted) {
         await _checkAppointmentAvailability();
       }
@@ -314,7 +398,7 @@ void _toggleSearchBar() {
       print('❌ Error during booking process: $e');
       _showErrorSnackBar('An error occurred during booking. Please try again.');
     } finally {
-      // ✅ FIXED: Only call setState if still mounted
+      
       if (isMounted) {
         setState(() {
           _processingBooking = false;
@@ -340,7 +424,7 @@ void _toggleSearchBar() {
     }
   }
 
-  @override
+    @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
@@ -456,7 +540,7 @@ void _toggleSearchBar() {
               ),
               const SizedBox(height: 20),
             ] else if (availableConsultationTypes.length == 1) ...[
-              // MARK: Show fixed consultation type when only one option
+              
               Card(
                 elevation: 4,
                 shape: RoundedRectangleBorder(
@@ -556,7 +640,6 @@ void _toggleSearchBar() {
             ),
 
             const SizedBox(height: 24),
-            
 
             // Confirm Button
             SizedBox(
@@ -623,16 +706,23 @@ void _toggleSearchBar() {
                         color: Colors.green,
                       ),
                     ),
+                    const SizedBox(height: 12),
+                    
+                    // Doctor Fees
+                    _buildFeeRow('Doctor Consultation Fee', widget.doctorFees),
+                    
+                    // Medical Center Fees
+                    if (_loadingMedicalCenterFees)
+                      _buildLoadingFeeRow()
+                    else
+                      _buildFeeRow('Medical Center Facility Fee', _medicalCenterFees),
+                    
+                    const Divider(height: 20, color: Colors.green),
+                    
+                    // Total Amount
+                    _buildTotalRow(_totalAmount),
+                    
                     const SizedBox(height: 8),
-                    Text(
-                      'Total Amount: Rs. ${widget.doctorFees.toStringAsFixed(2)}',
-                      style: const TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.green,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
                     const Text(
                       'Token number will be assigned after successful payment',
                       style: TextStyle(
@@ -686,13 +776,13 @@ void _toggleSearchBar() {
                   ],
                 ),
               ),
-          ],
-        ),
-      ),
-    );
+          ], 
+        ), 
+      ), 
+    ); 
   }
 
-  // MARK: New helper methods for consultation types
+
   String _formatScheduleType() {
     if (scheduleAppointmentType == 'physical') {
       return 'Physical Consultation';
@@ -722,7 +812,81 @@ void _toggleSearchBar() {
       return 'Consultation';
     }
   }
+Widget _buildFeeRow(String label, double amount) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4.0),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(
+            label,
+            style: const TextStyle(
+              fontSize: 14,
+              color: Colors.green,
+            ),
+          ),
+          Text(
+            'Rs. ${amount.toStringAsFixed(2)}',
+            style: const TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w500,
+              color: Colors.green,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 
+  Widget _buildLoadingFeeRow() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4.0),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          const Text(
+            'Medical Center Facility Fee',
+            style: TextStyle(
+              fontSize: 14,
+              color: Colors.green,
+            ),
+          ),
+          SizedBox(
+            width: 20,
+            height: 20,
+            child: CircularProgressIndicator(
+              strokeWidth: 2,
+              valueColor: AlwaysStoppedAnimation<Color>(Colors.green.shade400),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTotalRow(double totalAmount) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        const Text(
+          'Total Amount',
+          style: TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.bold,
+            color: Colors.green,
+          ),
+        ),
+        Text(
+          'Rs. ${totalAmount.toStringAsFixed(2)}',
+          style: const TextStyle(
+            fontSize: 18,
+            fontWeight: FontWeight.bold,
+            color: Colors.green,
+          ),
+        ),
+      ],
+    );
+  }
   IconData _getConsultationTypeIcon(String type) {
     switch (type) {
       case 'physical': return Icons.local_hospital;

@@ -4,7 +4,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:frontend/services/Cancellation_Service.dart';
 import 'package:intl/intl.dart';
 
-// FIXED: Improved TokenService with better error handling
+
 class TokenService {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
