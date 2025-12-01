@@ -585,7 +585,7 @@ class _ScheduleAppointmentsScreenState extends State<ScheduleAppointmentsScreen>
                 _buildAppointmentDetailItem(
                   icon: Icons.payment,
                   label: 'Fees',
-                  value: '₹${appointment.fees}',
+                  value: 'Rs.${appointment.fees}',
                 ),
                 _buildAppointmentDetailItem(
                   icon: Icons.calendar_today,

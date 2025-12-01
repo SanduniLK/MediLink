@@ -481,7 +481,7 @@ void _navigateToChatScreen(TelemedicineSession session) {
                 _buildDialogDetailRow('Started', _formatDateTime(session.startedAt!)),
               if (session.endedAt != null)
                 _buildDialogDetailRow('Ended', _formatDateTime(session.endedAt!)),
-              _buildDialogDetailRow('Fees', '₹${session.fees}'),
+              _buildDialogDetailRow('Fees', 'Rs.${session.fees}'),
               if (session.medicalCenterName != null)
                 _buildDialogDetailRow('Medical Center', session.medicalCenterName!),
               if (session.doctorSpecialty != null)
