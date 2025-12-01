@@ -15,7 +15,18 @@ import 'package:intl/intl.dart';
 
 
 class PrescriptionScreen extends StatefulWidget {
-  const PrescriptionScreen({super.key});
+  final String? patientId;
+  final String? patientName;
+  final String? patientAge;
+  final Map<String, dynamic>? patientData;
+   final bool isFromProfile;
+
+  const PrescriptionScreen({super.key,
+  this.patientId,
+    this.patientName,
+    this.patientAge,
+    this.patientData,
+     this.isFromProfile = false,});
 
   @override
   State<PrescriptionScreen> createState() => _PrescriptionScreenState();
@@ -82,8 +93,45 @@ class _PrescriptionScreenState extends State<PrescriptionScreen> {
     _loadPharmacies();
     _loadPatientAppointments();
     _loadDoctorInfo();
+    _setPatientData();
   }
-
+void _setPatientData() {
+  if (widget.patientName != null && widget.patientName!.isNotEmpty) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      setState(() {
+        _patientNameController.text = widget.patientName!;
+        
+        if (widget.patientId != null) {
+          _selectedPatientId = widget.patientId;
+        }
+        
+        if (widget.patientAge != null && widget.patientAge!.isNotEmpty) {
+          _patientAgeController.text = widget.patientAge!;
+        } else if (widget.patientData != null) {
+          // Try to extract age from patient data
+          final age = widget.patientData!['age'];
+          if (age != null) {
+            _patientAgeController.text = age.toString();
+          } else if (widget.patientData!['dob'] != null) {
+            // Calculate age from date of birth
+            try {
+              final dob = DateTime.parse(widget.patientData!['dob']);
+              final now = DateTime.now();
+              int calculatedAge = now.year - dob.year;
+              if (now.month < dob.month || 
+                  (now.month == dob.month && now.day < dob.day)) {
+                calculatedAge--;
+              }
+              _patientAgeController.text = calculatedAge.toString();
+            } catch (e) {
+              debugPrint('Error calculating age from DOB: $e');
+            }
+          }
+        }
+      });
+    });
+  }
+}
   Future<void> _loadDoctorInfo() async {
     try {
       final user = FirebaseAuth.instance.currentUser;
@@ -1370,81 +1418,192 @@ void _drawClinicalDrawing(Canvas canvas, double width) {
     );
   }
 
-  Widget _buildPatientInfoSection() {
-    return Card(
-      elevation: 2,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      color: _cardColor,
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            _buildSectionHeader('PATIENT INFORMATION', Icons.person_outline),
-            const SizedBox(height: 16),
-            
-            if (_patientSuggestions.isEmpty)
-              _buildEmptyState('No patients available', 'Confirmed appointments will appear here')
-            else
-              Column(
-                children: [
-                  Container(
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: DropdownButtonFormField<String>(
-                      value: _patientNameController.text.isEmpty ? null : _patientNameController.text,
-                      decoration: InputDecoration(
-                        labelText: 'Select Patient',
-                        border: InputBorder.none,
-                        contentPadding: const EdgeInsets.symmetric(horizontal: 16),
-                        prefixIcon: Icon(Icons.search, color: _primaryColor),
-                      ),
-                      items: _patientSuggestions.map((patient) {
-                        return DropdownMenuItem<String>(
-                          value: patient['patientName'] as String,
-                          child: Text(patient['patientName'] as String),
-                        );
-                      }).toList(),
-                      onChanged: (String? selectedValue) {
-                        if (selectedValue != null) {
-                          setState(() {
-                            _patientNameController.text = selectedValue;
-                            final selectedPatient = _patientSuggestions.firstWhere(
-                              (patient) => patient['patientName'] == selectedValue,
-                            );
-                            _selectedPatientId = selectedPatient['patientId'] as String;
-                            _fetchPatientAge(_selectedPatientId!);
-                          });
-                        }
-                      },
+Widget _buildPatientInfoSection() {
+  return Card(
+    elevation: 2,
+    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+    color: _cardColor,
+    child: Padding(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _buildSectionHeader('PATIENT INFORMATION', Icons.person_outline),
+          const SizedBox(height: 16),
+          
+          // If coming from profile, show non-editable fields
+          if (widget.isFromProfile && widget.patientName != null)
+            Column(
+              children: [
+                // Patient Name (Non-editable)
+                Container(
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                    child: Row(
+                      children: [
+                        Icon(Icons.person, color: _primaryColor),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Patient Name',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: Colors.grey[600],
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                _patientNameController.text,
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  color: _darkColor,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: _accentColor,
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Text(
+                            'FROM PROFILE',
+                            style: TextStyle(
+                              fontSize: 10,
+                              color: Colors.white,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
-                  const SizedBox(height: 12),
-                  Container(
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: TextFormField(
-                      controller: _patientAgeController,
-                      readOnly: true,
-                      decoration: InputDecoration(
-                        labelText: 'Patient Age',
-                        border: InputBorder.none,
-                        contentPadding: const EdgeInsets.symmetric(horizontal: 16),
-                        prefixIcon: Icon(Icons.calendar_today, color: _primaryColor),
-                      ),
+                ),
+                const SizedBox(height: 12),
+                
+                // Patient Age (Non-editable)
+                Container(
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                    child: Row(
+                      children: [
+                        Icon(Icons.calendar_today, color: _primaryColor),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Patient Age',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: Colors.grey[600],
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                _patientAgeController.text.isNotEmpty
+                                    ? '${_patientAgeController.text} years'
+                                    : 'Not specified',
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  color: _darkColor,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
                     ),
                   ),
-                ],
-              ),
-          ],
+                ),
+              ],
+            )
+          else
+            // Original dropdown for selecting patients
+            _buildPatientDropdownSection(),
+        ],
+      ),
+    ),
+  );
+}
+
+// Original dropdown section (moved to separate method)
+Widget _buildPatientDropdownSection() {
+  if (_patientSuggestions.isEmpty) {
+    return _buildEmptyState('No patients available', 'Confirmed appointments will appear here');
+  }
+  
+  return Column(
+    children: [
+      Container(
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: DropdownButtonFormField<String>(
+          value: _patientNameController.text.isEmpty ? null : _patientNameController.text,
+          decoration: InputDecoration(
+            labelText: 'Select Patient',
+            border: InputBorder.none,
+            contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+            prefixIcon: Icon(Icons.search, color: _primaryColor),
+          ),
+          items: _patientSuggestions.map((patient) {
+            return DropdownMenuItem<String>(
+              value: patient['patientName'] as String,
+              child: Text(patient['patientName'] as String),
+            );
+          }).toList(),
+          onChanged: (String? selectedValue) {
+            if (selectedValue != null) {
+              setState(() {
+                _patientNameController.text = selectedValue;
+                final selectedPatient = _patientSuggestions.firstWhere(
+                  (patient) => patient['patientName'] == selectedValue,
+                );
+                _selectedPatientId = selectedPatient['patientId'] as String;
+                _fetchPatientAge(_selectedPatientId!);
+              });
+            }
+          },
         ),
       ),
-    );
-  }
+      const SizedBox(height: 12),
+      Container(
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: TextFormField(
+          controller: _patientAgeController,
+          readOnly: true,
+          decoration: InputDecoration(
+            labelText: 'Patient Age',
+            border: InputBorder.none,
+            contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+            prefixIcon: Icon(Icons.calendar_today, color: _primaryColor),
+          ),
+        ),
+      ),
+    ],
+  );
+}
 
   Widget _buildDiagnosisSection() {
     return Card(

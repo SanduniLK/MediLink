@@ -2,6 +2,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:frontend/screens/doctor_screens/prescription_screen.dart';
 import 'package:intl/intl.dart';
 import '../../services/patient_services.dart';
 import 'doctor_medical_history_screen.dart';
@@ -11,11 +12,13 @@ class DoctorPatientProfileScreen extends StatefulWidget {
   final String patientName;
   final Map<String, dynamic> patientData;
 
+
   const DoctorPatientProfileScreen({
     super.key,
     required this.patientId,
     required this.patientName,
     required this.patientData,
+    
   });
 
   @override
@@ -59,7 +62,20 @@ class _DoctorPatientProfileScreenState extends State<DoctorPatientProfileScreen>
       });
     }
   }
-
+ void _navigateToPrescriptionScreen() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => PrescriptionScreen(
+        patientId: widget.patientId,
+        patientName: _patientDetails['fullname'] ?? widget.patientName,
+        patientAge: _patientDetails['age']?.toString() ?? '',
+        patientData: _patientDetails,
+        isFromProfile: true,
+        ),
+      ),
+    );
+  }
   @override
   Widget build(BuildContext context) {
     if (_isLoading) {
@@ -68,6 +84,20 @@ class _DoctorPatientProfileScreenState extends State<DoctorPatientProfileScreen>
           title: const Text('Patient Profile'),
           backgroundColor: const Color(0xFF18A3B6),
           foregroundColor: Colors.white,
+          elevation: 0,
+           actions: [
+          // ADD PRESCRIPTION BUTTON TO APP BAR
+          IconButton(
+            icon: const Icon(Icons.medical_services, color: Colors.white),
+            onPressed: _navigateToPrescriptionScreen,
+            tooltip: 'Write Prescription',
+          ),
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            onPressed: _loadPatientData,
+            tooltip: 'Refresh',
+          ),
+        ],
         ),
         body: const Center(
           child: CircularProgressIndicator(),
@@ -96,9 +126,11 @@ class _DoctorPatientProfileScreenState extends State<DoctorPatientProfileScreen>
             // Header Section with Patient Photo
             _buildHeaderSection(),
             
+
             // Medical Records Quick Access
             _buildMedicalRecordsSection(),
             
+            _buildPrescriptionButtonSection(),
             // Personal Information
             _buildPersonalInfoSection(),
             
@@ -114,7 +146,84 @@ class _DoctorPatientProfileScreenState extends State<DoctorPatientProfileScreen>
       ),
     );
   }
-
+ Widget _buildPrescriptionButtonSection() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      child: Card(
+        elevation: 4,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: Container(
+          decoration: BoxDecoration(
+            gradient: const LinearGradient(
+              colors: [Color(0xFF18A3B6), Color(0xFF32BACD)],
+              begin: Alignment.centerLeft,
+              end: Alignment.centerRight,
+            ),
+            borderRadius: BorderRadius.circular(16),
+          ),
+          child: Material(
+            color: Colors.transparent,
+            child: InkWell(
+              onTap: _navigateToPrescriptionScreen,
+              borderRadius: BorderRadius.circular(16),
+              child: Padding(
+                padding: const EdgeInsets.all(20),
+                child: Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withOpacity(0.2),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(
+                        Icons.draw,
+                        color: Colors.white,
+                        size: 28,
+                      ),
+                    ),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'Write Prescription',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            'Create new prescription for ${_patientDetails['fullname'] ?? widget.patientName}',
+                            style: TextStyle(
+                              color: Colors.white.withOpacity(0.9),
+                              fontSize: 14,
+                            ),
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ],
+                      ),
+                    ),
+                    const Icon(
+                      Icons.arrow_forward_ios,
+                      color: Colors.white,
+                      size: 20,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
   Widget _buildHeaderSection() {
     final fullName = _patientDetails['fullname'] ?? _patientDetails['name'] ?? widget.patientName;
     final profilePic = _patientDetails['profilePic'];

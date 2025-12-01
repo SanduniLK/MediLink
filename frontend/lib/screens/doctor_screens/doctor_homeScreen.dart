@@ -6,6 +6,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:frontend/providers/doctor_provider.dart';
 import 'package:frontend/screens/Notifications/DoctorNotificationPage.dart';
+import 'package:frontend/screens/doctor_screens/allschedule.dart';
 import 'package:frontend/screens/doctor_screens/create_schedule_screen.dart';
 import 'package:frontend/screens/doctor_screens/doctor_appointments_page.dart';
 import 'package:frontend/screens/doctor_screens/doctor_feedback_dashboard.dart';
@@ -426,6 +427,12 @@ void _navigateTowrittenPrescriptions() {
       context,
       MaterialPageRoute(builder: (context) => AllPrescriptionsScreen())
     );
+  }
+  void _navigatetosessions(){
+    Navigator.push(
+      context,
+       MaterialPageRoute(builder:(context) =>Allschedule())
+      );
   }
   void _showErrorSnackBar(String message) {
     ScaffoldMessenger.of(context).showSnackBar(
@@ -1052,6 +1059,12 @@ Widget _buildDefaultAvatar() {
               icon: Icons.description, 
               label: 'Written Prescriptions',
               onTap: _navigateTowrittenPrescriptions, 
+              color: primaryDark
+            ),
+            _buildQuickActionButton(
+              icon: Icons.medical_information, 
+              label: 'My sessions',
+              onTap: _navigatetosessions, 
               color: primaryDark
             )
           ],
