@@ -286,8 +286,9 @@ class _ScheduleAppointmentsScreenState extends State<ScheduleAppointmentsScreen>
                         child: _buildStatCard(
                           icon: Icons.monetization_on,
                           label: 'Revenue',
-                          value: '₹${_totalRevenue.toStringAsFixed(0)}',
+                          value: 'Rs.${_totalRevenue.toStringAsFixed(0)}',
                           color: Colors.orange,
+                          
                         ),
                       ),
                     ],
@@ -295,70 +296,7 @@ class _ScheduleAppointmentsScreenState extends State<ScheduleAppointmentsScreen>
 
                   const SizedBox(height: 16),
 
-                  // Current Queue Card
-                  Container(
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        colors: [secondaryColor, primaryColor],
-                        begin: Alignment.centerLeft,
-                        end: Alignment.centerRight,
-                      ),
-                      borderRadius: BorderRadius.circular(16),
-                    ),
-                    child: Row(
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.all(10),
-                          decoration: BoxDecoration(
-                            color: Colors.white.withOpacity(0.2),
-                            shape: BoxShape.circle,
-                          ),
-                          child: const Icon(
-                            Icons.queue,
-                            color: Colors.white,
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                'Current Queue',
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  color: Colors.white.withOpacity(0.9),
-                                ),
-                              ),
-                              Text(
-                                '#${_currentQueueNumber}',
-                                style: const TextStyle(
-                                  fontSize: 24,
-                                  color: Colors.white,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(20),
-                          ),
-                          child: Text(
-                            widget.schedule.appointmentType.capitalize(),
-                            style: TextStyle(
-                              color: primaryColor,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
+                  
                 ],
               ),
             ),
