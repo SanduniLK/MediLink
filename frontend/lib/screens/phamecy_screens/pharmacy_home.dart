@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:frontend/screens/phamecy_screens/unified_patient_search_screen.dart';
 import 'package:intl/intl.dart';
-import 'patient_search_screen.dart';
+
 import 'pharmacy_settings_screen.dart';
 
 class PharmacyHomeScreen extends StatefulWidget {
@@ -33,8 +33,20 @@ class _PharmacyHomeScreenState extends State<PharmacyHomeScreen> {
     super.initState();
     _fetchPharmacyData();
     _loadDashboardData();
+     _initializeDashboard();
   }
-
+Future<void> _initializeDashboard() async {
+  setState(() => _isLoading = true);
+  try {
+    await _loadDashboardData();
+  } catch (e) {
+    debugPrint('Initial dashboard load error: $e');
+  } finally {
+    if (mounted) {
+      setState(() => _isLoading = false);
+    }
+  }
+}
   Future<void> _fetchPharmacyData() async {
     try {
       final doc = await FirebaseFirestore.instance
@@ -54,67 +66,88 @@ class _PharmacyHomeScreenState extends State<PharmacyHomeScreen> {
     }
   }
 
-  Future<void> _loadDashboardData() async {
-    try {
-      final now = DateTime.now();
-      final todayStart = DateTime(now.year, now.month, now.day);
-      final monthStart = DateTime(now.year, now.month, 1);
+Future<void> _loadDashboardData() async {
+  try {
+    final now = DateTime.now();
+    final todayStart = DateTime(now.year, now.month, now.day);
+    final todayEnd = DateTime(now.year, now.month, now.day, 23, 59, 59);
+    final monthStart = DateTime(now.year, now.month, 1);
+    final monthEnd = DateTime(now.year, now.month + 1, 0, 23, 59, 59);
 
-      // Get today's issuances
-      final todayIssuances = await FirebaseFirestore.instance
-          .collection('issuanceRecords')
-          .where('pharmacyId', isEqualTo: widget.uid)
-          .where('issuanceDate', isGreaterThanOrEqualTo: Timestamp.fromDate(todayStart))
-          .get();
+    // 1. Today's Issuances - Count of dispensing records today
+    final todayIssuancesQuery = await FirebaseFirestore.instance
+        .collection('dispensingRecords')
+        .where('pharmacyId', isEqualTo: widget.uid)
+        .where('dispensingDate', isGreaterThanOrEqualTo: Timestamp.fromDate(todayStart))
+        .where('dispensingDate', isLessThanOrEqualTo: Timestamp.fromDate(todayEnd))
+        .get();
 
-      // Get monthly issuances
-      final monthlyIssuances = await FirebaseFirestore.instance
-          .collection('issuanceRecords')
-          .where('pharmacyId', isEqualTo: widget.uid)
-          .where('issuanceDate', isGreaterThanOrEqualTo: Timestamp.fromDate(monthStart))
-          .get();
+    // 2. All Prescriptions - Count from prescriptions collection
+    final prescriptionsQuery = await FirebaseFirestore.instance
+        .collection('prescriptions')
+        .where('status', whereIn: ['active', 'completed'])
+        .get();
 
-      // Get active prescriptions count (you might need to adjust this query)
-      final activePrescriptions = await FirebaseFirestore.instance
-          .collection('prescriptions')
-          .where('status', isEqualTo: 'active')
-          .limit(100)
-          .get();
+    // 3. Monthly Total - Count of dispensing records this month
+    final monthlyIssuancesQuery = await FirebaseFirestore.instance
+        .collection('dispensingRecords')
+        .where('pharmacyId', isEqualTo: widget.uid)
+        .where('dispensingDate', isGreaterThanOrEqualTo: Timestamp.fromDate(monthStart))
+        .where('dispensingDate', isLessThanOrEqualTo: Timestamp.fromDate(monthEnd))
+        .get();
 
-      // Get unique patients from issuances
-      final patientSnapshot = await FirebaseFirestore.instance
-          .collection('issuanceRecords')
-          .where('pharmacyId', isEqualTo: widget.uid)
-          .where('issuanceDate', isGreaterThanOrEqualTo: Timestamp.fromDate(todayStart))
-          .get();
-
-      final uniquePatients = patientSnapshot.docs.map((doc) => doc['patientId']).toSet();
-
-      // Get recent issuances for activity feed
-      final recentIssuancesQuery = await FirebaseFirestore.instance
-          .collection('issuanceRecords')
-          .where('pharmacyId', isEqualTo: widget.uid)
-          .orderBy('issuanceDate', descending: true)
-          .limit(5)
-          .get();
-
-      List<Map<String, dynamic>> recentIssuances = [];
-      for (var doc in recentIssuancesQuery.docs) {
-        recentIssuances.add(doc.data());
+    // Count unique patients served today
+    final uniquePatientIds = <String>{};
+    for (var doc in todayIssuancesQuery.docs) {
+      final patientId = doc.data()['patientId'];
+      if (patientId != null) {
+        uniquePatientIds.add(patientId);
       }
+    }
 
-      setState(() {
-        _todayIssuances = todayIssuances.docs.length;
-        _totalMonthlyIssuances = monthlyIssuances.docs.length;
-        _pendingPrescriptions = activePrescriptions.docs.length;
-        _activePatients = uniquePatients.length;
-        _recentIssuances = recentIssuances;
+    // Get recent activity
+    final recentIssuancesQuery = await FirebaseFirestore.instance
+        .collection('dispensingRecords')
+        .where('pharmacyId', isEqualTo: widget.uid)
+        .orderBy('dispensingDate', descending: true)
+        .limit(5)
+        .get();
+
+    List<Map<String, dynamic>> recentIssuances = [];
+    for (var doc in recentIssuancesQuery.docs) {
+      recentIssuances.add({
+        ...doc.data(),
+        'id': doc.id,
       });
+    }
 
-    } catch (e) {
-      debugPrint('Error loading dashboard data: $e');
+    setState(() {
+      _todayIssuances = todayIssuancesQuery.docs.length; // Count of today's dispensing records
+      _pendingPrescriptions = prescriptionsQuery.docs.length; // Count of all prescriptions
+      _activePatients = uniquePatientIds.length; // Count of unique patients served today
+      _totalMonthlyIssuances = monthlyIssuancesQuery.docs.length; // Count of monthly dispensing records
+      _recentIssuances = recentIssuances;
+    });
+
+    print('Dashboard Data Loaded:');
+    print('Today Issuances Count: $_todayIssuances');
+    print('Total Prescriptions Count: $_pendingPrescriptions');
+    print('Patients Served Today: $_activePatients');
+    print('Monthly Issuances Count: $_totalMonthlyIssuances');
+
+  } catch (e) {
+    debugPrint('Error loading dashboard data: $e');
+    
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error loading dashboard data: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
     }
   }
+}
 
   // UPDATED: IMPROVED DASHBOARD SCREEN
   Widget _buildDashboard() {
@@ -159,10 +192,7 @@ class _PharmacyHomeScreenState extends State<PharmacyHomeScreen> {
 
             const SizedBox(height: 24),
 
-            // Recent Activity
-            _buildRecentActivitySection(),
-
-            const SizedBox(height: 20),
+            
           ],
         ),
       ),
@@ -301,24 +331,7 @@ class _PharmacyHomeScreenState extends State<PharmacyHomeScreen> {
               );
             },
           ),
-          _buildActionCard(
-            icon: Icons.assignment,
-            title: 'View Prescriptions',
-            subtitle: 'All active prescriptions',
-            color: Colors.orange.shade600,
-            onTap: () {
-              setState(() => _selectedIndex = 1);
-            },
-          ),
-          _buildActionCard(
-            icon: Icons.history,
-            title: 'Issuance History',
-            subtitle: 'Track all dispensations',
-            color: Colors.purple.shade600,
-            onTap: () {
-              setState(() => _selectedIndex = 2);
-            },
-          ),
+         
         ],
       ),
     ],
@@ -383,62 +396,62 @@ class _PharmacyHomeScreenState extends State<PharmacyHomeScreen> {
   );
 }
 
-  Widget _buildStatisticsSection() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Padding(
-          padding: EdgeInsets.only(left: 4, bottom: 12),
-          child: Text(
-            "Today's Overview",
-            style: TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.bold,
-              color: Color(0xFF18A3B6),
-            ),
+Widget _buildStatisticsSection() {
+  return Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      const Padding(
+        padding: EdgeInsets.only(left: 4, bottom: 12),
+        child: Text(
+          "Overview",
+          style: TextStyle(
+            fontSize: 18,
+            fontWeight: FontWeight.bold,
+            color: Color(0xFF18A3B6),
           ),
         ),
-        GridView.count(
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          crossAxisCount: 2,
-          crossAxisSpacing: 12,
-          mainAxisSpacing: 12,
-          childAspectRatio: 1.4,
-          children: [
-            _buildStatCard(
-              icon: Icons.medical_services,
-              title: "Today's Issuances",
-              value: _todayIssuances.toString(),
-              color: Colors.blue.shade600,
-              subtitle: "Medications dispensed",
-            ),
-            _buildStatCard(
-              icon: Icons.assignment,
-              title: "Active Prescriptions", 
-              value: _pendingPrescriptions.toString(),
-              color: Colors.orange.shade600,
-              subtitle: "Requiring attention",
-            ),
-            _buildStatCard(
-              icon: Icons.people,
-              title: "Patients Served",
-              value: _activePatients.toString(),
-              color: Colors.green.shade600,
-              subtitle: "Today",
-            ),
-            _buildStatCard(
-              icon: Icons.trending_up,
-              title: "Monthly Total",
-              value: _totalMonthlyIssuances.toString(),
-              color: Colors.purple.shade600,
-              subtitle: "This month",
-            ),
-          ],
-        ),
-      ],
-    );
-  }
+      ),
+      GridView.count(
+        shrinkWrap: true,
+        physics: const NeverScrollableScrollPhysics(),
+        crossAxisCount: 2,
+        crossAxisSpacing: 12,
+        mainAxisSpacing: 12,
+        childAspectRatio: 1.4,
+        children: [
+          _buildStatCard(
+            icon: Icons.medical_services,
+            title: "Today's Issuances",
+            value: _todayIssuances.toString(),
+            color: Colors.blue.shade600,
+            subtitle: "Prescriptions issued",
+          ),
+          _buildStatCard(
+            icon: Icons.assignment,
+            title: "Total Prescriptions", 
+            value: _pendingPrescriptions.toString(),
+            color: Colors.orange.shade600,
+            subtitle: "Active & Completed",
+          ),
+          _buildStatCard(
+            icon: Icons.people,
+            title: "Patients Served",
+            value: _activePatients.toString(),
+            color: Colors.green.shade600,
+            subtitle: "Today",
+          ),
+          _buildStatCard(
+            icon: Icons.calendar_month,
+            title: "Monthly Issuances",
+            value: _totalMonthlyIssuances.toString(),
+            color: Colors.purple.shade600,
+            subtitle: "This month",
+          ),
+        ],
+      ),
+    ],
+  );
+}
 
   Widget _buildStatCard({
     required IconData icon,
@@ -502,65 +515,9 @@ class _PharmacyHomeScreenState extends State<PharmacyHomeScreen> {
     );
   }
 
-  Widget _buildRecentActivitySection() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Padding(
-          padding: EdgeInsets.only(left: 4, bottom: 12),
-          child: Text(
-            "Recent Activity",
-            style: TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.bold,
-              color: Color(0xFF18A3B6),
-            ),
-          ),
-        ),
-        Card(
-          elevation: 2,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-          child: _recentIssuances.isEmpty
-              ? _buildEmptyActivity()
-              : _buildActivityList(),
-        ),
-      ],
-    );
-  }
+  
 
-  Widget _buildEmptyActivity() {
-    return Container(
-      padding: const EdgeInsets.all(40),
-      child: Column(
-        children: [
-          Icon(Icons.history, size: 60, color: Colors.grey.shade300),
-          const SizedBox(height: 16),
-          const Text(
-            "No recent activity",
-            style: TextStyle(
-              fontSize: 16,
-              color: Colors.grey,
-              fontWeight: FontWeight.w500,
-            ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            "Issuances will appear here",
-            style: TextStyle(fontSize: 14, color: Colors.grey.shade500),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildActivityList() {
-    return Padding(
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        children: _recentIssuances.map((issuance) => _buildActivityItem(issuance)).toList(),
-      ),
-    );
-  }
+  
 
   Widget _buildActivityItem(Map<String, dynamic> issuance) {
     final patientName = issuance['patientName'] ?? 'Unknown Patient';
@@ -683,100 +640,245 @@ class _PharmacyHomeScreenState extends State<PharmacyHomeScreen> {
     );
   }
 
-  Widget _buildSettings() {
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(20),
-      child: Column(
-        children: [
-          GestureDetector(
-            onTap: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => PharmacySettingsScreen(uid: widget.uid),
+ Widget _buildSettings() {
+  return SingleChildScrollView(
+    padding: const EdgeInsets.all(20),
+    child: Column(
+      children: [
+        // Pharmacy Profile Card
+        GestureDetector(
+          onTap: () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => PharmacySettingsScreen(uid: widget.uid),
+              ),
+            );
+          },
+          child: Card(
+            elevation: 4,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            child: Container(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [_deepTeal, const Color(0xFF32BACD)],
                 ),
-              );
-            },
-            child: Card(
-              elevation: 4,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-              child: Container(
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                    colors: [_deepTeal, const Color(0xFF32BACD)],
-                  ),
-                  borderRadius: BorderRadius.circular(16),
-                ),
-                child: Padding(
-                  padding: const EdgeInsets.all(24),
-                  child: Column(
-                    children: [
-                      CircleAvatar(
-                        radius: 50,
-                        backgroundColor: Colors.white.withOpacity(0.9),
-                        child: Text(
-                          _getPharmacyFirstLetter,
-                          style: TextStyle(
-                            fontSize: 36,
-                            fontWeight: FontWeight.bold,
-                            color: _deepTeal,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 20),
-                      Text(
-                        _pharmacyData?['name'] ?? 'Pharmacy Name',
-                        style: const TextStyle(
-                          fontSize: 28,
+                borderRadius: BorderRadius.circular(16),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  children: [
+                    CircleAvatar(
+                      radius: 50,
+                      backgroundColor: Colors.white.withOpacity(0.9),
+                      child: Text(
+                        _getPharmacyFirstLetter,
+                        style: TextStyle(
+                          fontSize: 36,
                           fontWeight: FontWeight.bold,
-                          color: Colors.white,
+                          color: _deepTeal,
                         ),
-                        textAlign: TextAlign.center,
                       ),
-                      const SizedBox(height: 12),
-                      Text(
-                        _pharmacyData?['licenseNumber'] ?? 'License not available',
-                        style: const TextStyle(
-                          fontSize: 18,
-                          color: Colors.white70,
-                        ),
-                        textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: 20),
+                    Text(
+                      _pharmacyData?['name'] ?? 'Pharmacy Name',
+                      style: const TextStyle(
+                        fontSize: 28,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.white,
                       ),
-                      const SizedBox(height: 8),
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                        decoration: BoxDecoration(
-                          color: Colors.white.withOpacity(0.2),
-                          borderRadius: BorderRadius.circular(20),
-                        ),
-                        child: const Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(Icons.edit, size: 16, color: Colors.white),
-                            SizedBox(width: 6),
-                            Text(
-                              'Edit Profile',
-                              style: TextStyle(
-                                fontSize: 14,
-                                color: Colors.white,
-                                fontWeight: FontWeight.w500,
-                              ),
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: 12),
+                    Text(
+                      _pharmacyData?['licenseNumber'] ?? 'License not available',
+                      style: const TextStyle(
+                        fontSize: 18,
+                        color: Colors.white70,
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: 8),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withOpacity(0.2),
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: const Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.edit, size: 16, color: Colors.white),
+                          SizedBox(width: 6),
+                          Text(
+                            'Edit Profile',
+                            style: TextStyle(
+                              fontSize: 14,
+                              color: Colors.white,
+                              fontWeight: FontWeight.w500,
                             ),
-                          ],
-                        ),
+                          ),
+                        ],
                       ),
-                    ],
-                  ),
+                    ),
+                  ],
                 ),
               ),
             ),
           ),
+        ),
+        
+        const SizedBox(height: 24), // Spacing between cards
+        
+        // Sign Out Card
+        Card(
+          elevation: 3,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          child: Container(
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: ListTile(
+              leading: Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: Colors.red.shade50,
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(
+                  Icons.logout,
+                  color: Colors.red.shade600,
+                  size: 24,
+                ),
+              ),
+              title: const Text(
+                'Sign Out',
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.black87,
+                ),
+              ),
+              subtitle: const Text(
+                'Sign out from your pharmacy account',
+                style: TextStyle(
+                  fontSize: 12,
+                  color: Colors.grey,
+                ),
+              ),
+              trailing: Icon(
+                Icons.arrow_forward_ios,
+                color: Colors.grey.shade400,
+                size: 16,
+              ),
+              onTap: _showSignOutConfirmation,
+            ),
+          ),
+        ),
+        
+        // Additional spacing at the bottom
+        const SizedBox(height: 20),
+      ],
+    ),
+  );
+}
+
+// Sign Out Confirmation Dialog
+void _showSignOutConfirmation() {
+  showDialog(
+    context: context,
+    builder: (BuildContext context) {
+      return AlertDialog(
+        title: const Text(
+          'Sign Out',
+          style: TextStyle(
+            fontWeight: FontWeight.bold,
+            color: Colors.black87,
+          ),
+        ),
+        content: const Text(
+          'Are you sure you want to sign out from your pharmacy account?',
+          style: TextStyle(
+            color: Colors.grey,
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.of(context).pop(); // Close dialog
+            },
+            child: const Text(
+              'Cancel',
+              style: TextStyle(
+                color: Colors.grey,
+              ),
+            ),
+          ),
+          TextButton(
+            onPressed: _signOut,
+            child: const Text(
+              'Sign Out',
+              style: TextStyle(
+                color: Colors.red,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
         ],
+      );
+    },
+  );
+}
+
+// Sign Out Function
+void _signOut() async {
+  try {
+    // Close the confirmation dialog
+    Navigator.of(context).pop();
+    
+    // Show loading indicator
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext context) {
+        return const Center(
+          child: CircularProgressIndicator(),
+        );
+      },
+    );
+    
+    // Add your sign-out logic here
+    // For example, if using Firebase Auth:
+    // await FirebaseAuth.instance.signOut();
+    
+    // Simulate sign-out process
+    await Future.delayed(const Duration(milliseconds: 500));
+    
+    // Navigate to login screen or initial screen
+    // Replace this with your actual navigation logic
+    Navigator.of(context).pushNamedAndRemoveUntil(
+      '/login', // Replace with your login route
+      (Route<dynamic> route) => false,
+    );
+    
+  } catch (e) {
+    // Close loading dialog if there's an error
+    Navigator.of(context).pop();
+    
+    // Show error message
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Error signing out: $e'),
+        backgroundColor: Colors.red,
       ),
     );
   }
+}
 
   String get _getPharmacyFirstLetter {
     final pharmacyName = _pharmacyData?['name'] ?? 'P';
@@ -790,9 +892,7 @@ class _PharmacyHomeScreenState extends State<PharmacyHomeScreen> {
       backgroundColor: Colors.white,
       appBar: AppBar(
         title: Text(
-          _selectedIndex == 0 ? 'Dashboard' : 
-          _selectedIndex == 1 ? 'Prescriptions' :
-          _selectedIndex == 2 ? 'History' : 'Settings',
+          _selectedIndex == 0 ? 'Dashboard' : 'Settings',
           style: const TextStyle(
             color: Colors.white, 
             fontWeight: FontWeight.bold,
@@ -803,10 +903,7 @@ class _PharmacyHomeScreenState extends State<PharmacyHomeScreen> {
         elevation: 2,
         automaticallyImplyLeading: false,
       ),
-      body: _selectedIndex == 0 ? _buildDashboard() :
-             _selectedIndex == 1 ? _buildPrescriptions() :
-             _selectedIndex == 2 ? _buildDispensedHistory() :
-             _buildSettings(),
+      body: _selectedIndex == 0 ? _buildDashboard() : _buildSettings(),
       bottomNavigationBar: Container(
         decoration: BoxDecoration(
           boxShadow: [
@@ -831,16 +928,6 @@ class _PharmacyHomeScreenState extends State<PharmacyHomeScreen> {
               icon: Icon(Icons.dashboard_outlined),
               activeIcon: Icon(Icons.dashboard),
               label: 'Dashboard',
-            ),
-            BottomNavigationBarItem(
-              icon: Icon(Icons.assignment_outlined),
-              activeIcon: Icon(Icons.assignment),
-              label: 'Prescriptions',
-            ),
-            BottomNavigationBarItem(
-              icon: Icon(Icons.history_outlined),
-              activeIcon: Icon(Icons.history),
-              label: 'History',
             ),
             BottomNavigationBarItem(
               icon: Icon(Icons.settings_outlined),

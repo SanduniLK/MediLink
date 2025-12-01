@@ -482,6 +482,7 @@ void _viewOriginalPrescriptionImage() {
         imageUrl: prescriptionImageUrl,
         patientName: widget.patientData['fullname'] ?? 'Patient',
         medicalCenter: widget.prescription['medicalCenter'] ?? 'Medical Center',
+        
       ),
     ),
   );
@@ -603,6 +604,7 @@ void _viewOriginalPrescriptionImage() {
             ),
           ),
           const SizedBox(height: 16),
+          const SizedBox(height: 8),
          Container(
           padding: const EdgeInsets.symmetric(horizontal: 16),
           child: SizedBox(
@@ -619,6 +621,7 @@ void _viewOriginalPrescriptionImage() {
             ),
           ),
         ),
+        const SizedBox(height: 16),
           // Medicines List
           Expanded(
             child: _medicines.isEmpty

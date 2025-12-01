@@ -317,7 +317,7 @@ Widget _buildPrescriptionCard(Map<String, dynamic> prescription) {
   final createdAt = prescription['createdAt'] ?? prescription['date'] ?? DateTime.now().millisecondsSinceEpoch;
   final medicines = prescription['medicines'] ?? [];
   final prescriptionImageUrl = prescription['prescriptionImageUrl'];
-  final status = prescription['status'] ?? 'unknown';
+ 
 
   // Debug: Print medicine data to see what's available
   print('🔍 DEBUG: Medicines array: $medicines');
@@ -368,21 +368,7 @@ Widget _buildPrescriptionCard(Map<String, dynamic> prescription) {
                       ],
                     ),
                   ),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: _getStatusColor(status),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Text(
-                      status.toUpperCase(),
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 10,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ),
+                 
                 ],
               ),
 

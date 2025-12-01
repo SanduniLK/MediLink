@@ -286,70 +286,14 @@ class _PharmacySettingsScreenState extends State<PharmacySettingsScreen> {
                 ),
         ),
         
-        // Sign Out Button at the bottom outside the scrollable area
-        Container(
-          width: double.infinity,
-          padding: const EdgeInsets.all(16),
-          child: _buildSignOutButton(),
-        ),
+        
       ],
     ),
     );
     
   }
-Widget _buildSignOutButton() {
-  return SizedBox(
-    width: double.infinity,
-    child: ElevatedButton.icon(
-      onPressed: _signOut,
-      icon: const Icon(Icons.logout),
-      label: const Text(
-        "Sign Out",
-        style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-      ),
-      style: ElevatedButton.styleFrom(
-        backgroundColor: Colors.redAccent,
-        foregroundColor: Colors.white,
-        padding: const EdgeInsets.symmetric(vertical: 14),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(10),
-        ),
-      ),
-    ),
-  );
-}
-Future<void> _signOut() async {
-  final shouldLogout = await showDialog<bool>(
-    context: context,
-    builder: (context) => AlertDialog(
-      title: const Text("Sign Out"),
-      content: const Text("Are you sure you want to sign out?"),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.of(context).pop(false),
-          child: const Text("Cancel"),
-        ),
-        TextButton(
-          onPressed: () => Navigator.of(context).pop(true),
-          child: const Text("Sign Out", style: TextStyle(color: Colors.red)),
-        ),
-      ],
-    ),
-  );
 
-  if (shouldLogout == true) {
-    try {
-      await FirebaseAuth.instance.signOut();
-      if (!mounted) return;
 
-      Navigator.pushReplacementNamed(context, "/login");
-    } catch (e) {
-      if (mounted) {
-        _showErrorSnackBar("Error signing out: $e");
-      }
-    }
-  }
-}
 
 
 
