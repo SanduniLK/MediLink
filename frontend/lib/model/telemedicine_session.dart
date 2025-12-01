@@ -18,13 +18,13 @@ class TelemedicineSession {
   final String? medicalCenterId;
   final String? medicalCenterName;
   final String? doctorSpecialty;
+  final String? scheduleId;
   final String? date;
   final String? timeSlot;
   final int? tokenNumber;
   final String? videoLink;
   final bool doctorHasJoined;
   final bool patientHasJoined;
- 
 
   TelemedicineSession({
     required this.id,
@@ -44,14 +44,13 @@ class TelemedicineSession {
     this.medicalCenterId,
     this.medicalCenterName,
     this.doctorSpecialty,
+    this.scheduleId,
     this.date,
     this.timeSlot,
     this.tokenNumber,
     this.videoLink,
-   this.doctorHasJoined=false,
-   this.patientHasJoined=false,
-
-    
+    this.doctorHasJoined = false,
+    this.patientHasJoined = false,
   });
 
   factory TelemedicineSession.fromMap(Map<String, dynamic> map) {
@@ -73,6 +72,7 @@ class TelemedicineSession {
       medicalCenterId: map['medicalCenterId'],
       medicalCenterName: map['medicalCenterName'],
       doctorSpecialty: map['doctorSpecialty'],
+      scheduleId: map['scheduleId'],
       date: map['date'],
       timeSlot: map['timeSlot'],
       tokenNumber: map['tokenNumber'],
@@ -125,6 +125,7 @@ class TelemedicineSession {
       'medicalCenterId': medicalCenterId,
       'medicalCenterName': medicalCenterName,
       'doctorSpecialty': doctorSpecialty,
+      'scheduleId': scheduleId,
       'date': date,
       'timeSlot': timeSlot,
       'tokenNumber': tokenNumber,

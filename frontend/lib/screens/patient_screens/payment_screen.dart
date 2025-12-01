@@ -46,7 +46,8 @@ class _PaymentScreenState extends State<PaymentScreen> {
   }
 
   void _determineConsultationType() {
-    final appointmentType = widget.appointmentData['appointmentType'] ?? 'physical';
+    final appointmentType =
+        widget.appointmentData['appointmentType'] ?? 'physical';
 
     if (appointmentType == 'video' || appointmentType == 'audio') {
       _consultationType = appointmentType;
@@ -67,8 +68,10 @@ class _PaymentScreenState extends State<PaymentScreen> {
     return {
       "sandbox": true, // set to false in production
       "merchant_id": "1232989", // replace
-      "merchant_secret": "Mzk1NTgwMDc5MDE4NTY4NTA1NzMzNzc2NTI5MzUyMzQ5OTk2Mzc5NA==", // replace if needed
-      "notify_url": "https://yourbackend.com/payhere/notify", // optional but recommended
+      "merchant_secret":
+          "Mzk1NTgwMDc5MDE4NTY4NTA1NzMzNzc2NTI5MzUyMzQ5OTk2Mzc5NA==", // replace if needed
+      "notify_url":
+          "https://yourbackend.com/payhere/notify", // optional but recommended
 
       "order_id": "MEDILINK_${DateTime.now().millisecondsSinceEpoch}",
       "items": "Doctor Appointment - ${widget.doctorName}",
@@ -90,76 +93,86 @@ class _PaymentScreenState extends State<PaymentScreen> {
       "delivery_country": widget.appointmentData['country'] ?? "Sri Lanka",
     };
   }
-Future<void> _storePaymentRecord(String appointmentId, int tokenNumber, String payherePaymentId) async {
-  try {
-    final paymentId = 'PAY_${DateTime.now().millisecondsSinceEpoch}';
-    
-    final paymentRecord = {
-      'paymentId': paymentId,
-      'appointmentId': appointmentId,
-      'scheduleId': widget.scheduleId,
-      'doctorId': widget.doctorId,
-      'patientId': widget.appointmentData['patientId'],
-      'patientName': widget.appointmentData['patientName'],
-      'amount': widget.amount,
-      'appointmentType': widget.appointmentData['appointmentType'] ?? 'physical',
-      'consultationType': _consultationType,
-      'tokenNumber': tokenNumber,
-      'payherePaymentId': payherePaymentId,
-      'orderId': "MEDILINK_${DateTime.now().millisecondsSinceEpoch}",
-      'paymentStatus': 'completed',
-      'paidAt': FieldValue.serverTimestamp(),
-      'createdAt': FieldValue.serverTimestamp(),
-      'doctorName': widget.doctorName,
-      'doctorSpecialty': widget.doctorSpecialty,
-      'medicalCenterName': widget.medicalCenterName,
-      'appointmentDate': widget.selectedDate,
-      'appointmentTime': widget.selectedTime,
-      
-    };
 
-    await FirebaseFirestore.instance
-        .collection('payments')
-        .doc(paymentId)
-        .set(paymentRecord);
+  Future<void> _storePaymentRecord(
+    String appointmentId,
+    int tokenNumber,
+    String payherePaymentId,
+  ) async {
+    try {
+      final paymentId = 'PAY_${DateTime.now().millisecondsSinceEpoch}';
 
-    print('✅ Payment record stored: $paymentId');
-  } catch (e) {
-    print('❌ Error storing payment record: $e');
+      final paymentRecord = {
+        'paymentId': paymentId,
+        'appointmentId': appointmentId,
+        'scheduleId': widget.scheduleId,
+        'doctorId': widget.doctorId,
+        'patientId': widget.appointmentData['patientId'],
+        'patientName': widget.appointmentData['patientName'],
+        'amount': widget.amount,
+        'appointmentType':
+            widget.appointmentData['appointmentType'] ?? 'physical',
+        'consultationType': _consultationType,
+        'tokenNumber': tokenNumber,
+        'payherePaymentId': payherePaymentId,
+        'orderId': "MEDILINK_${DateTime.now().millisecondsSinceEpoch}",
+        'paymentStatus': 'completed',
+        'paidAt': FieldValue.serverTimestamp(),
+        'createdAt': FieldValue.serverTimestamp(),
+        'doctorName': widget.doctorName,
+        'doctorSpecialty': widget.doctorSpecialty,
+        'medicalCenterName': widget.medicalCenterName,
+        'appointmentDate': widget.selectedDate,
+        'appointmentTime': widget.selectedTime,
+      };
+
+      await FirebaseFirestore.instance
+          .collection('payments')
+          .doc(paymentId)
+          .set(paymentRecord);
+
+      print('✅ Payment record stored: $paymentId');
+    } catch (e) {
+      print('❌ Error storing payment record: $e');
+    }
   }
-}
 
-// NEW METHOD: Store failed payment record
-Future<void> _storeFailedPaymentRecord(String payherePaymentId, String error) async {
-  try {
-    final paymentId = 'PAY_${DateTime.now().millisecondsSinceEpoch}';
-    
-    final paymentRecord = {
-      'paymentId': paymentId,
-      'amount': widget.amount,
-      'currency': 'LKR',
-      'appointmentType': widget.appointmentData['appointmentType'] ?? 'physical',
-      'consultationType': _consultationType,
-      'payherePaymentId': payherePaymentId,
-      'paymentStatus': 'failed',
-      'errorMessage': error,
-      'failedAt': FieldValue.serverTimestamp(),
-      'patientName': widget.appointmentData['patientName'],
-      'doctorName': widget.doctorName,
-      'appointmentDate': widget.selectedDate,
-      'appointmentTime': widget.selectedTime,
-    };
+  // NEW METHOD: Store failed payment record
+  Future<void> _storeFailedPaymentRecord(
+    String payherePaymentId,
+    String error,
+  ) async {
+    try {
+      final paymentId = 'PAY_${DateTime.now().millisecondsSinceEpoch}';
 
-    await FirebaseFirestore.instance
-        .collection('payments')
-        .doc(paymentId)
-        .set(paymentRecord);
+      final paymentRecord = {
+        'paymentId': paymentId,
+        'amount': widget.amount,
+        'currency': 'LKR',
+        'appointmentType':
+            widget.appointmentData['appointmentType'] ?? 'physical',
+        'consultationType': _consultationType,
+        'payherePaymentId': payherePaymentId,
+        'paymentStatus': 'failed',
+        'errorMessage': error,
+        'failedAt': FieldValue.serverTimestamp(),
+        'patientName': widget.appointmentData['patientName'],
+        'doctorName': widget.doctorName,
+        'appointmentDate': widget.selectedDate,
+        'appointmentTime': widget.selectedTime,
+      };
 
-    print('✅ Failed payment record stored: $paymentId');
-  } catch (e) {
-    print('❌ Error storing failed payment record: $e');
+      await FirebaseFirestore.instance
+          .collection('payments')
+          .doc(paymentId)
+          .set(paymentRecord);
+
+      print('✅ Failed payment record stored: $paymentId');
+    } catch (e) {
+      print('❌ Error storing failed payment record: $e');
+    }
   }
-}
+
   // Start PayHere flow, return true if payment success
   Future<bool> _startPayHere() async {
     final paymentObject = _createPayHerePaymentObject();
@@ -169,17 +182,17 @@ Future<void> _storeFailedPaymentRecord(String payherePaymentId, String error) as
     try {
       PayHere.startPayment(
         paymentObject,
-            (paymentId) async {
+        (paymentId) async {
           // Success callback
           print("✔ PAYHERE SUCCESS - paymentId: $paymentId");
           completer.complete(true);
         },
-            (error) {
+        (error) {
           // Error callback
           print("❌ PAYHERE ERROR - $error");
           completer.complete(false);
         },
-            () {
+        () {
           // Cancel callback
           print("⚠ PAYHERE CANCELED");
           completer.complete(false);
@@ -194,144 +207,156 @@ Future<void> _storeFailedPaymentRecord(String payherePaymentId, String error) as
     return completer.future;
   }
 
- Future<void> _processPayment() async {
-  if (_processingPayment) return;
+  Future<void> _processPayment() async {
+    if (_processingPayment) return;
 
-  setState(() {
-    _processingPayment = true;
-  });
-
-  String? payherePaymentId; // Declare the variable here
-
-  try {
-    print('💳 Starting PayHere payment...');
-    final paymentOk = await _startPayHere();
-
-    if (!paymentOk) {
-      _showErrorSnackBar("Payment failed or canceled. Try again.");
-      setState(() => _processingPayment = false);
-      return;
-    }
-
-    print("💰 PayHere payment successful! Continuing booking flow...");
-
-    // Generate a unique payment ID for PayHere
-    payherePaymentId = 'PH${DateTime.now().millisecondsSinceEpoch}';
-
-    // 1) Re-check schedule availability
-    final scheduleSnap = await FirebaseFirestore.instance
-        .collection('doctorSchedules')
-        .doc(widget.scheduleId)
-        .get();
-
-    if (!scheduleSnap.exists) {
-      _showErrorSnackBar('Schedule not found. Please try again.');
-      setState(() => _processingPayment = false);
-      return;
-    }
-
-    final scheduleData = scheduleSnap.data()!;
-    final currentBooked = (scheduleData['bookedAppointments'] as int?) ?? 0;
-    final maxAppointments = (scheduleData['maxAppointments'] as int?) ?? 10;
-
-    if (currentBooked >= maxAppointments) {
-      _showErrorSnackBar('Sorry, this slot is no longer available.');
-      setState(() => _processingPayment = false);
-      return;
-    }
-
-    // 2) Assign token number
-    print('🎫 Assigning token number after payment...');
-    final tokenNumber = await _tokenService.assignTokenNumber(
-      widget.doctorId,
-      widget.selectedDate,
-    );
-    print('✅ Token assigned: $tokenNumber');
-
-    // 3) Prepare updated appointment data
-    final updatedAppointmentData = {
-      ...widget.appointmentData,
-      'tokenNumber': tokenNumber,
-      'queueStatus': 'waiting',
-      'paymentStatus': 'paid',
-      'status': 'confirmed',
-      'paidAt': FieldValue.serverTimestamp(),
-      'consultationType': widget.appointmentData['appointmentType'] ?? _consultationType,
-      'doctorName': widget.doctorName,
-      'doctorSpecialty': widget.doctorSpecialty,
-      'medicalCenterName': widget.medicalCenterName,
-      'selectedDate': widget.selectedDate,
-      'selectedTime': widget.selectedTime,
-      'paymentId': 'PAY_${DateTime.now().millisecondsSinceEpoch}', 
-    };
-
-    // 4) Update bookedAppointments count (transaction to be safe)
-    final scheduleRef = FirebaseFirestore.instance.collection('doctorSchedules').doc(widget.scheduleId);
-    await FirebaseFirestore.instance.runTransaction((tx) async {
-      final freshSnap = await tx.get(scheduleRef);
-      if (!freshSnap.exists) throw Exception('Schedule disappeared');
-      final freshData = freshSnap.data()!;
-      final freshBooked = (freshData['bookedAppointments'] as int?) ?? 0;
-      final freshMax = (freshData['maxAppointments'] as int?) ?? 10;
-      if (freshBooked >= freshMax) {
-        throw Exception('Slot full');
-      }
-      tx.update(scheduleRef, {
-        'bookedAppointments': FieldValue.increment(1),
-        'updatedAt': FieldValue.serverTimestamp(),
-      });
-    });
-
-    // 5) Save appointment to Firestore
-    final appointmentRef = await FirebaseFirestore.instance
-        .collection('appointments')
-        .add(updatedAppointmentData);
-
-    print('✅ Appointment saved with ID: ${appointmentRef.id}');
-    print('✅ Token $tokenNumber confirmed for appointment');
-
-    // 6) Store payment record - CALL THE METHOD HERE
-    await _storePaymentRecord(appointmentRef.id, tokenNumber, payherePaymentId!);
-
-    // 7) If telemedicine, create session
-    final appointmentType = widget.appointmentData['appointmentType'] ?? 'physical';
-    if (appointmentType == 'video' || appointmentType == 'audio') {
-      await _createTelemedicineSession(appointmentRef.id, tokenNumber);
-    }
-
-    // 8) Store token locally
-    await _tokenService.storeTokenLocally(widget.scheduleId, tokenNumber);
-
-    // 9) Show success dialog
-    _showSuccessDialog(tokenNumber, appointmentRef.id);
-  } catch (e, st) {
-    print('❌ Payment/Booking error: $e\n$st');
-    
-    // Store failed payment record if we have the PayHere payment ID
-    if (payherePaymentId != null) {
-      await _storeFailedPaymentRecord(payherePaymentId, e.toString());
-    }
-    
-    // If runTransaction threw 'Slot full' or similar, show friendly message
-    final msg = (e is Exception && e.toString().contains('Slot full'))
-        ? 'Sorry, this slot was just taken. Your payment will be refunded by PayHere.'
-        : 'Payment succeeded but booking failed. Contact support.';
-    _showErrorSnackBar(msg);
-  } finally {
     setState(() {
-      _processingPayment = false;
+      _processingPayment = true;
     });
+
+    String? payherePaymentId; // Declare the variable here
+
+    try {
+      print('💳 Starting PayHere payment...');
+      final paymentOk = await _startPayHere();
+
+      if (!paymentOk) {
+        _showErrorSnackBar("Payment failed or canceled. Try again.");
+        setState(() => _processingPayment = false);
+        return;
+      }
+
+      print("💰 PayHere payment successful! Continuing booking flow...");
+
+      // Generate a unique payment ID for PayHere
+      payherePaymentId = 'PH${DateTime.now().millisecondsSinceEpoch}';
+
+      // 1) Re-check schedule availability
+      final scheduleSnap = await FirebaseFirestore.instance
+          .collection('doctorSchedules')
+          .doc(widget.scheduleId)
+          .get();
+
+      if (!scheduleSnap.exists) {
+        _showErrorSnackBar('Schedule not found. Please try again.');
+        setState(() => _processingPayment = false);
+        return;
+      }
+
+      final scheduleData = scheduleSnap.data()!;
+      final currentBooked = (scheduleData['bookedAppointments'] as int?) ?? 0;
+      final maxAppointments = (scheduleData['maxAppointments'] as int?) ?? 10;
+
+      if (currentBooked >= maxAppointments) {
+        _showErrorSnackBar('Sorry, this slot is no longer available.');
+        setState(() => _processingPayment = false);
+        return;
+      }
+
+      // 2) Assign token number
+      print('🎫 Assigning token number after payment...');
+      final tokenNumber = await _tokenService.assignTokenNumber(
+        widget.doctorId,
+        widget.selectedDate,
+      );
+      print('✅ Token assigned: $tokenNumber');
+
+      // 3) Prepare updated appointment data
+      final updatedAppointmentData = {
+        ...widget.appointmentData,
+        'tokenNumber': tokenNumber,
+        'queueStatus': 'waiting',
+        'paymentStatus': 'paid',
+        'status': 'confirmed',
+        'paidAt': FieldValue.serverTimestamp(),
+        'consultationType':
+            widget.appointmentData['appointmentType'] ?? _consultationType,
+        'doctorName': widget.doctorName,
+        'doctorSpecialty': widget.doctorSpecialty,
+        'medicalCenterName': widget.medicalCenterName,
+        'selectedDate': widget.selectedDate,
+        'selectedTime': widget.selectedTime,
+        'paymentId': 'PAY_${DateTime.now().millisecondsSinceEpoch}',
+      };
+
+      // 4) Update bookedAppointments count (transaction to be safe)
+      final scheduleRef = FirebaseFirestore.instance
+          .collection('doctorSchedules')
+          .doc(widget.scheduleId);
+      await FirebaseFirestore.instance.runTransaction((tx) async {
+        final freshSnap = await tx.get(scheduleRef);
+        if (!freshSnap.exists) throw Exception('Schedule disappeared');
+        final freshData = freshSnap.data()!;
+        final freshBooked = (freshData['bookedAppointments'] as int?) ?? 0;
+        final freshMax = (freshData['maxAppointments'] as int?) ?? 10;
+        if (freshBooked >= freshMax) {
+          throw Exception('Slot full');
+        }
+        tx.update(scheduleRef, {
+          'bookedAppointments': FieldValue.increment(1),
+          'updatedAt': FieldValue.serverTimestamp(),
+        });
+      });
+
+      // 5) Save appointment to Firestore
+      final appointmentRef = await FirebaseFirestore.instance
+          .collection('appointments')
+          .add(updatedAppointmentData);
+
+      print('✅ Appointment saved with ID: ${appointmentRef.id}');
+      print('✅ Token $tokenNumber confirmed for appointment');
+
+      // 6) Store payment record - CALL THE METHOD HERE
+      await _storePaymentRecord(
+        appointmentRef.id,
+        tokenNumber,
+        payherePaymentId!,
+      );
+
+      // 7) If telemedicine, create session
+      final appointmentType =
+          widget.appointmentData['appointmentType'] ?? 'physical';
+      if (appointmentType == 'video' || appointmentType == 'audio') {
+        await _createTelemedicineSession(appointmentRef.id, tokenNumber);
+      }
+
+      // 8) Store token locally
+      await _tokenService.storeTokenLocally(widget.scheduleId, tokenNumber);
+
+      // 9) Show success dialog
+      _showSuccessDialog(tokenNumber, appointmentRef.id);
+    } catch (e, st) {
+      print('❌ Payment/Booking error: $e\n$st');
+
+      // Store failed payment record if we have the PayHere payment ID
+      if (payherePaymentId != null) {
+        await _storeFailedPaymentRecord(payherePaymentId, e.toString());
+      }
+
+      // If runTransaction threw 'Slot full' or similar, show friendly message
+      final msg = (e is Exception && e.toString().contains('Slot full'))
+          ? 'Sorry, this slot was just taken. Your payment will be refunded by PayHere.'
+          : 'Payment succeeded but booking failed. Contact support.';
+      _showErrorSnackBar(msg);
+    } finally {
+      setState(() {
+        _processingPayment = false;
+      });
+    }
   }
-}
 
   // NEW METHOD: Create Telemedicine Session
-  Future<void> _createTelemedicineSession(String appointmentId, int tokenNumber) async {
+  Future<void> _createTelemedicineSession(
+    String appointmentId,
+    int tokenNumber,
+  ) async {
     try {
       print('🎥 Creating telemedicine session...');
 
       final telemedicineId = 'T${DateTime.now().millisecondsSinceEpoch}';
       final chatRoomId = 'C${DateTime.now().millisecondsSinceEpoch}';
-      final consultationType = widget.appointmentData['appointmentType'] ?? 'video';
+      final consultationType =
+          widget.appointmentData['appointmentType'] ?? 'video';
 
       final telemedicineSession = {
         'telemedicineId': telemedicineId,
@@ -354,8 +379,38 @@ Future<void> _storeFailedPaymentRecord(String payherePaymentId, String error) as
 
       await FirebaseFirestore.instance
           .collection('telemedicine_sessions')
-          .doc(telemedicineId)
+          .doc(appointmentId)
           .set(telemedicineSession);
+      // Update/create a "sessions" collection with this scheduleId;
+      // Each session document will store the scheduleId and an array of all appointmentIds for this schedule
+      final scheduleId = widget.scheduleId;
+
+      final sessionRef = FirebaseFirestore.instance
+          .collection('sessions')
+          .doc(scheduleId);
+
+      // Use a Firestore transaction to add appointmentId to the appointments array for this session
+      await FirebaseFirestore.instance.runTransaction((transaction) async {
+        final sessionSnapshot = await transaction.get(sessionRef);
+        if (!sessionSnapshot.exists) {
+          // Create new session doc with this appointmentId in appointments list
+          transaction.set(sessionRef, {
+            'scheduleId': scheduleId,
+            'appointmentIds': [appointmentId],
+            'createdAt': DateTime.now().toIso8601String(),
+          });
+        } else {
+          // Update existing session doc by adding appointmentId (avoid duplicates)
+          final data = sessionSnapshot.data() as Map<String, dynamic>;
+          final List<dynamic> currentAppointments =
+              (data['appointmentIds'] ?? []);
+          if (!currentAppointments.contains(appointmentId)) {
+            transaction.update(sessionRef, {
+              'appointmentIds': FieldValue.arrayUnion([appointmentId]),
+            });
+          }
+        }
+      });
 
       print('✅ Telemedicine session created: $telemedicineId');
 
@@ -363,11 +418,11 @@ Future<void> _storeFailedPaymentRecord(String payherePaymentId, String error) as
           .collection('appointments')
           .doc(appointmentId)
           .update({
-        'telemedicineId': telemedicineId,
-        'chatRoomId': chatRoomId,
-        'videoLink': 'https://medilink.app/call/$telemedicineId',
-        'consultationType': consultationType,
-      });
+            'telemedicineId': telemedicineId,
+            'chatRoomId': chatRoomId,
+            'videoLink': 'https://medilink.app/call/$telemedicineId',
+            'consultationType': consultationType,
+          });
 
       print('✅ Appointment updated with telemedicine IDs');
     } catch (e) {
@@ -427,10 +482,7 @@ Future<void> _storeFailedPaymentRecord(String payherePaymentId, String error) as
                       const SizedBox(height: 8),
                       const Text(
                         'Show this token at the clinic',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: Colors.grey,
-                        ),
+                        style: TextStyle(fontSize: 12, color: Colors.grey),
                       ),
                     ],
                   ),
@@ -443,10 +495,7 @@ Future<void> _storeFailedPaymentRecord(String payherePaymentId, String error) as
                 const SizedBox(height: 8),
                 Text(
                   'Appointment ID: ${appointmentId.substring(0, 8)}...',
-                  style: const TextStyle(
-                    fontSize: 12,
-                    color: Colors.grey,
-                  ),
+                  style: const TextStyle(fontSize: 12, color: Colors.grey),
                 ),
               ],
             ),
@@ -564,12 +613,21 @@ Future<void> _storeFailedPaymentRecord(String payherePaymentId, String error) as
                     _buildDetailRow('Medical Center', widget.medicalCenterName),
                     _buildDetailRow('Date', widget.selectedDate),
                     _buildDetailRow('Time', widget.selectedTime),
-                    _buildDetailRow('Appointment Type',
-                        _formatConsultationType(widget.appointmentData['appointmentType'] ?? 'physical')),
+                    _buildDetailRow(
+                      'Appointment Type',
+                      _formatConsultationType(
+                        widget.appointmentData['appointmentType'] ?? 'physical',
+                      ),
+                    ),
                     _buildDetailRow('Token', 'Will be assigned after payment'),
                     if (widget.appointmentData['patientNotes'] != null &&
-                        widget.appointmentData['patientNotes'].toString().isNotEmpty)
-                      _buildDetailRow('Your Notes', widget.appointmentData['patientNotes']),
+                        widget.appointmentData['patientNotes']
+                            .toString()
+                            .isNotEmpty)
+                      _buildDetailRow(
+                        'Your Notes',
+                        widget.appointmentData['patientNotes'],
+                      ),
                   ],
                 ),
               ),
@@ -601,10 +659,7 @@ Future<void> _storeFailedPaymentRecord(String payherePaymentId, String error) as
                   const SizedBox(height: 8),
                   const Text(
                     'Token number will be assigned after successful payment',
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: Colors.grey,
-                    ),
+                    style: TextStyle(fontSize: 12, color: Colors.grey),
                     textAlign: TextAlign.center,
                   ),
                 ],
@@ -626,24 +681,29 @@ Future<void> _storeFailedPaymentRecord(String payherePaymentId, String error) as
                 ),
                 child: _processingPayment
                     ? const Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    SizedBox(
-                      width: 20,
-                      height: 20,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                      ),
-                    ),
-                    SizedBox(width: 12),
-                    Text('Processing Payment...'),
-                  ],
-                )
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              valueColor: AlwaysStoppedAnimation<Color>(
+                                Colors.white,
+                              ),
+                            ),
+                          ),
+                          SizedBox(width: 12),
+                          Text('Processing Payment...'),
+                        ],
+                      )
                     : const Text(
-                  'Pay Now',
-                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                ),
+                        'Pay Now',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
               ),
             ),
             const SizedBox(height: 20),
@@ -675,12 +735,9 @@ Future<void> _storeFailedPaymentRecord(String payherePaymentId, String error) as
                   SizedBox(height: 8),
                   Text(
                     '• Your payment information is secure\n'
-                        '• Token will be assigned immediately after payment\n'
-                        '• Full refund available if cancelled 2 hours before appointment',
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: Color(0xFF18A3B6),
-                    ),
+                    '• Token will be assigned immediately after payment\n'
+                    '• Full refund available if cancelled 2 hours before appointment',
+                    style: TextStyle(fontSize: 12, color: Color(0xFF18A3B6)),
                   ),
                 ],
               ),

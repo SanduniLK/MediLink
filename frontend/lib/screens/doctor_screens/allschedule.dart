@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'schedule_appointments_screen.dart';
+import 'package:frontend/telemedicine/doctor_telemedicine_page.dart';
 
 // Color Scheme
 const Color primaryColor = Color(0xFF18A3B6); // Deep teal
@@ -57,7 +58,7 @@ class DoctorSchedule {
 
   factory DoctorSchedule.fromFirestore(DocumentSnapshot doc) {
     final data = doc.data() as Map<String, dynamic>;
-    
+
     return DoctorSchedule(
       id: doc.id,
       adminApproved: data['adminApproved'] ?? false,
@@ -77,7 +78,9 @@ class DoctorSchedule {
       submittedAt: data['submittedAt']?.toDate() ?? DateTime.now(),
       telemedicineTypes: List<String>.from(data['telemedicineTypes'] ?? []),
       updatedAt: data['updatedAt']?.toDate() ?? DateTime.now(),
-      weeklySchedule: List<Map<String, dynamic>>.from(data['weeklySchedule'] ?? []),
+      weeklySchedule: List<Map<String, dynamic>>.from(
+        data['weeklySchedule'] ?? [],
+      ),
     );
   }
 
@@ -136,120 +139,62 @@ class _AllscheduleState extends State<Allschedule> {
     _schedulesStream = FirebaseFirestore.instance
         .collection('doctorSchedules')
         .snapshots();
-    
+
     setState(() {
       _isLoading = false;
     });
   }
 
   void _onScheduleTap(DoctorSchedule schedule) {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => ScheduleAppointmentsScreen(
-          schedule: schedule,
+    final isTelemedicine =
+        schedule.appointmentType.toLowerCase() == 'telemedicine';
+
+    if (isTelemedicine) {
+      // Debug: navigation details for telemedicine view appointments
+      debugPrint(
+        '🩺 Navigating to DoctorTelemedicinePage → doctorId=${schedule.doctorId}, '
+        'doctorName=${schedule.doctorName}, scheduleId=${schedule.id}, '
+        'appointmentType=${schedule.appointmentType}',
+      );
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => DoctorTelemedicinePage(
+            doctorId: schedule.doctorId,
+            doctorName: schedule.doctorName,
+            scheduleId: schedule.id,
+          ),
         ),
-      ),
-    );
+      );
+    } else {
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => ScheduleAppointmentsScreen(schedule: schedule),
+        ),
+      );
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      appBar: AppBar(
+        title: const Text('All Sessions'),
+        backgroundColor: primaryColor,
+        foregroundColor: Colors.white,
+      ),
       backgroundColor: backgroundColor,
       body: SafeArea(
         child: Column(
           children: [
             // Header
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: const BorderRadius.only(
-                  bottomLeft: Radius.circular(24),
-                  bottomRight: Radius.circular(24),
-                ),
-                boxShadow: [
-                  BoxShadow(
-                    color: primaryColor.withOpacity(0.1),
-                    blurRadius: 10,
-                    offset: const Offset(0, 4),
-                  ),
-                ],
-              ),
-              child: Column(
-                children: [
-                  Row(
-                    children: [
-                      CircleAvatar(
-                        backgroundColor: accentColor2,
-                        child: Icon(
-                          Icons.schedule,
-                          color: primaryColor,
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'Doctor Schedules',
-                              style: TextStyle(
-                                fontSize: 22,
-                                fontWeight: FontWeight.bold,
-                                color: textColorDark,
-                              ),
-                            ),
-                            Text(
-                              'Manage your appointments',
-                              style: TextStyle(
-                                fontSize: 14,
-                                color: textColorLight,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      IconButton(
-                        onPressed: _initializeStream,
-                        icon: Icon(
-                          Icons.refresh,
-                          color: primaryColor,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 16),
-                  // Tabs
-                  Container(
-                    height: 44,
-                    decoration: BoxDecoration(
-                      color: accentColor2,
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Row(
-                      children: [
-                        Expanded(
-                          child: _buildTabButton('Telemedicine', 0),
-                        ),
-                        Expanded(
-                          child: _buildTabButton('Physical', 1),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
 
             // Body
             Expanded(
               child: _isLoading
                   ? Center(
-                      child: CircularProgressIndicator(
-                        color: primaryColor,
-                      ),
+                      child: CircularProgressIndicator(color: primaryColor),
                     )
                   : StreamBuilder<QuerySnapshot>(
                       stream: _schedulesStream,
@@ -258,7 +203,8 @@ class _AllscheduleState extends State<Allschedule> {
                           return _buildErrorState();
                         }
 
-                        if (snapshot.connectionState == ConnectionState.waiting) {
+                        if (snapshot.connectionState ==
+                            ConnectionState.waiting) {
                           return Center(
                             child: CircularProgressIndicator(
                               color: primaryColor,
@@ -275,13 +221,19 @@ class _AllscheduleState extends State<Allschedule> {
                             .toList();
 
                         final telemedicineSchedules = schedules
-                            .where((schedule) =>
-                                schedule.appointmentType.toLowerCase() == 'telemedicine')
+                            .where(
+                              (schedule) =>
+                                  schedule.appointmentType.toLowerCase() ==
+                                  'telemedicine',
+                            )
                             .toList();
 
                         final physicalSchedules = schedules
-                            .where((schedule) =>
-                                schedule.appointmentType.toLowerCase() == 'physical')
+                            .where(
+                              (schedule) =>
+                                  schedule.appointmentType.toLowerCase() ==
+                                  'physical',
+                            )
                             .toList();
 
                         return DefaultTabController(
@@ -290,8 +242,12 @@ class _AllscheduleState extends State<Allschedule> {
                             children: [
                               TabBar(
                                 indicator: BoxDecoration(
-                                  borderRadius: BorderRadius.circular(12),
-                                  color: Colors.white,
+                                  border: Border(
+                                    bottom: BorderSide(
+                                      color: primaryColor,
+                                      width: 3.0,
+                                    ),
+                                  ),
                                 ),
                                 labelColor: primaryColor,
                                 unselectedLabelColor: textColorLight,
@@ -304,8 +260,14 @@ class _AllscheduleState extends State<Allschedule> {
                               Expanded(
                                 child: TabBarView(
                                   children: [
-                                    _buildScheduleList(telemedicineSchedules, isTelemedicine: true),
-                                    _buildScheduleList(physicalSchedules, isTelemedicine: false),
+                                    _buildScheduleList(
+                                      telemedicineSchedules,
+                                      isTelemedicine: true,
+                                    ),
+                                    _buildScheduleList(
+                                      physicalSchedules,
+                                      isTelemedicine: false,
+                                    ),
                                   ],
                                 ),
                               ),
@@ -321,35 +283,12 @@ class _AllscheduleState extends State<Allschedule> {
     );
   }
 
-  Widget _buildTabButton(String text, int index) {
-    return Container(
-      margin: const EdgeInsets.all(4),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Center(
-        child: Text(
-          text,
-          style: TextStyle(
-            color: primaryColor,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-      ),
-    );
-  }
-
   Widget _buildErrorState() {
     return Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(
-            Icons.error_outline,
-            size: 64,
-            color: primaryColor,
-          ),
+          Icon(Icons.error_outline, size: 64, color: primaryColor),
           const SizedBox(height: 16),
           Text(
             'Failed to load schedules',
@@ -362,10 +301,7 @@ class _AllscheduleState extends State<Allschedule> {
           const SizedBox(height: 8),
           Text(
             'Please check your connection',
-            style: TextStyle(
-              fontSize: 14,
-              color: textColorLight,
-            ),
+            style: TextStyle(fontSize: 14, color: textColorLight),
           ),
         ],
       ),
@@ -384,11 +320,7 @@ class _AllscheduleState extends State<Allschedule> {
               color: accentColor2,
               shape: BoxShape.circle,
             ),
-            child: Icon(
-              Icons.schedule_outlined,
-              size: 64,
-              color: primaryColor,
-            ),
+            child: Icon(Icons.schedule_outlined, size: 64, color: primaryColor),
           ),
           const SizedBox(height: 24),
           Text(
@@ -405,10 +337,7 @@ class _AllscheduleState extends State<Allschedule> {
             child: Text(
               'Create a new schedule to start accepting appointments',
               textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 14,
-                color: textColorLight,
-              ),
+              style: TextStyle(fontSize: 14, color: textColorLight),
             ),
           ),
           const SizedBox(height: 24),
@@ -431,14 +360,19 @@ class _AllscheduleState extends State<Allschedule> {
     );
   }
 
-  Widget _buildScheduleList(List<DoctorSchedule> schedules, {required bool isTelemedicine}) {
+  Widget _buildScheduleList(
+    List<DoctorSchedule> schedules, {
+    required bool isTelemedicine,
+  }) {
     if (schedules.isEmpty) {
       return Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Icon(
-              isTelemedicine ? Icons.videocam_off : Icons.local_hospital_outlined,
+              isTelemedicine
+                  ? Icons.videocam_off
+                  : Icons.local_hospital_outlined,
               size: 64,
               color: accentColor1,
             ),
@@ -454,10 +388,7 @@ class _AllscheduleState extends State<Allschedule> {
             const SizedBox(height: 8),
             Text(
               'Create a ${isTelemedicine ? 'telemedicine' : 'physical'} schedule to get started',
-              style: TextStyle(
-                fontSize: 14,
-                color: textColorLight,
-              ),
+              style: TextStyle(fontSize: 14, color: textColorLight),
             ),
           ],
         ),
@@ -468,12 +399,18 @@ class _AllscheduleState extends State<Allschedule> {
       padding: const EdgeInsets.all(16.0),
       itemCount: schedules.length,
       itemBuilder: (context, index) {
-        return _buildScheduleCard(schedules[index], isTelemedicine: isTelemedicine);
+        return _buildScheduleCard(
+          schedules[index],
+          isTelemedicine: isTelemedicine,
+        );
       },
     );
   }
 
-  Widget _buildScheduleCard(DoctorSchedule schedule, {required bool isTelemedicine}) {
+  Widget _buildScheduleCard(
+    DoctorSchedule schedule, {
+    required bool isTelemedicine,
+  }) {
     return GestureDetector(
       onTap: () => _onScheduleTap(schedule),
       child: Container(
@@ -504,7 +441,7 @@ class _AllscheduleState extends State<Allschedule> {
                 ),
               ),
             ),
-            
+
             Padding(
               padding: const EdgeInsets.all(20),
               child: Column(
@@ -520,11 +457,15 @@ class _AllscheduleState extends State<Allschedule> {
                             width: 48,
                             height: 48,
                             decoration: BoxDecoration(
-                              color: isTelemedicine ? accentColor1 : secondaryColor,
+                              color: isTelemedicine
+                                  ? accentColor1
+                                  : secondaryColor,
                               borderRadius: BorderRadius.circular(12),
                             ),
                             child: Icon(
-                              isTelemedicine ? Icons.video_call : Icons.local_hospital,
+                              isTelemedicine
+                                  ? Icons.video_call
+                                  : Icons.local_hospital,
                               color: Colors.white,
                               size: 24,
                             ),
@@ -592,10 +533,16 @@ class _AllscheduleState extends State<Allschedule> {
                             ),
                             const SizedBox(width: 12),
                             _buildDetailItem(
-                              icon: schedule.adminApproved ? Icons.check_circle : Icons.pending,
+                              icon: schedule.adminApproved
+                                  ? Icons.check_circle
+                                  : Icons.pending,
                               label: 'Admin Status',
-                              value: schedule.adminApproved ? 'Approved' : 'Pending',
-                              color: schedule.adminApproved ? Colors.green : Colors.orange,
+                              value: schedule.adminApproved
+                                  ? 'Approved'
+                                  : 'Pending',
+                              color: schedule.adminApproved
+                                  ? Colors.green
+                                  : Colors.orange,
                             ),
                           ],
                         ),
@@ -624,7 +571,10 @@ class _AllscheduleState extends State<Allschedule> {
                           runSpacing: 8,
                           children: schedule.availableDays.map((day) {
                             return Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                                vertical: 6,
+                              ),
                               decoration: BoxDecoration(
                                 color: accentColor2,
                                 borderRadius: BorderRadius.circular(20),
@@ -721,11 +671,7 @@ class _AllscheduleState extends State<Allschedule> {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(
-            icon,
-            size: 14,
-            color: textColor,
-          ),
+          Icon(icon, size: 14, color: textColor),
           const SizedBox(width: 4),
           Text(
             status.capitalize(),
@@ -755,11 +701,7 @@ class _AllscheduleState extends State<Allschedule> {
         ),
         child: Row(
           children: [
-            Icon(
-              icon,
-              size: 16,
-              color: color ?? primaryColor,
-            ),
+            Icon(icon, size: 16, color: color ?? primaryColor),
             const SizedBox(width: 8),
             Expanded(
               child: Column(
@@ -767,10 +709,7 @@ class _AllscheduleState extends State<Allschedule> {
                 children: [
                   Text(
                     label,
-                    style: TextStyle(
-                      fontSize: 10,
-                      color: textColorLight,
-                    ),
+                    style: TextStyle(fontSize: 10, color: textColorLight),
                   ),
                   const SizedBox(height: 2),
                   Text(
