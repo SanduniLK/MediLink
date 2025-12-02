@@ -12,14 +12,14 @@ class DoctorPatientProfileScreen extends StatefulWidget {
   final String patientId;
   final String patientName;
   final Map<String, dynamic> patientData;
-
+  final String? accessType;
 
   const DoctorPatientProfileScreen({
     super.key,
     required this.patientId,
     required this.patientName,
     required this.patientData,
-    
+    this.accessType = 'appointment',
   });
 
   @override
@@ -53,10 +53,9 @@ class _DoctorPatientProfileScreenState extends State<DoctorPatientProfileScreen>
       _patientDetails = widget.patientData;
       _medicalStats = {
         'labResultsCount': 0,
-        'prescriptionsCount': 0,
-        'otherCount': 0,
-        'totalRecords': 0,
-        'lastUploadDate': null,
+  'prescriptionsCount': 0,
+  'otherCount': 0,
+  'totalCount': 0,
       };
     } finally {
       setState(() {
@@ -426,23 +425,42 @@ class _DoctorPatientProfileScreenState extends State<DoctorPatientProfileScreen>
 
 bool _isLoadingStats = true;
 
-
 Future<void> _loadMedicalStats() async {
   try {
     final recordsService = DoctorMedicalRecordsService();
     final stats = await recordsService.getMedicalRecordsStats(widget.patientId);
-    setState(() {
-      _medicalStats = stats;
-      _isLoadingStats = false;
-    });
+    
+    if (mounted) {
+      setState(() {
+        _medicalStats = {
+          'labResultsCount': stats['labResultsCount'] ?? 0,
+          'prescriptionsCount': stats['prescriptionsCount'] ?? 0,
+          'otherCount': stats['otherCount'] ?? 0,
+          'totalCount': stats['totalCount'] ?? 0,
+        };
+        _isLoadingStats = false;
+      });
+    }
   } catch (e) {
     debugPrint('Error loading medical stats: $e');
-    setState(() {
-      _isLoadingStats = false;
-    });
+    if (mounted) {
+      setState(() {
+        _isLoadingStats = false;
+        // Reset to default values
+        _medicalStats = {
+          'labResultsCount': 0,
+          'prescriptionsCount': 0,
+          'otherCount': 0,
+          'totalCount': 0,
+        };
+      });
+    }
   }
 }
- Widget _buildMedicalRecordsSection() {
+Widget _buildMedicalRecordsSection() {
+  final totalCount = _medicalStats['totalCount'] ?? 0;
+  final hasRecords = totalCount > 0;
+  
   return Padding(
     padding: const EdgeInsets.all(16),
     child: Card(
@@ -472,61 +490,35 @@ Future<void> _loadMedicalStats() async {
             
             const SizedBox(height: 16),
             
-            // Records Summary - Show loading or stats
-            _isLoadingStats
-                ? Center(
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 20),
-                      child: CircularProgressIndicator(),
-                    ),
-                  )
-                : Column(
-                    children: [
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceAround,
-                        children: [
-                          _buildRecordStat(
-                            'Lab Results',
-                            _medicalStats['labResultsCount'] ?? 0,
-                            Icons.science,
-                            Colors.blue,
-                          ),
-                          _buildRecordStat(
-                            'Prescriptions',
-                            _medicalStats['prescriptionsCount'] ?? 0,
-                            Icons.medication,
-                            Colors.green,
-                          ),
-                          _buildRecordStat(
-                            'Other',
-                            _medicalStats['otherCount'] ?? 0,
-                            Icons.folder,
-                            Colors.orange,
-                          ),
-                        ],
-                      ),
-                      
-                      // Show total count badge
-                      if (_medicalStats['totalCount']! > 0) ...[
-                        const SizedBox(height: 12),
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                          decoration: BoxDecoration(
-                            color: Color(0xFF18A3B6),
-                            borderRadius: BorderRadius.circular(20),
-                          ),
-                          child: Text(
-                            'Total: ${_medicalStats['totalCount']} records',
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontWeight: FontWeight.bold,
-                              fontSize: 14,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ],
+            // Records Summary
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceAround,
+              children: [
+                _buildRecordStat('Lab Results', _medicalStats['labResultsCount'] ?? 0, Icons.science),
+                _buildRecordStat('Prescriptions', _medicalStats['prescriptionsCount'] ?? 0, Icons.medication),
+                _buildRecordStat('Other', _medicalStats['otherCount'] ?? 0, Icons.folder),
+              ],
+            ),
+            
+            // Show total count if there are records
+            if (hasRecords) ...[
+              const SizedBox(height: 12),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                decoration: BoxDecoration(
+                  color: Color(0xFF18A3B6),
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Text(
+                  'Total: $totalCount records',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 14,
                   ),
+                ),
+              ),
+            ],
             
             const SizedBox(height: 20),
             
@@ -534,7 +526,7 @@ Future<void> _loadMedicalStats() async {
             SizedBox(
               width: double.infinity,
               child: ElevatedButton.icon(
-                onPressed: _medicalStats['totalCount']! > 0
+                onPressed: hasRecords
                     ? () {
                         Navigator.push(
                           context,
@@ -553,7 +545,7 @@ Future<void> _loadMedicalStats() async {
                   style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                 ),
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: _medicalStats['totalCount']! > 0
+                  backgroundColor: hasRecords
                       ? const Color(0xFF18A3B6)
                       : Colors.grey[400],
                   foregroundColor: Colors.white,
@@ -573,25 +565,25 @@ Future<void> _loadMedicalStats() async {
 }
 
 
-Widget _buildRecordStat(String title, int count, IconData icon, Color color) {
+Widget _buildRecordStat(String title, int count, IconData icon) {
   return Column(
     children: [
       Container(
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
-          color: color.withOpacity(0.1),
+          color: _getColorForCategory(title).withOpacity(0.1),
           borderRadius: BorderRadius.circular(12),
         ),
         child: Column(
           children: [
-            Icon(icon, size: 28, color: color),
+            Icon(icon, size: 28, color: _getColorForCategory(title)),
             const SizedBox(height: 8),
             Text(
               '$count',
               style: TextStyle(
                 fontSize: 20,
                 fontWeight: FontWeight.bold,
-                color: color,
+                color: _getColorForCategory(title),
               ),
             ),
           ],
@@ -607,6 +599,19 @@ Widget _buildRecordStat(String title, int count, IconData icon, Color color) {
       ),
     ],
   );
+}
+
+Color _getColorForCategory(String category) {
+  switch (category) {
+    case 'Lab Results':
+      return Colors.blue;
+    case 'Prescriptions':
+      return Colors.green;
+    case 'Other':
+      return Colors.orange;
+    default:
+      return Colors.grey;
+  }
 }
 
   Widget _buildPersonalInfoSection() {
