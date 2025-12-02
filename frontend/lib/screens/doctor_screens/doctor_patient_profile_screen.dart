@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:frontend/screens/doctor_screens/prescription_screen.dart';
+import 'package:frontend/services/doctor_medical_records_service.dart';
 import 'package:intl/intl.dart';
 import '../../services/patient_services.dart';
 import 'doctor_medical_history_screen.dart';
@@ -35,6 +36,7 @@ class _DoctorPatientProfileScreenState extends State<DoctorPatientProfileScreen>
   void initState() {
     super.initState();
     _loadPatientData();
+    _loadMedicalStats();
   }
 
   Future<void> _loadPatientData() async {
@@ -422,118 +424,190 @@ class _DoctorPatientProfileScreenState extends State<DoctorPatientProfileScreen>
     );
   }
 
-  Widget _buildMedicalRecordsSection() {
-    return Padding(
-      padding: const EdgeInsets.all(16),
-      child: Card(
-        elevation: 4,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(16),
-        ),
-        child: Padding(
-          padding: const EdgeInsets.all(20),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Row(
-                children: [
-                  Icon(Icons.medical_services, color: Color(0xFF18A3B6), size: 24),
-                  SizedBox(width: 8),
-                  Text(
-                    'Medical Records',
-                    style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                      color: Color(0xFF18A3B6),
-                    ),
-                  ),
-                ],
-              ),
-              
-              const SizedBox(height: 16),
-              
-              // Records Summary
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceAround,
-                children: [
-                  _buildRecordStat('Lab Results', _medicalStats['labResultsCount'], Icons.science),
-                  _buildRecordStat('Prescriptions', _medicalStats['prescriptionsCount'], Icons.medication),
-                  _buildRecordStat('Other', _medicalStats['otherCount'], Icons.folder),
-                ],
-              ),
-              
-              const SizedBox(height: 20),
-              
-              // View Medical History Button
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton.icon(
-                  onPressed: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) => DoctorMedicalHistoryScreen(
-                          patientId: widget.patientId,
-                          patientName: _patientDetails['fullname'] ?? widget.patientName,
-                        ),
-                      ),
-                    );
-                  },
-                  icon: const Icon(Icons.history_edu, size: 24),
-                  label: const Text(
-                    'VIEW COMPLETE MEDICAL HISTORY',
-                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                  ),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF18A3B6),
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 16),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    elevation: 2,
+bool _isLoadingStats = true;
+
+
+Future<void> _loadMedicalStats() async {
+  try {
+    final recordsService = DoctorMedicalRecordsService();
+    final stats = await recordsService.getMedicalRecordsStats(widget.patientId);
+    setState(() {
+      _medicalStats = stats;
+      _isLoadingStats = false;
+    });
+  } catch (e) {
+    debugPrint('Error loading medical stats: $e');
+    setState(() {
+      _isLoadingStats = false;
+    });
+  }
+}
+ Widget _buildMedicalRecordsSection() {
+  return Padding(
+    padding: const EdgeInsets.all(16),
+    child: Card(
+      elevation: 4,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Row(
+              children: [
+                Icon(Icons.medical_services, color: Color(0xFF18A3B6), size: 24),
+                SizedBox(width: 8),
+                Text(
+                  'Medical Records',
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xFF18A3B6),
                   ),
                 ),
+              ],
+            ),
+            
+            const SizedBox(height: 16),
+            
+            // Records Summary - Show loading or stats
+            _isLoadingStats
+                ? Center(
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 20),
+                      child: CircularProgressIndicator(),
+                    ),
+                  )
+                : Column(
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceAround,
+                        children: [
+                          _buildRecordStat(
+                            'Lab Results',
+                            _medicalStats['labResultsCount'] ?? 0,
+                            Icons.science,
+                            Colors.blue,
+                          ),
+                          _buildRecordStat(
+                            'Prescriptions',
+                            _medicalStats['prescriptionsCount'] ?? 0,
+                            Icons.medication,
+                            Colors.green,
+                          ),
+                          _buildRecordStat(
+                            'Other',
+                            _medicalStats['otherCount'] ?? 0,
+                            Icons.folder,
+                            Colors.orange,
+                          ),
+                        ],
+                      ),
+                      
+                      // Show total count badge
+                      if (_medicalStats['totalCount']! > 0) ...[
+                        const SizedBox(height: 12),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                          decoration: BoxDecoration(
+                            color: Color(0xFF18A3B6),
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                          child: Text(
+                            'Total: ${_medicalStats['totalCount']} records',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 14,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+            
+            const SizedBox(height: 20),
+            
+            // View Medical History Button
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: _medicalStats['totalCount']! > 0
+                    ? () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => DoctorMedicalHistoryScreen(
+                              patientId: widget.patientId,
+                              patientName: _patientDetails['fullname'] ?? widget.patientName,
+                            ),
+                          ),
+                        );
+                      }
+                    : null,
+                icon: const Icon(Icons.history_edu, size: 24),
+                label: const Text(
+                  'VIEW COMPLETE MEDICAL HISTORY',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                ),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: _medicalStats['totalCount']! > 0
+                      ? const Color(0xFF18A3B6)
+                      : Colors.grey[400],
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  elevation: 2,
+                ),
               ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
-    );
-  }
+    ),
+  );
+}
 
-  Widget _buildRecordStat(String title, int count, IconData icon) {
-    return Column(
-      children: [
-        Container(
-          width: 60,
-          height: 60,
-          decoration: BoxDecoration(
-            color: const Color(0xFF18A3B6).withAlpha(25),
-            shape: BoxShape.circle,
-          ),
-          child: Icon(icon, color: const Color(0xFF18A3B6), size: 24),
+
+Widget _buildRecordStat(String title, int count, IconData icon, Color color) {
+  return Column(
+    children: [
+      Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: color.withOpacity(0.1),
+          borderRadius: BorderRadius.circular(12),
         ),
-        const SizedBox(height: 8),
-        Text(
-          count.toString(),
-          style: const TextStyle(
-            fontSize: 18,
-            fontWeight: FontWeight.bold,
-            color: Color(0xFF18A3B6),
-          ),
+        child: Column(
+          children: [
+            Icon(icon, size: 28, color: color),
+            const SizedBox(height: 8),
+            Text(
+              '$count',
+              style: TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.bold,
+                color: color,
+              ),
+            ),
+          ],
         ),
-        Text(
-          title,
-          style: TextStyle(
-            fontSize: 12,
-            color: Colors.grey[600],
-          ),
-          textAlign: TextAlign.center,
+      ),
+      const SizedBox(height: 8),
+      Text(
+        title,
+        style: const TextStyle(
+          fontSize: 12,
+          color: Colors.grey,
         ),
-      ],
-    );
-  }
+      ),
+    ],
+  );
+}
 
   Widget _buildPersonalInfoSection() {
     return Padding(

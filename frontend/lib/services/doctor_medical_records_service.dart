@@ -215,7 +215,34 @@ class DoctorMedicalRecordsService {
     
     return uniqueRecords.values.toList();
   }
-
+// Add this method to DoctorMedicalRecordsService
+Future<Map<String, int>> getMedicalRecordsStats(String patientId) async {
+  try {
+    // Get all records first
+    final allRecords = await getAllPatientMedicalRecords(patientId);
+    
+    // Count each category
+    final labResultsCount = allRecords['lab_results']?.length ?? 0;
+    final prescriptionsCount = allRecords['past_prescriptions']?.length ?? 0;
+    final otherCount = allRecords['other']?.length ?? 0;
+    final totalCount = labResultsCount + prescriptionsCount + otherCount;
+    
+    return {
+      'labResultsCount': labResultsCount,
+      'prescriptionsCount': prescriptionsCount,
+      'otherCount': otherCount,
+      'totalCount': totalCount,
+    };
+  } catch (e) {
+    debugPrint('❌ Error getting medical records stats: $e');
+    return {
+      'labResultsCount': 0,
+      'prescriptionsCount': 0,
+      'otherCount': 0,
+      'totalCount': 0,
+    };
+  }
+}
   // Helper method to format date for file name
   String _formatDateForFileName(DateTime date) {
     return '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
