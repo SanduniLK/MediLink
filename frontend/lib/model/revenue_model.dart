@@ -1,6 +1,7 @@
 class Appointment {
   final String id;
-  final double fees;
+   final double doctorFees; // Doctor's portion from doctor collection
+  final double totalFees;
   final DateTime? paidAt;
   final String date;
   final String? medicalCenterId;
@@ -12,7 +13,8 @@ class Appointment {
 
   Appointment({
     required this.id,
-    required this.fees,
+    required this.doctorFees,
+    required this.totalFees,
     required this.paidAt,
     required this.date,
     this.medicalCenterId,

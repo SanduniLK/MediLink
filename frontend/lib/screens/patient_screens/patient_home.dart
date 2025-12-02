@@ -766,12 +766,7 @@ Widget _buildHeader(double screenWidth) {
             },
             child: _buildActionButton(Icons.queue_play_next, "Queue", kBrightCyan),
           ),
-          GestureDetector(
-             onTap: () {
-                Navigator.push(context, MaterialPageRoute(builder: (_) => MedicalRecordsScreen()));
-              },
-            child: _buildActionButton(Icons.medical_services, "Medical History", kBrightCyan),
-          ),
+          
           GestureDetector(
             onTap: () {
               if (patientId != null) {
@@ -800,12 +795,7 @@ Widget _buildHeader(double screenWidth) {
             },
             child: _buildActionButton(Icons.science_outlined, "Test Reports", kBrightCyan),
           ),
-          GestureDetector(
-            onTap: () {
-              _navigateToChatList(context);
-            },
-            child: _buildActionButton(Icons.message_rounded, "Messages", kBrightCyan),
-          ),
+          
         ],
       ),
     );

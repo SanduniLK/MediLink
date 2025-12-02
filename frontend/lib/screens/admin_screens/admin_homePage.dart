@@ -2,6 +2,7 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:frontend/screens/admin_screens/admin_analyze.page.dart';
 import 'package:frontend/screens/admin_screens/admin_appoinment_mng.dart';
 import 'package:frontend/screens/admin_screens/admin_appoinment_mng.dart' as appointment_mng;
 import 'package:frontend/screens/admin_screens/admin_doctor_manegment.dart' as doctor_management;
@@ -314,6 +315,23 @@ class _AdminHomePageState extends State<AdminHomePage> {
                             medicalCenterId: _medicalCenterId!,
                             medicalCenterName: _medicalCenterName!,
                           ),
+                        ),
+                      );
+                    } else {
+                      _showSnackBar('Loading medical center information...');
+                    }
+                  },
+                ),
+                _buildActionButton(
+                  icon: Icons.bar_chart,
+                  label: 'revenue analysis',
+                  color: const Color.fromARGB(255, 246, 35, 35),
+                  onTap: () {
+                    if (_medicalCenterId != null && _medicalCenterName != null) {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => AdminRevenueAnalysisPage()
                         ),
                       );
                     } else {

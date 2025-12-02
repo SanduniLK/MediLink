@@ -23,7 +23,6 @@ class _DoctorsListScreenState extends State<DoctorsListScreen> {
   String _searchQuery = '';
   String _selectedSpecialization = 'All';
   String _selectedHospital = 'All';
- 
   bool _showFilters = false;
 
   // Available specializations and hospitals for filters
@@ -82,8 +81,6 @@ class _DoctorsListScreenState extends State<DoctorsListScreen> {
       }).toList();
     }
 
-    
-
     setState(() {
       filteredDoctors = result;
     });
@@ -100,7 +97,6 @@ class _DoctorsListScreenState extends State<DoctorsListScreen> {
       _searchQuery = '';
       _selectedSpecialization = 'All';
       _selectedHospital = 'All';
-     
       searchController.clear();
       _applyFilters();
     });
@@ -132,20 +128,31 @@ class _DoctorsListScreenState extends State<DoctorsListScreen> {
       List<Map<String, dynamic>> doctorsList = [];
       Set<String> specializationSet = {'All'};
       Set<String> hospitalSet = {'All'};
-      
+
       for (var doc in querySnapshot.docs) {
         final data = doc.data();
         
-        String medicalCenterName = 'No Medical Center';
-        String medicalCenterId = '';
+        // Get all medical centers for this doctor
+        List<Map<String, dynamic>> medicalCentersList = [];
         final medicalCenters = data['medicalCenters'];
         
         if (medicalCenters is List && medicalCenters.isNotEmpty) {
-          final firstCenter = medicalCenters[0];
-          if (firstCenter is Map<String, dynamic>) {
-            medicalCenterName = firstCenter['name'] ?? 'Medical Center';
-            medicalCenterId = firstCenter['id'] ?? '';
+          for (var center in medicalCenters) {
+            if (center is Map<String, dynamic>) {
+              medicalCentersList.add({
+                'id': center['id'] ?? '',
+                'name': center['name'] ?? 'Medical Center',
+              });
+              hospitalSet.add(center['name'] ?? 'Medical Center');
+            }
           }
+        } else {
+          // Fallback to single hospital field
+          medicalCentersList.add({
+            'id': '',
+            'name': data['hospital'] ?? 'Medical Center',
+          });
+          hospitalSet.add(data['hospital'] ?? 'Medical Center');
         }
 
         final doctorData = {
@@ -153,19 +160,19 @@ class _DoctorsListScreenState extends State<DoctorsListScreen> {
           'uid': data['uid'] ?? doc.id,
           'fullname': data['fullname'] ?? 'Dr. Unknown',
           'specialization': data['specialization'] ?? 'General Practitioner',
-          'hospital': medicalCenterName,
-          'medicalCenterId': medicalCenterId,
+          'hospital': medicalCentersList.isNotEmpty 
+              ? medicalCentersList[0]['name'] 
+              : 'Medical Center', // First medical center for display
+          'medicalCenters': medicalCentersList, // All medical centers
           'experience': data['experience'] ?? 'Not specified',
           'fees': (data['fees'] ?? 0.0).toDouble(),
-          'profileImage': data['profileImage'], 
-          'medicalCenters': medicalCenters,
+          'profileImage': data['profileImage'],
         };
 
         doctorsList.add(doctorData);
 
         // Add to filter options
         specializationSet.add(doctorData['specialization']);
-        hospitalSet.add(doctorData['hospital']);
       }
 
       setState(() {
@@ -331,8 +338,6 @@ class _DoctorsListScreenState extends State<DoctorsListScreen> {
             style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
           ),
           const SizedBox(height: 12),
-
-          // Specialization Filter
           _buildFilterDropdown(
             label: 'Specialization',
             value: _selectedSpecialization,
@@ -344,10 +349,7 @@ class _DoctorsListScreenState extends State<DoctorsListScreen> {
               });
             },
           ),
-
           const SizedBox(height: 12),
-
-          // Hospital Filter
           _buildFilterDropdown(
             label: 'Hospital',
             value: _selectedHospital,
@@ -359,9 +361,8 @@ class _DoctorsListScreenState extends State<DoctorsListScreen> {
               });
             },
           ),
-        ]
+        ],
       ),
-          
     );
   }
 
@@ -435,45 +436,106 @@ class _DoctorsListScreenState extends State<DoctorsListScreen> {
   }
 
   Widget _buildDoctorCard(Map<String, dynamic> doctor) {
-    return Card(
-      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-      elevation: 2,
-      child: ListTile(
-        leading: _buildClickableDoctorAvatar(doctor),
-        title: Text(
-          doctor['fullname'] ?? 'Dr. Unknown',
-          style: const TextStyle(fontWeight: FontWeight.bold),
-        ),
-        subtitle: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              doctor['specialization'] ?? 'General Practitioner',
-              style: TextStyle(
-                color: Colors.blue[700],
-                fontWeight: FontWeight.w500,
+  // Get all medical centers for this doctor
+  final medicalCenters = doctor['medicalCenters'] as List<dynamic>? ?? [];
+  final hasMultipleCenters = medicalCenters.length > 1;
+  
+  // Extract medical center names
+  List<String> centerNames = [];
+  for (var center in medicalCenters) {
+    if (center is Map<String, dynamic>) {
+      centerNames.add(center['name'] ?? 'Medical Center');
+    }
+  }
+  
+  // If no medical centers found, use the hospital field as fallback
+  if (centerNames.isEmpty && doctor['hospital'] != null) {
+    centerNames.add(doctor['hospital']);
+  }
+  
+  return Card(
+    margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+    elevation: 2,
+    child: ListTile(
+      leading: _buildClickableDoctorAvatar(doctor),
+      title: Text(
+        doctor['fullname'] ?? 'Dr. Unknown',
+        style: const TextStyle(fontWeight: FontWeight.bold),
+      ),
+      subtitle: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            doctor['specialization'] ?? 'General Practitioner',
+            style: TextStyle(
+              color: Colors.blue[700],
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+          
+          // Show medical center names
+          if (centerNames.isNotEmpty)
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (hasMultipleCenters)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 2.0),
+                    child: Text(
+                      '${medicalCenters.length} Medical Centers:',
+                      style: TextStyle(
+                        color: Colors.orange[700],
+                        fontSize: 12,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ),
+                
+                // Show all medical center names
+                ...centerNames.map((centerName) {
+                  return Text(
+                    '• $centerName',
+                    style: TextStyle(
+                      fontSize: hasMultipleCenters ? 12 : 14,
+                      color: hasMultipleCenters ? Colors.grey[700] : Colors.black,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  );
+                }).toList(),
+              ],
+            ),
+          
+          if (doctor['experience'] != null && doctor['experience'] != 'Not specified')
+            Padding(
+              padding: const EdgeInsets.only(top: 2.0),
+              child: Text(
+                'Experience: ${doctor['experience']} years',
+                style: const TextStyle(fontSize: 13),
               ),
             ),
-            Text(doctor['hospital']),
-            if (doctor['experience'] != null && doctor['experience'] != 'Not specified')
-              Text('Experience: ${doctor['experience']}'),
-            if (doctor['fees'] != null && doctor['fees'] > 0)
-              Text(
+          
+          if (doctor['fees'] != null && doctor['fees'] > 0)
+            Padding(
+              padding: const EdgeInsets.only(top: 2.0),
+              child: Text(
                 'Fees: Rs. ${doctor['fees']}',
                 style: TextStyle(
                   color: Colors.green[700],
                   fontWeight: FontWeight.bold,
+                  fontSize: 13,
                 ),
               ),
-          ],
-        ),
-        trailing: const Icon(Icons.arrow_forward_ios, size: 16),
-        onTap: () {
-          _fetchAndShowAvailableSchedules(doctor);
-        },
+            ),
+        ],
       ),
-    );
-  }
+      trailing: const Icon(Icons.arrow_forward_ios, size: 16),
+      onTap: () {
+        _fetchAndShowAvailableSchedules(doctor);
+      },
+    ),
+  );
+}
 
   Widget _buildClickableDoctorAvatar(Map<String, dynamic> doctor) {
     final String? profileImageUrl = doctor['profileImage'];
@@ -491,10 +553,8 @@ class _DoctorsListScreenState extends State<DoctorsListScreen> {
             ? NetworkImage(profileImageUrl)
             : null,
         onBackgroundImageError: profileImageUrl != null && profileImageUrl.isNotEmpty
-            ? (exception, stackTrace) {
-                // Error handled silently - only called when image exists but fails to load
-              }
-            : null, // Set to null when no backgroundImage
+            ? (exception, stackTrace) {}
+            : null,
         child: profileImageUrl != null && profileImageUrl.isNotEmpty
             ? null
             : const Icon(Icons.person, color: Colors.white, size: 20),
@@ -524,131 +584,120 @@ class _DoctorsListScreenState extends State<DoctorsListScreen> {
     );
   }
 
-  Widget _buildDoctorAvatar(Map<String, dynamic> doctor) {
-    final String? profileImageUrl = doctor['profileImage'];
-    
-    print('🔄 Building doctor avatar:');
-    print('   - Doctor: ${doctor['fullname']}');
-    print('   - Profile Image URL: $profileImageUrl');
-    print('   - URL valid: ${profileImageUrl != null && profileImageUrl.isNotEmpty}');
-
-    if (profileImageUrl != null && profileImageUrl.isNotEmpty) {
-      return CircleAvatar(
-        radius: 25,
-        backgroundColor: Colors.grey[200],
-        backgroundImage: NetworkImage(profileImageUrl),
-        onBackgroundImageError: (exception, stackTrace) {
-          print('❌ Error loading doctor profile image: $exception');
-          print('❌ URL that failed: $profileImageUrl');
-        },
-      );
-    } else {
-      print('ℹ️ No profile image found for ${doctor['fullname']}, using default');
-      return const CircleAvatar(
-        radius: 25,
-        backgroundColor: Color(0xFF18A3B6),
-        child: Icon(Icons.person, color: Colors.white, size: 20),
-      );
-    }
-  }
-
   Future<void> _fetchAndShowAvailableSchedules(Map<String, dynamic> doctor) async {
     try {
       setState(() {
         isLoading = true;
       });
 
-    print('🔍 Fetching schedules for doctor: ${doctor['fullname']}');
-    print('👨‍⚕️ Doctor UID: ${doctor['uid']}');
+      print('🔍 Fetching schedules for doctor: ${doctor['fullname']}');
+      print('👨‍⚕️ Doctor UID: ${doctor['uid']}');
 
-    // Fetch confirmed schedules for this doctor
-    final schedulesSnapshot = await FirebaseFirestore.instance
-        .collection('doctorSchedules')
-        .where('doctorId', isEqualTo: doctor['uid'])
-        .where('status', isEqualTo: 'confirmed')
-        .get();
+      // Get doctor's medical centers
+      final medicalCenters = doctor['medicalCenters'] as List<dynamic>? ?? [];
+      print('🏥 Doctor has ${medicalCenters.length} medical centers');
 
-    print('✅ Found ${schedulesSnapshot.docs.length} confirmed schedules');
+      if (medicalCenters.isEmpty) {
+        print('❌ No medical centers found for doctor');
+        setState(() { isLoading = false; });
+        _showNoMedicalCentersDialog();
+        return;
+      }
 
-    if (schedulesSnapshot.docs.isEmpty) {
-      print('❌ No confirmed schedules found for this doctor');
+      // Fetch schedules for each medical center
+      List<Map<String, dynamic>> allSchedules = [];
+
+      for (var center in medicalCenters) {
+        if (center is Map<String, dynamic>) {
+          final centerId = center['id'] ?? '';
+          final centerName = center['name'] ?? 'Medical Center';
+          
+          print('📋 Processing medical center: $centerName (ID: $centerId)');
+
+          final schedulesSnapshot = await FirebaseFirestore.instance
+              .collection('doctorSchedules')
+              .where('doctorId', isEqualTo: doctor['uid'])
+              .where('medicalCenterId', isEqualTo: centerId)
+              .where('status', isEqualTo: 'confirmed')
+              .get();
+
+          print('   ✅ Found ${schedulesSnapshot.docs.length} schedules for this center');
+
+          // Get current date for comparison
+          final now = DateTime.now();
+          final currentDate = DateTime(now.year, now.month, now.day);
+
+          for (var doc in schedulesSnapshot.docs) {
+            final data = doc.data();
+            print('   📅 Processing schedule: ${doc.id}');
+
+            // Process single date schedule
+            final singleSchedule = _processSingleDateSchedule(
+              doc.id, 
+              data, 
+              doctor['fullname'], 
+              currentDate,
+              centerName,
+              centerId
+            );
+            
+            if (singleSchedule != null) {
+              allSchedules.add(singleSchedule);
+              print('   ✅ Added schedule for $centerName: ${singleSchedule['date']}');
+            }
+
+            // Process weekly schedule if available
+            if (data['weeklySchedule'] != null && data['weeklySchedule'] is List) {
+              final weeklySchedules = _processWeeklySchedule(
+                doc.id, 
+                data, 
+                doctor['fullname'],
+                centerName,
+                centerId
+              );
+              allSchedules.addAll(weeklySchedules);
+              print('   📅 Added ${weeklySchedules.length} weekly schedules for $centerName');
+            }
+          }
+        }
+      }
+
+      // Sort schedules by date (earliest first)
+      allSchedules.sort((a, b) {
+        final dateA = a['date'] as DateTime;
+        final dateB = b['date'] as DateTime;
+        return dateA.compareTo(dateB);
+      });
+
+      print('\n📊 FINAL RESULT: ${allSchedules.length} available schedules across ${medicalCenters.length} medical centers');
+
       setState(() {
         isLoading = false;
       });
-      _showNoSchedulesDialog();
-      return;
-    }
 
-    // Get current date and time for comparison
-    final now = DateTime.now();
-    final currentDate = DateTime(now.year, now.month, now.day);
-    print('📅 Current date: $currentDate');
-
-    List<Map<String, dynamic>> availableSchedules = [];
-
-    for (var doc in schedulesSnapshot.docs) {
-      final data = doc.data();
-      print('\n📋 Processing schedule: ${doc.id}');
-      print('   📅 All fields: ${data.keys.join(', ')}');
-      print('   📅 availableDate: ${data['availableDate']}');
-      print('   📅 scheduleDate: ${data['scheduleDate']}');
-      print('   📅 Has weeklySchedule: ${data['weeklySchedule'] != null}');
-      
-      // ALWAYS process as single date if availableDate or scheduleDate exists
-      if (data['availableDate'] != null || data['scheduleDate'] != null) {
-        print('   📅 This has DATE fields - processing as SINGLE DATE schedule');
-        final singleSchedule = _processSingleDateSchedule(doc.id, data, doctor['fullname'], currentDate);
-        if (singleSchedule != null) {
-          availableSchedules.add(singleSchedule);
-          print('   ✅ Added single date schedule: ${singleSchedule['date']}');
-        }
-      }
-      // Only process as pure weekly schedule if NO date fields exist
-      else if (data['weeklySchedule'] != null && data['weeklySchedule'] is List) {
-        print('   📅 This is PURE WEEKLY schedule (no date fields)');
-        final weeklySchedules = _processWeeklySchedule(doc.id, data, doctor['fullname']);
-        availableSchedules.addAll(weeklySchedules);
+      if (allSchedules.isEmpty) {
+        _showNoSchedulesDialog();
       } else {
-        print('   ❓ Unknown schedule type - skipping');
+        _showScheduleSelectionDialog(doctor, allSchedules);
       }
+
+    } catch (e) {
+      print('❌ Error fetching schedules: $e');
+      print('Stack trace: ${e.toString()}');
+      setState(() {
+        isLoading = false;
+      });
+      _showErrorDialog('Failed to load available schedules: $e');
     }
-
-    // Sort schedules by date (earliest first)
-    availableSchedules.sort((a, b) {
-      final dateA = a['date'] as DateTime;
-      final dateB = b['date'] as DateTime;
-      return dateA.compareTo(dateB);
-    });
-
-    print('\n📆 FINAL RESULT: ${availableSchedules.length} available schedules');
-    for (var schedule in availableSchedules) {
-      final date = schedule['date'] as DateTime;
-      print('   📅 ${_getFormattedDate(date)} - ${schedule['startTime']} to ${schedule['endTime']}');
-      print('   📅 Is Weekly: ${schedule['isWeekly']}');
-      print('   📅 Original availableDate: ${schedule['originalAvailableDate']}');
-    }
-
-    setState(() {
-      isLoading = false;
-    });
-
-    if (availableSchedules.isEmpty) {
-      _showNoFutureSchedulesDialog();
-    } else {
-      _showScheduleSelectionDialog(doctor, availableSchedules);
-    }
-
-  } catch (e) {
-    print('❌ Error fetching schedules: $e');
-    print('Stack trace: ${e.toString()}');
-    setState(() {
-      isLoading = false;
-    });
-    _showErrorDialog('Failed to load available schedules: $e');
   }
-}
 
-  List<Map<String, dynamic>> _processWeeklySchedule(String scheduleId, Map<String, dynamic> data, String doctorName) {
+  List<Map<String, dynamic>> _processWeeklySchedule(
+    String scheduleId, 
+    Map<String, dynamic> data, 
+    String doctorName,
+    String medicalCenterName,
+    String medicalCenterId
+  ) {
     final weeklySchedule = data['weeklySchedule'] as List<dynamic>;
     final List<Map<String, dynamic>> schedules = [];
     
@@ -680,6 +729,8 @@ class _DoctorsListScreenState extends State<DoctorsListScreen> {
                   'maxAppointments': data['maxAppointments'] ?? 10,
                   'availableSlots': data['availableSlots'] ?? data['maxAppointments'] ?? 10,
                   'doctorName': data['doctorName'] ?? doctorName,
+                  'medicalCenterName': medicalCenterName,
+                  'medicalCenterId': medicalCenterId,
                   'isWeekly': true,
                   'dayOfWeek': _getDayName(date.weekday),
                 });
@@ -693,202 +744,211 @@ class _DoctorsListScreenState extends State<DoctorsListScreen> {
     return schedules;
   }
 
-Map<String, dynamic>? _processSingleDateSchedule(String scheduleId, Map<String, dynamic> data, String doctorName, DateTime currentDate) {
-  // Handle date field - Check for availableDate FIRST, then scheduleDate as fallback
-  DateTime? scheduleDate;
-  
-  // PRIORITY 1: Use availableDate (string format "2025-10-25")
-  if (data['availableDate'] != null && data['availableDate'] is String) {
-    final availableDateStr = data['availableDate'] as String;
-    try {
-      scheduleDate = DateFormat('yyyy-MM-dd').parse(availableDateStr);
-      print('   ✅ Found availableDate: $availableDateStr -> $scheduleDate');
-    } catch (e) {
-      print('   ❌ Error parsing availableDate: $e');
-    }
-  }
-  
-  // PRIORITY 2: Fallback to scheduleDate (timestamp)
-  if (scheduleDate == null && data['scheduleDate'] != null) {
-    if (data['scheduleDate'] is Timestamp) {
-      scheduleDate = (data['scheduleDate'] as Timestamp).toDate();
-    } else if (data['scheduleDate'] is DateTime) {
-      scheduleDate = data['scheduleDate'] as DateTime;
-    }
-    print('   ✅ Found scheduleDate: $scheduleDate');
-  }
-
-  if (scheduleDate == null) {
-    print('   ❌ No date found, skipping');
-    return null;
-  }
-
-  final scheduleDay = DateTime(scheduleDate.year, scheduleDate.month, scheduleDate.day);
-  final isFuture = scheduleDay.isAfter(currentDate.subtract(const Duration(days: 1)));
-  
-  print('   📆 Final schedule date: $scheduleDay, Is future: $isFuture');
-
-  if (!isFuture) {
-    print('   ❌ Schedule date is in the past, skipping');
-    return null;
-  }
-
-  // Get time slots from weekly schedule for Saturday
-  String startTime = '09:00';
-  String endTime = '17:00';
-  int slotDuration = 30;
-  int maxAppointments = 10;
-
-  // Get time slots from weekly schedule for the specific day
-  if (data['weeklySchedule'] != null && data['weeklySchedule'] is List) {
-    final weeklySchedule = data['weeklySchedule'] as List<dynamic>;
-    final dayName = _getDayName(scheduleDate.weekday).toLowerCase();
+  Map<String, dynamic>? _processSingleDateSchedule(
+    String scheduleId, 
+    Map<String, dynamic> data, 
+    String doctorName, 
+    DateTime currentDate,
+    String medicalCenterName,
+    String medicalCenterId
+  ) {
+    DateTime? scheduleDate;
     
-    print('   🔍 Looking for time slots for day: $dayName');
-    
-    for (var daySchedule in weeklySchedule) {
-      if (daySchedule is Map<String, dynamic>) {
-        final scheduleDayName = (daySchedule['day'] as String? ?? '').toLowerCase();
-        final isAvailable = daySchedule['available'] as bool? ?? false;
-        
-        if (scheduleDayName == dayName && isAvailable) {
-          final timeSlots = daySchedule['timeSlots'] as List<dynamic>? ?? [];
-          if (timeSlots.isNotEmpty) {
-            final firstSlot = timeSlots[0];
-            if (firstSlot is Map<String, dynamic>) {
-              startTime = firstSlot['startTime'] ?? startTime;
-              endTime = firstSlot['endTime'] ?? endTime;
-              slotDuration = firstSlot['slotDuration'] ?? slotDuration;
-              print('   ⏰ Found time slots for $dayName: $startTime - $endTime');
-            }
-          } else {
-            print('   ⚠️ Day $dayName is available but has no time slots');
-          }
-          break;
-        }
+    // Check for availableDate
+    if (data['availableDate'] != null && data['availableDate'] is String) {
+      final availableDateStr = data['availableDate'] as String;
+      try {
+        scheduleDate = DateFormat('yyyy-MM-dd').parse(availableDateStr);
+      } catch (e) {
+        print('   ❌ Error parsing availableDate: $e');
       }
     }
-  } else {
-    // Use direct time fields as fallback
-    startTime = data['startTime'] ?? startTime;
-    endTime = data['endTime'] ?? endTime;
-    slotDuration = data['slotDuration'] ?? slotDuration;
-    print('   ⏰ Using default time slots: $startTime - $endTime');
+    
+    // Fallback to scheduleDate
+    if (scheduleDate == null && data['scheduleDate'] != null) {
+      if (data['scheduleDate'] is Timestamp) {
+        scheduleDate = (data['scheduleDate'] as Timestamp).toDate();
+      } else if (data['scheduleDate'] is DateTime) {
+        scheduleDate = data['scheduleDate'] as DateTime;
+      }
+    }
+
+    if (scheduleDate == null) {
+      return null;
+    }
+
+    final scheduleDay = DateTime(scheduleDate.year, scheduleDate.month, scheduleDate.day);
+    final isFuture = scheduleDay.isAfter(currentDate.subtract(const Duration(days: 1)));
+    
+    if (!isFuture) {
+      return null;
+    }
+
+    // Get time slots
+    String startTime = '09:00';
+    String endTime = '17:00';
+    int slotDuration = 30;
+    int maxAppointments = 10;
+
+    if (data['weeklySchedule'] != null && data['weeklySchedule'] is List) {
+      final weeklySchedule = data['weeklySchedule'] as List<dynamic>;
+      final dayName = _getDayName(scheduleDate.weekday).toLowerCase();
+      
+      for (var daySchedule in weeklySchedule) {
+        if (daySchedule is Map<String, dynamic>) {
+          final scheduleDayName = (daySchedule['day'] as String? ?? '').toLowerCase();
+          final isAvailable = daySchedule['available'] as bool? ?? false;
+          
+          if (scheduleDayName == dayName && isAvailable) {
+            final timeSlots = daySchedule['timeSlots'] as List<dynamic>? ?? [];
+            if (timeSlots.isNotEmpty) {
+              final firstSlot = timeSlots[0];
+              if (firstSlot is Map<String, dynamic>) {
+                startTime = firstSlot['startTime'] ?? startTime;
+                endTime = firstSlot['endTime'] ?? endTime;
+                slotDuration = firstSlot['slotDuration'] ?? slotDuration;
+              }
+            }
+            break;
+          }
+        }
+      }
+    } else {
+      startTime = data['startTime'] ?? startTime;
+      endTime = data['endTime'] ?? endTime;
+      slotDuration = data['slotDuration'] ?? slotDuration;
+    }
+
+    maxAppointments = data['maxAppointments'] ?? maxAppointments;
+
+    return {
+      'scheduleId': scheduleId,
+      'date': scheduleDate,
+      'startTime': startTime,
+      'endTime': endTime,
+      'appointmentType': data['appointmentType'] ?? 'physical',
+      'slotDuration': slotDuration,
+      'maxAppointments': maxAppointments,
+      'availableSlots': data['availableSlots'] ?? maxAppointments,
+      'doctorName': data['doctorName'] ?? doctorName,
+      'medicalCenterName': medicalCenterName,
+      'medicalCenterId': medicalCenterId,
+      'isWeekly': false,
+      'hasWeeklyData': data['weeklySchedule'] != null,
+    };
   }
 
-  maxAppointments = data['maxAppointments'] ?? maxAppointments;
-
-  return {
-    'scheduleId': scheduleId,
-    'date': scheduleDate,
-    'startTime': startTime,
-    'endTime': endTime,
-    'appointmentType': data['appointmentType'] ?? 'physical',
-    'slotDuration': slotDuration,
-    'maxAppointments': maxAppointments,
-    'availableSlots': data['availableSlots'] ?? maxAppointments,
-    'doctorName': data['doctorName'] ?? doctorName,
-    'isWeekly': false,
-    'hasWeeklyData': data['weeklySchedule'] != null,
-    'originalAvailableDate': data['availableDate'], 
-    'originalScheduleDate': data['scheduleDate'], 
-  };
-}
-
   void _showScheduleSelectionDialog(
-  Map<String, dynamic> doctor, 
-  List<Map<String, dynamic>> schedules
-) {
-  showDialog(
-    context: context,
-    builder: (context) => AlertDialog(
-      title: Text('Available Slots - Dr. ${doctor['fullname']}',style: TextStyle(color: Colors.blueGrey,fontWeight: FontWeight.bold),),
-      content: SizedBox(
-        width: double.maxFinite,
-        child: schedules.isEmpty
-            ? const Center(
-                child: Text('No available schedules found'),
-              )
-            : ListView.builder(
-                shrinkWrap: true,
-                itemCount: schedules.length,
-                itemBuilder: (context, index) {
-                  final schedule = schedules[index];
-                  final date = schedule['date'] is DateTime 
-                      ? _getFormattedDate(schedule['date'] as DateTime)
-                      : 'Date not specified';
-                  
-                  // Check if slots are available
-                  final availableSlots = schedule['availableSlots'] ?? 0;
-                  final isAvailable = availableSlots > 0;
-                  
-                  return Card(
-                    margin: const EdgeInsets.only(bottom: 8),
-                    color: isAvailable ? null : Colors.grey[100],
-                    child: ListTile(
-                      leading: Icon(
-                        _getAppointmentTypeIcon(schedule['appointmentType']),
-                        color: isAvailable ? const Color(0xFF18A3B6) : Colors.grey,
-                      ),
-                      title: Text(
-                        date,
-                        style: TextStyle(
-                          fontWeight: FontWeight.bold,
-                          color: isAvailable ? Colors.black : Colors.grey,
+    Map<String, dynamic> doctor, 
+    List<Map<String, dynamic>> schedules
+  ) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(
+          'Available Sessions - Dr. ${doctor['fullname']}',
+          style: TextStyle(color: Colors.blueGrey, fontWeight: FontWeight.bold),
+        ),
+        content: SizedBox(
+          width: double.maxFinite,
+          child: schedules.isEmpty
+              ? const Center(child: Text('No available schedules found'))
+              : ListView.builder(
+                  shrinkWrap: true,
+                  itemCount: schedules.length,
+                  itemBuilder: (context, index) {
+                    final schedule = schedules[index];
+                    final date = schedule['date'] is DateTime 
+                        ? _getFormattedDate(schedule['date'] as DateTime)
+                        : 'Date not specified';
+                    
+                    final availableSlots = schedule['availableSlots'] ?? 0;
+                    final isAvailable = availableSlots > 0;
+                    final medicalCenter = schedule['medicalCenterName'] ?? 'Medical Center';
+                    
+                    return Card(
+                      margin: const EdgeInsets.only(bottom: 8),
+                      color: isAvailable ? null : Colors.grey[100],
+                      child: ListTile(
+                        leading: Icon(
+                          _getAppointmentTypeIcon(schedule['appointmentType']),
+                          color: isAvailable ? const Color(0xFF18A3B6) : Colors.grey,
                         ),
-                      ),
-                      subtitle: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            '${schedule['startTime']} - ${schedule['endTime']}',
-                            style: TextStyle(
-                              color: isAvailable ? Colors.black : Colors.grey,
-                            ),
-                          ),
-                          Text(
-                            'Type: ${_capitalize(schedule['appointmentType'])}',
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: isAvailable ? Colors.grey[600] : Colors.grey,
-                            ),
-                          ),
-                          if (schedule['isWeekly'] == true)
+                        title: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
                             Text(
-                              'Weekly Schedule',
+                              date,
+                              style: TextStyle(
+                                fontWeight: FontWeight.bold,
+                                color: isAvailable ? Colors.black : Colors.grey,
+                              ),
+                            ),
+                            Text(
+                              medicalCenter,
                               style: TextStyle(
                                 fontSize: 12,
-                                color: Colors.blue[600],
+                                color: Colors.blueGrey[600],
                               ),
-                            )
-                          else
-                            Text("you can book only if have slots",style: TextStyle(color: Colors.blueAccent),)
-                         
-                        ],
+                            ),
+                          ],
+                        ),
+                        subtitle: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              '${schedule['startTime']} - ${schedule['endTime']}',
+                              style: TextStyle(
+                                color: isAvailable ? Colors.black : Colors.grey,
+                              ),
+                            ),
+                            Text(
+                              'Type: ${_capitalize(schedule['appointmentType'])}',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: isAvailable ? Colors.grey[600] : Colors.grey,
+                              ),
+                            ),
+                            if (schedule['isWeekly'] == true)
+                              Text(
+                                'Weekly Schedule',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: Colors.blue[600],
+                                ),
+                              ),
+                            Text(
+                              'Available Slots: $availableSlots',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: isAvailable ? Colors.green[700] : Colors.grey,
+                              ),
+                            ),
+                          ],
+                        ),
+                        onTap: isAvailable ? () {
+                          Navigator.pop(context);
+                          _navigateToBookingPage(
+                            doctor: doctor,
+                            selectedDate: date,
+                            selectedTime: '${schedule['startTime']} - ${schedule['endTime']}',
+                            scheduleData: schedule,
+                          );
+                        } : null,
                       ),
-                      onTap: isAvailable ? () {
-                        Navigator.pop(context);
-                        _navigateToBookingPage(
-                          doctor: doctor,
-                          selectedDate: date,
-                          selectedTime: '${schedule['startTime']} - ${schedule['endTime']}',
-                          scheduleData: schedule,
-                        );
-                      } : null,
-                    ),
-                  );
-                },
-              ),
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context),
-          child: const Text('Close'),
+                    );
+                  },
+                ),
         ),
-      ],
-    ),
-  );
-}
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
+    );
+  }
 
   IconData _getAppointmentTypeIcon(String type) {
     switch (type) {
@@ -899,12 +959,12 @@ Map<String, dynamic>? _processSingleDateSchedule(String scheduleId, Map<String, 
     }
   }
 
-  void _showNoSchedulesDialog() {
+  void _showNoMedicalCentersDialog() {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('No Available Schedules'),
-        content: const Text('This doctor does not have any confirmed schedules available at the moment. Please check back later.'),
+        title: const Text('No Medical Centers'),
+        content: const Text('This doctor is not associated with any medical centers. Please contact the administrator.'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
@@ -915,12 +975,12 @@ Map<String, dynamic>? _processSingleDateSchedule(String scheduleId, Map<String, 
     );
   }
 
-  void _showNoFutureSchedulesDialog() {
+  void _showNoSchedulesDialog() {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('No Upcoming Schedules'),
-        content: const Text('This doctor does not have any upcoming schedules. All available slots are for past dates. Please check back later for new schedule updates.'),
+        title: const Text('No Available Schedules'),
+        content: const Text('This doctor does not have any confirmed schedules available at the moment. Please check back later.'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
@@ -980,67 +1040,67 @@ Map<String, dynamic>? _processSingleDateSchedule(String scheduleId, Map<String, 
   }
 
   void _navigateToBookingPage({
-  required Map<String, dynamic> doctor,
-  required String selectedDate,
-  required String selectedTime,
-  required Map<String, dynamic> scheduleData,
-}) async {
-  try {
-    final currentUser = FirebaseAuth.instance.currentUser;
-    if (currentUser == null) {
-      _showErrorDialog('Please log in to book an appointment');
-      return;
-    }
+    required Map<String, dynamic> doctor,
+    required String selectedDate,
+    required String selectedTime,
+    required Map<String, dynamic> scheduleData,
+  }) async {
+    try {
+      final currentUser = FirebaseAuth.instance.currentUser;
+      if (currentUser == null) {
+        _showErrorDialog('Please log in to book an appointment');
+        return;
+      }
 
-    // Fetch actual patient data
-    final patientId = currentUser.uid;
-    String patientName = 'Patient'; // Default fallback
+      final patientId = currentUser.uid;
+      String patientName = 'Patient';
 
-    // Try to get patient name from patients collection
-    final patientDoc = await FirebaseFirestore.instance
-        .collection('patients')
-        .doc(patientId)
-        .get();
-
-    if (patientDoc.exists) {
-      patientName = patientDoc.data()!['fullname'] ?? 'Patient';
-    } else {
-      // Try users collection as fallback
-      final userDoc = await FirebaseFirestore.instance
-          .collection('users')
+      final patientDoc = await FirebaseFirestore.instance
+          .collection('patients')
           .doc(patientId)
           .get();
-      
-      if (userDoc.exists) {
-        patientName = userDoc.data()!['fullname'] ?? 'Patient';
+
+      if (patientDoc.exists) {
+        patientName = patientDoc.data()!['fullname'] ?? 'Patient';
+      } else {
+        final userDoc = await FirebaseFirestore.instance
+            .collection('users')
+            .doc(patientId)
+            .get();
+        
+        if (userDoc.exists) {
+          patientName = userDoc.data()!['fullname'] ?? 'Patient';
+        }
       }
-    }
 
-    final scheduleId = scheduleData['scheduleId']?.toString() ?? '';
-    
-    print('👤 Patient booking: $patientName ($patientId)');
+      final scheduleId = scheduleData['scheduleId']?.toString() ?? '';
+      final medicalCenterId = scheduleData['medicalCenterId'] ?? '';
+      final medicalCenterName = scheduleData['medicalCenterName'] ?? 'Medical Center';
 
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => BookAppointmentPage(
-          patientId: patientId, // Actual patient ID
-          patientName: patientName, // Actual patient name
-          doctorId: doctor['uid'] ?? doctor['id'] ?? '',
-          doctorName: doctor['fullname'] ?? 'Dr. Unknown',
-          doctorSpecialty: doctor['specialization'] ?? 'General Practitioner',
-          selectedDate: selectedDate,
-          selectedTime: selectedTime,
-          medicalCenterId: doctor['medicalCenterId'] ?? '',
-          medicalCenterName: doctor['hospital'] ?? 'Medical Center',
-          doctorFees: (doctor['fees'] ?? 0.0).toDouble(),
-          scheduleId: scheduleId,
+      print('👤 Patient booking: $patientName ($patientId)');
+      print('🏥 Medical Center: $medicalCenterName ($medicalCenterId)');
+
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => BookAppointmentPage(
+            patientId: patientId,
+            patientName: patientName,
+            doctorId: doctor['uid'] ?? doctor['id'] ?? '',
+            doctorName: doctor['fullname'] ?? 'Dr. Unknown',
+            doctorSpecialty: doctor['specialization'] ?? 'General Practitioner',
+            selectedDate: selectedDate,
+            selectedTime: selectedTime,
+            medicalCenterId: medicalCenterId,
+            medicalCenterName: medicalCenterName,
+            doctorFees: (doctor['fees'] ?? 0.0).toDouble(),
+            scheduleId: scheduleId,
+          ),
         ),
-      ),
-    );
-  } catch (e) {
-    print('❌ Error fetching patient data: $e');
-    _showErrorDialog('Error loading your profile. Please try again.');
+      );
+    } catch (e) {
+      print('❌ Error fetching patient data: $e');
+      _showErrorDialog('Error loading your profile. Please try again.');
+    }
   }
-}
 }

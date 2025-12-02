@@ -1,15 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:frontend/model/revenue_model.dart';
 import 'package:intl/intl.dart';
 import 'package:syncfusion_flutter_charts/charts.dart';
 
 class DoctorRevenueAnalysisPage extends StatefulWidget {
-  const DoctorRevenueAnalysisPage({Key? key}) : super(key: key);
+  const DoctorRevenueAnalysisPage({super.key});
 
   @override
-  _DoctorRevenueAnalysisPageState createState() => _DoctorRevenueAnalysisPageState();
+  State<DoctorRevenueAnalysisPage> createState() => _DoctorRevenueAnalysisPageState();
 }
 
 class _DoctorRevenueAnalysisPageState extends State<DoctorRevenueAnalysisPage> {
@@ -30,6 +29,7 @@ class _DoctorRevenueAnalysisPageState extends State<DoctorRevenueAnalysisPage> {
   int _telemedicineAppointments = 0;
   double _physicalRevenue = 0;
   double _telemedicineRevenue = 0;
+  double _doctorFees = 0; // Will be 2600 from doctor's data
 
   @override
   void initState() {
@@ -38,40 +38,207 @@ class _DoctorRevenueAnalysisPageState extends State<DoctorRevenueAnalysisPage> {
   }
 
   Future<void> _loadDoctorData() async {
-    setState(() => _isLoading = true);
-    
-    final user = FirebaseAuth.instance.currentUser;
-    if (user == null) return;
-    
-    // Fetch doctor data
+  setState(() => _isLoading = true);
+  
+  final user = FirebaseAuth.instance.currentUser;
+  if (user == null) return;
+  
+  print('=== LOADING DOCTOR DATA ===');
+  print('Doctor UID: ${user.uid}');
+  
+  try {
+    // Try doctors collection first
     final doctorDoc = await FirebaseFirestore.instance
-        .collection('users')
-        .doc(user.uid)
-        .get();
+      .collection('doctors')
+      .doc(user.uid)
+      .get();
     
     if (doctorDoc.exists) {
       _doctorData = doctorDoc.data() as Map<String, dynamic>;
+      print('✅ Doctor data found in doctors collection');
+    } else {
+      // Try users collection as fallback
+      print('❌ Not found in doctors collection, trying users...');
+      final userDoc = await FirebaseFirestore.instance
+        .collection('users')
+        .doc(user.uid)
+        .get();
       
-      // Get doctor's medical centers
-      final centersData = _doctorData?['medicalCenters'] as List<dynamic>? ?? [];
-      _medicalCenters = centersData.map((center) {
-        final Map<String, dynamic> centerMap = center as Map<String, dynamic>;
-        return MedicalCenter(
-          id: centerMap['id']?.toString() ?? '',
-          name: centerMap['name']?.toString() ?? 'Unknown Center',
-        );
-      }).toList();
+      if (userDoc.exists) {
+        _doctorData = userDoc.data() as Map<String, dynamic>;
+        print('✅ Doctor data found in users collection');
+      }
+    }
+    
+    if (_doctorData != null) {
+      // DEBUG: Print all doctor data
+      print('=== FULL DOCTOR DATA ===');
+      _doctorData!.forEach((key, value) {
+        print('$key: $value');
+      });
+      print('========================');
+      
+      // Get doctor's fees - SIMPLE DIRECT METHOD
+      _doctorFees = _extractDoctorFeesSimple(_doctorData!);
+      print('💰 Doctor fees: $_doctorFees');
+      
+      // Get doctor's registered medical centers
+      _parseMedicalCenters(_doctorData!);
       
       await _fetchAppointments();
       _calculateAppointmentTypes();
+      
+      // DEBUG: Show calculation
+      print('📊 CALCULATION: $_doctorFees × ${_appointments.length} = ${_doctorFees * _appointments.length}');
+    } else {
+      print('❌ Doctor data is null');
+    }
+  } catch (e) {
+    print('❌ Error loading doctor data: $e');
+  }
+  
+  setState(() => _isLoading = false);
+}
+
+// SIMPLE fee extraction - just find the number field
+double _extractDoctorFeesSimple(Map<String, dynamic> data) {
+  print('🔍 Looking for doctor fees...');
+  
+  // First priority: 'fees' field
+  if (data['fees'] != null) {
+    final value = data['fees'];
+    print('Found "fees" field: $value');
+    
+    if (value is int) {
+      return value.toDouble();
+    } else if (value is double) {
+      return value;
+    } else if (value is String) {
+      // Try to parse string
+      final parsed = double.tryParse(value);
+      if (parsed != null) return parsed;
+    }
+  }
+  
+  // Second: Look for any field that contains 'fee'
+  print('Searching for fee fields...');
+  for (var key in data.keys) {
+    if (key.toString().toLowerCase().contains('fee')) {
+      final value = data[key];
+      print('Found fee field "$key": $value');
+      
+      if (value is int) return value.toDouble();
+      if (value is double) return value;
+      if (value is String) {
+        final parsed = double.tryParse(value);
+        if (parsed != null) return parsed;
+      }
+    }
+  }
+  
+  // Third: Look for numeric fields between 1000-10000 (typical fee range)
+  for (var key in data.keys) {
+    final value = data[key];
+    if (value is int && value >= 1000 && value <= 10000) {
+      print('Found numeric fee "$key": $value');
+      return value.toDouble();
+    }
+  }
+  
+  print('⚠️ No doctor fees found! Available fields:');
+  data.forEach((key, value) {
+    print('  $key: $value (${value.runtimeType})');
+  });
+  
+  return 0; // Return 0, not 3000
+}
+
+  double _getDoctorFeesFromData(Map<String, dynamic> data) {
+    print('=== GETTING DOCTOR FEES ===');
+    print('Available fields: ${data.keys}');
+    
+    // Check fees field
+    if (data['fees'] != null) {
+      final fees = data['fees'];
+      print('Fees field found: $fees (type: ${fees.runtimeType})');
+      
+      if (fees is int) {
+        return fees.toDouble();
+      } else if (fees is double) {
+        return fees;
+      } else if (fees is String) {
+        return double.tryParse(fees) ?? 0;
+      }
     }
     
-    setState(() => _isLoading = false);
+    print('No valid fees found, checking other fields...');
+    
+    // Try other possible field names
+    final possibleFields = ['fee', 'consultation_fee', 'consultationFee', 'price', 'amount'];
+    for (var field in possibleFields) {
+      if (data[field] != null) {
+        print('Found field "$field": ${data[field]}');
+        final value = data[field];
+        if (value is int) return value.toDouble();
+        if (value is double) return value;
+        if (value is String) return double.tryParse(value) ?? 0;
+      }
+    }
+    
+    print('⚠️ NO FEES FOUND - Check your database structure');
+    return 0;
+  }
+
+  void _parseMedicalCenters(Map<String, dynamic> data) {
+    print('=== PARSING MEDICAL CENTERS ===');
+    
+    _medicalCenters.clear();
+    
+    // Check if medicalCenters field exists
+    if (data['medicalCenters'] == null) {
+      print('medicalCenters field is null');
+      return;
+    }
+    
+    final centersData = data['medicalCenters'];
+    print('medicalCenters type: ${centersData.runtimeType}');
+    print('medicalCenters value: $centersData');
+    
+    if (centersData is List) {
+      print('Processing as List with ${centersData.length} items');
+      
+      for (var item in centersData) {
+        print('Item: $item (type: ${item.runtimeType})');
+        
+        if (item is Map) {
+          try {
+            // Convert to String keys
+            final map = item.cast<String, dynamic>();
+            final id = map['id']?.toString();
+            final name = map['name']?.toString();
+            
+            if (id != null && name != null) {
+              print('Adding medical center: $name ($id)');
+              _medicalCenters.add(MedicalCenter(id: id, name: name));
+            } else {
+              print('Missing id or name in map');
+            }
+          } catch (e) {
+            print('Error converting map: $e');
+          }
+        }
+      }
+    }
+    
+    print('Total medical centers parsed: ${_medicalCenters.length}');
   }
 
   Future<void> _fetchAppointments() async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
+    
+    print('=== FETCHING APPOINTMENTS ===');
+    print('Using doctor fees: $_doctorFees');
     
     Query query = FirebaseFirestore.instance
         .collection('appointments')
@@ -80,15 +247,17 @@ class _DoctorRevenueAnalysisPageState extends State<DoctorRevenueAnalysisPage> {
     
     if (_selectedMedicalCenter != null) {
       query = query.where('medicalCenterId', isEqualTo: _selectedMedicalCenter);
+      print('Filtering by medical center: $_selectedMedicalCenter');
     }
     
     final querySnapshot = await query.get();
+    print('Found ${querySnapshot.docs.length} appointments');
     
     _appointments = querySnapshot.docs.map((doc) {
       final Map<String, dynamic> data = doc.data() as Map<String, dynamic>;
       return Appointment(
         id: doc.id,
-        fees: _getDoctorFees(data),
+        doctorFees: _doctorFees, // Always use doctor's fee (2600)
         paidAt: (data['paidAt'] as Timestamp?)?.toDate(),
         date: (data['date'] as String?) ?? '',
         medicalCenterId: data['medicalCenterId'] as String?,
@@ -99,34 +268,8 @@ class _DoctorRevenueAnalysisPageState extends State<DoctorRevenueAnalysisPage> {
       );
     }).toList();
     
-    // Sort by date
+    // Sort by date (newest first)
     _appointments.sort((a, b) => (b.paidAt ?? DateTime.now()).compareTo(a.paidAt ?? DateTime.now()));
-  }
-
-  double _getDoctorFees(Map<String, dynamic> appointmentData) {
-    // If doctor has fixed fees in their profile, use that
-    if (_doctorData != null && _doctorData?['fees'] != null) {
-      final doctorFees = _doctorData!['fees'];
-      if (doctorFees is int) {
-        return doctorFees.toDouble();
-      } else if (doctorFees is double) {
-        return doctorFees;
-      } else if (doctorFees is String) {
-        return double.tryParse(doctorFees) ?? 0;
-      }
-    }
-    
-    // Otherwise, use the appointment fees (which should be doctor fees only)
-    final fees = appointmentData['fees'];
-    if (fees is int) {
-      return fees.toDouble();
-    } else if (fees is double) {
-      return fees;
-    } else if (fees is String) {
-      return double.tryParse(fees) ?? 0;
-    }
-    
-    return 0;
   }
 
   void _calculateAppointmentTypes() {
@@ -140,12 +283,15 @@ class _DoctorRevenueAnalysisPageState extends State<DoctorRevenueAnalysisPage> {
           appointment.consultationType == 'chat' ||
           appointment.consultationType == 'telemedicine') {
         _telemedicineAppointments++;
-        _telemedicineRevenue += appointment.fees;
+        _telemedicineRevenue += _doctorFees; // Use doctor's fee
       } else {
         _physicalAppointments++;
-        _physicalRevenue += appointment.fees;
+        _physicalRevenue += _doctorFees; // Use doctor's fee
       }
     }
+    
+    print('Physical: $_physicalAppointments appointments, Rs $_physicalRevenue');
+    print('Telemedicine: $_telemedicineAppointments appointments, Rs $_telemedicineRevenue');
   }
 
   List<RevenueData> _getChartData() {
@@ -153,7 +299,6 @@ class _DoctorRevenueAnalysisPageState extends State<DoctorRevenueAnalysisPage> {
     List<RevenueData> data = [];
 
     if (_selectedTimeFrame == 'day') {
-      // Group by hour for today
       final todayAppointments = _appointments.where((app) {
         final paidAt = app.paidAt;
         if (paidAt == null) return false;
@@ -170,7 +315,7 @@ class _DoctorRevenueAnalysisPageState extends State<DoctorRevenueAnalysisPage> {
       
       for (int hour = 0; hour < 24; hour++) {
         final hourAppointments = groupedByHour[hour] ?? [];
-        final total = hourAppointments.fold(0.0, (double sum, app) => sum + app.fees);
+        final total = hourAppointments.length * _doctorFees;
         data.add(RevenueData(
           label: '${hour.toString().padLeft(2, '0')}:00',
           value: total,
@@ -178,7 +323,6 @@ class _DoctorRevenueAnalysisPageState extends State<DoctorRevenueAnalysisPage> {
         ));
       }
     } else if (_selectedTimeFrame == 'week') {
-      // Group by day for current week
       final startOfWeek = now.subtract(Duration(days: now.weekday - 1));
       
       for (int i = 0; i < 7; i++) {
@@ -191,7 +335,7 @@ class _DoctorRevenueAnalysisPageState extends State<DoctorRevenueAnalysisPage> {
                  paidAt.day == date.day;
         }).toList();
         
-        final total = dayAppointments.fold(0.0, (double sum, app) => sum + app.fees);
+        final total = dayAppointments.length * _doctorFees;
         data.add(RevenueData(
           label: DateFormat('EEE').format(date),
           value: total,
@@ -199,7 +343,6 @@ class _DoctorRevenueAnalysisPageState extends State<DoctorRevenueAnalysisPage> {
         ));
       }
     } else if (_selectedTimeFrame == 'month') {
-      // Group by day for current month
       final daysInMonth = DateTime(now.year, now.month + 1, 0).day;
       
       for (int day = 1; day <= daysInMonth; day++) {
@@ -212,7 +355,7 @@ class _DoctorRevenueAnalysisPageState extends State<DoctorRevenueAnalysisPage> {
                  paidAt.day == date.day;
         }).toList();
         
-        final total = dayAppointments.fold(0.0, (double sum, app) => sum + app.fees);
+        final total = dayAppointments.length * _doctorFees;
         data.add(RevenueData(
           label: DateFormat('MMM dd').format(date),
           value: total,
@@ -229,34 +372,37 @@ class _DoctorRevenueAnalysisPageState extends State<DoctorRevenueAnalysisPage> {
       ? _appointments
       : _appointments.where((app) => app.medicalCenterId == _selectedMedicalCenter).toList();
 
-    final totalRevenue = filteredAppointments.fold(0.0, (double sum, app) => sum + app.fees);
     final totalAppointments = filteredAppointments.length;
-    final avgRevenuePerAppointment = totalAppointments > 0 ? totalRevenue / totalAppointments : 0;
+    final totalRevenue = _doctorFees * totalAppointments;
+    final avgRevenuePerAppointment = totalAppointments > 0 ? _doctorFees : 0;
 
-    // Today's revenue
     final today = DateTime.now();
-    final todayRevenue = filteredAppointments.where((app) {
+    final todayAppointments = filteredAppointments.where((app) {
       final paidAt = app.paidAt;
       if (paidAt == null) return false;
       return paidAt.year == today.year &&
              paidAt.month == today.month &&
              paidAt.day == today.day;
-    }).fold(0.0, (double sum, app) => sum + app.fees);
+    }).length;
+    
+    final todayRevenue = _doctorFees * todayAppointments;
 
-    // This week's revenue
     final startOfWeek = today.subtract(Duration(days: today.weekday - 1));
-    final thisWeekRevenue = filteredAppointments.where((app) {
+    final weekAppointments = filteredAppointments.where((app) {
       final paidAt = app.paidAt;
       if (paidAt == null) return false;
       return paidAt.isAfter(startOfWeek) || paidAt.isAtSameMomentAs(startOfWeek);
-    }).fold(0.0, (double sum, app) => sum + app.fees);
+    }).length;
+    
+    final weekRevenue = _doctorFees * weekAppointments;
 
     return {
       'totalRevenue': totalRevenue,
       'totalAppointments': totalAppointments,
       'avgRevenue': avgRevenuePerAppointment,
       'todayRevenue': todayRevenue,
-      'weekRevenue': thisWeekRevenue,
+      'weekRevenue': weekRevenue,
+      'doctorFees': _doctorFees,
     };
   }
 
@@ -334,6 +480,15 @@ Widget build(BuildContext context) {
                           fontWeight: FontWeight.w500,
                         ),
                       ),
+                      // Show doctor's fee
+                      Text(
+                        'Fee per appointment: Rs ${_doctorFees.toStringAsFixed(0)}',
+                        style: TextStyle(
+                          fontSize: 14,
+                          color: _primaryColor,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
                     ],
                   ),
                 ),
@@ -377,19 +532,40 @@ Widget build(BuildContext context) {
                                     value: null,
                                     child: Text('All Medical Centers'),
                                   ),
-                                  ..._medicalCenters.map((center) {
-                                    return DropdownMenuItem<String?>(
-                                      value: center.id,
-                                      child: Text(center.name),
-                                    );
-                                  }),
+                                  if (_medicalCenters.isNotEmpty) ...[
+                                    const DropdownMenuItem<String?>(
+                                      value: 'divider',
+                                      enabled: false,
+                                      child: Divider(),
+                                    ),
+                                    DropdownMenuItem<String?>(
+                                      value: 'label',
+                                      enabled: false,
+                                      child: Text(
+                                        'Your Registered Centers:',
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          color: Colors.grey[600],
+                                          fontStyle: FontStyle.italic,
+                                        ),
+                                      ),
+                                    ),
+                                    ..._medicalCenters.map((center) {
+                                      return DropdownMenuItem<String?>(
+                                        value: center.id,
+                                        child: Text(center.name),
+                                      );
+                                    }),
+                                  ],
                                 ],
                                 onChanged: (String? value) {
-                                  setState(() {
-                                    _selectedMedicalCenter = value;
-                                  });
-                                  _fetchAppointments();
-                                  _calculateAppointmentTypes();
+                                  if (value != null && value != 'divider' && value != 'label') {
+                                    setState(() {
+                                      _selectedMedicalCenter = value;
+                                    });
+                                    _fetchAppointments();
+                                    _calculateAppointmentTypes();
+                                  }
                                 },
                                 isExpanded: true,
                               ),
@@ -448,41 +624,68 @@ Widget build(BuildContext context) {
                             ),
                           ],
                         ),
+                        if (_selectedMedicalCenter != null && _medicalCenters.isNotEmpty)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 12),
+                            child: Row(
+                              children: [
+                                Icon(Icons.business, color: _accentColor, size: 16),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Text(
+                                    'Showing: ${_medicalCenters.firstWhere((center) => center.id == _selectedMedicalCenter, orElse: () => MedicalCenter(id: '', name: 'Selected')).name}',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      color: _secondaryColor,
+                                      fontWeight: FontWeight.w500,
+                                    ),
+                                  ),
+                                ),
+                                GestureDetector(
+                                  onTap: () {
+                                    setState(() {
+                                      _selectedMedicalCenter = null;
+                                    });
+                                    _fetchAppointments();
+                                    _calculateAppointmentTypes();
+                                  },
+                                  child: Icon(Icons.clear, color: Colors.grey, size: 18),
+                                ),
+                              ],
+                            ),
+                          ),
                       ],
                     ),
                   ),
                 ),
                 
-               // In the build method, where you use the appointment type cards:
-Padding(
-  padding: const EdgeInsets.symmetric(horizontal: 15),
-  child: SizedBox(
-    height: 140, // Match this with the card height
-    child: Row(
-      children: [
-        Expanded(
-          child: _buildAppointmentTypeCard(
-            'Physical',
-            _physicalAppointments.toString(),
-            'Rs ${_physicalRevenue.toStringAsFixed(2)}',
-            Icons.person,
-            const Color(0xFF4CAF50),
-          ),
-        ),
-        const SizedBox(width: 10),
-        Expanded(
-          child: _buildAppointmentTypeCard(
-            'Telemedicine',
-            _telemedicineAppointments.toString(),
-            'Rs ${_telemedicineRevenue.toStringAsFixed(2)}',
-            Icons.videocam,
-            const Color(0xFF2196F3),
-          ),
-        ),
-      ],
-    ),
-  ),
-),
+                // Appointment Type Cards - FIXED OVERFLOW
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 15),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: _buildCompactAppointmentCard(
+                          'Physical',
+                          _physicalAppointments.toString(),
+                          'Rs ${_physicalRevenue.toStringAsFixed(0)}',
+                          Icons.person,
+                          const Color(0xFF4CAF50),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: _buildCompactAppointmentCard(
+                          'Telemedicine',
+                          _telemedicineAppointments.toString(),
+                          'Rs ${_telemedicineRevenue.toStringAsFixed(0)}',
+                          Icons.videocam,
+                          const Color(0xFF2196F3),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
                 
                 const SizedBox(height: 15),
                 
@@ -499,8 +702,8 @@ Padding(
                     children: [
                       _buildStatCard(
                         'Total Revenue',
-                        'Rs ${stats['totalRevenue'].toStringAsFixed(2)}',
-                        Icons.currency_rupee,
+                        'Rs ${stats['totalRevenue'].toStringAsFixed(0)}',
+                        Icons.money_sharp,
                         _primaryColor,
                       ),
                       _buildStatCard(
@@ -511,13 +714,13 @@ Padding(
                       ),
                       _buildStatCard(
                         'Avg/Appointment',
-                        'Rs ${stats['avgRevenue'].toStringAsFixed(2)}',
+                        'Rs ${stats['avgRevenue'].toStringAsFixed(0)}',
                         Icons.trending_up,
                         _accentColor,
                       ),
                       _buildStatCard(
                         "Today's Revenue",
-                        'Rs ${stats['todayRevenue'].toStringAsFixed(2)}',
+                        'Rs ${stats['todayRevenue'].toStringAsFixed(0)}',
                         Icons.today,
                         const Color(0xFF9C27B0),
                       ),
@@ -540,11 +743,19 @@ Padding(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            'Revenue Trend (Doctor Fees Only)',
+                            'Revenue Trend',
                             style: TextStyle(
                               fontSize: 18,
                               fontWeight: FontWeight.bold,
                               color: _primaryColor,
+                            ),
+                          ),
+                          Text(
+                            'Based on Rs $_doctorFees per appointment',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.grey[600],
+                              fontStyle: FontStyle.italic,
                             ),
                           ),
                           const SizedBox(height: 10),
@@ -567,16 +778,19 @@ Padding(
                                 numberFormat: NumberFormat.currency(symbol: 'Rs '),
                               ),
                               series: <CartesianSeries>[
-                                ColumnSeries<RevenueData, String>(
+                                LineSeries<RevenueData, String>(
                                   dataSource: chartData,
                                   xValueMapper: (RevenueData data, _) => data.label,
                                   yValueMapper: (RevenueData data, _) => data.value,
-                                  dataLabelSettings: const DataLabelSettings(
+                                  name: 'Revenue',
+                                  markerSettings: const MarkerSettings(
                                     isVisible: true,
-                                    labelAlignment: ChartDataLabelAlignment.top,
-                                    textStyle: TextStyle(fontSize: 10),
+                                    height: 6,
+                                    width: 6,
                                   ),
-                                  borderRadius: BorderRadius.circular(5),
+                                  dataLabelSettings: const DataLabelSettings(
+                                    isVisible: false,
+                                  ),
                                 ),
                               ],
                               tooltipBehavior: TooltipBehavior(
@@ -591,7 +805,7 @@ Padding(
                   ),
                 ),
                 
-                // Recent Transactions - FILTERED: Only shows doctor's own patients
+                // Recent Transactions
                 Padding(
                   padding: const EdgeInsets.all(15),
                   child: Card(
@@ -606,33 +820,20 @@ Padding(
                         children: [
                           Row(
                             children: [
-                              Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    'Recent Transactions',
-                                    style: TextStyle(
-                                      fontSize: 18,
-                                      fontWeight: FontWeight.bold,
-                                      color: _primaryColor,
-                                    ),
-                                  ),
-                                  Text(
-                                    'Your patients only',
-                                    style: TextStyle(
-                                      fontSize: 12,
-                                      color: Colors.grey[600],
-                                      fontStyle: FontStyle.italic,
-                                    ),
-                                  ),
-                                ],
+                              Text(
+                                'Recent Transactions',
+                                style: TextStyle(
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.bold,
+                                  color: _primaryColor,
+                                ),
                               ),
                               const Spacer(),
                               Column(
                                 crossAxisAlignment: CrossAxisAlignment.end,
                                 children: [
                                   Text(
-                                    'Rs ${stats['weekRevenue'].toStringAsFixed(2)}',
+                                    'Rs ${stats['weekRevenue'].toStringAsFixed(0)}',
                                     style: TextStyle(
                                       fontSize: 16,
                                       fontWeight: FontWeight.bold,
@@ -651,16 +852,6 @@ Padding(
                             ],
                           ),
                           const SizedBox(height: 10),
-                          Text(
-                            'Showing Doctor Fees Only',
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: Colors.grey[600],
-                              fontStyle: FontStyle.italic,
-                            ),
-                          ),
-                          const SizedBox(height: 10),
-                          // This already shows only doctor's appointments due to query filter
                           ..._appointments.take(5).map((appointment) {
                             return Container(
                               margin: const EdgeInsets.only(bottom: 8),
@@ -704,7 +895,7 @@ Padding(
                                   crossAxisAlignment: CrossAxisAlignment.end,
                                   children: [
                                     Text(
-                                      'Rs ${appointment.fees.toStringAsFixed(2)}',
+                                      'Rs ${appointment.doctorFees.toStringAsFixed(0)}',
                                       style: TextStyle(
                                         fontWeight: FontWeight.bold,
                                         color: _primaryColor,
@@ -734,19 +925,6 @@ Padding(
                               ),
                             );
                           }).toList(),
-                          if (_appointments.isEmpty)
-                            const Padding(
-                              padding: EdgeInsets.symmetric(vertical: 20),
-                              child: Center(
-                                child: Text(
-                                  'No transactions found',
-                                  style: TextStyle(
-                                    color: Colors.grey,
-                                    fontStyle: FontStyle.italic,
-                                  ),
-                                ),
-                              ),
-                            ),
                         ],
                       ),
                     ),
@@ -759,7 +937,7 @@ Padding(
   );
 }
 
-  // Helper function to mask patient name for privacy
+  // Helper methods
   String _getMaskedPatientName(String? fullName) {
     if (fullName == null || fullName.isEmpty) return 'Patient';
     
@@ -771,8 +949,6 @@ Padding(
         ? '${lastName[0]}${'*' * (lastName.length - 1)}'
         : '*';
       return '$firstName $maskedLastName';
-    } else if (fullName.length > 2) {
-      return '${fullName.substring(0, 2)}${'*' * (fullName.length - 2)}';
     }
     return 'Patient';
   }
@@ -840,81 +1016,125 @@ Padding(
     );
   }
 
- Widget _buildAppointmentTypeCard(String title, String count, String revenue, IconData icon, Color color) {
-  return Card(
-    elevation: 3,
-    shape: RoundedRectangleBorder(
-      borderRadius: BorderRadius.circular(15),
-    ),
-    child: Container(
-      height: 140, // Fixed height
-      padding: const EdgeInsets.all(12.0),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(6),
-                decoration: BoxDecoration(
-                  color: color.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Icon(icon, color: color, size: 18), // Smaller icon
-              ),
-              const SizedBox(width: 6),
-              Expanded(
-                child: Text(
-                  title,
-                  style: const TextStyle(
-                    fontSize: 11, // Smaller font
-                    fontWeight: FontWeight.w500,
-                    color: Colors.grey,
-                  ),
-                  overflow: TextOverflow.ellipsis,
-                  maxLines: 1,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 6),
-          Text(
-            count,
-            style: TextStyle(
-              fontSize: 18, // Reduced from 20
-              fontWeight: FontWeight.bold,
-              color: color,
-            ),
-          ),
-          Text(
-            'Appointments',
-            style: const TextStyle(
-              fontSize: 9, // Smaller font
-              color: Colors.grey,
-              height: 1.0, // Reduce line height
-            ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            revenue,
-            style: TextStyle(
-              fontSize: 12, // Reduced from 14
-              fontWeight: FontWeight.bold,
-              color: color,
-            ),
-          ),
-          Text(
-            'Revenue',
-            style: const TextStyle(
-              fontSize: 9, // Smaller font
-              color: Colors.grey,
-              height: 1.0, // Reduce line height
-            ),
-          ),
-        ],
+  // New compact appointment card to prevent overflow
+  Widget _buildCompactAppointmentCard(String title, String count, String revenue, IconData icon, Color color) {
+    return Card(
+      elevation: 3,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(15),
       ),
-    ),
-  );
+      child: Padding(
+        padding: const EdgeInsets.all(12.0),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(6),
+                  decoration: BoxDecoration(
+                    color: color.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Icon(icon, color: color, size: 20),
+                ),
+                const SizedBox(width: 8),
+                Flexible(
+                  child: Text(
+                    title,
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w500,
+                      color: Colors.grey[700],
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Text(
+              count,
+              style: TextStyle(
+                fontSize: 22,
+                fontWeight: FontWeight.bold,
+                color: color,
+              ),
+            ),
+            const Text(
+              'Appointments',
+              style: TextStyle(
+                fontSize: 10,
+                color: Colors.grey,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              revenue,
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.bold,
+                color: color,
+              ),
+            ),
+            const Text(
+              'Revenue',
+              style: TextStyle(
+                fontSize: 10,
+                color: Colors.grey,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
+
+// Data Models
+class Appointment {
+  final String id;
+  final double doctorFees;
+  final DateTime? paidAt;
+  final String date;
+  final String? medicalCenterId;
+  final String? medicalCenterName;
+  final String? patientName;
+  final String? patientId;
+  final String? consultationType;
+
+  Appointment({
+    required this.id,
+    required this.doctorFees,
+    required this.paidAt,
+    required this.date,
+    this.medicalCenterId,
+    this.medicalCenterName,
+    this.patientName,
+    this.patientId,
+    this.consultationType,
+  });
+}
+
+class MedicalCenter {
+  final String id;
+  final String name;
+
+  MedicalCenter({
+    required this.id,
+    required this.name,
+  });
+}
+
+class RevenueData {
+  final String label;
+  final double value;
+  final DateTime date;
+
+  RevenueData({
+    required this.label,
+    required this.value,
+    required this.date,
+  });
 }
