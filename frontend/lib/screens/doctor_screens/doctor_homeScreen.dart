@@ -13,6 +13,7 @@ import 'package:frontend/screens/doctor_screens/doctor_feedback_dashboard.dart';
 import 'package:frontend/screens/doctor_screens/doctor_profile.dart';
 import 'package:frontend/screens/doctor_screens/doctor_qr_scanner_screen.dart';
 import 'package:frontend/screens/doctor_screens/doctor_queue_dashboard.dart';
+import 'package:frontend/screens/doctor_screens/doctor_revenue_analyze.dart';
 import 'package:frontend/screens/doctor_screens/prescription_screen.dart';
 
 
@@ -364,12 +365,7 @@ Future<void> _loadUnreadMessagesCount() async {
 
  
 
-  void _navigateToPrescriptions() {
-    Navigator.push(
-      context,
-      MaterialPageRoute(builder: (context) => PrescriptionScreen()),
-    );
-  }
+  
 
   void _navigateToLiveQueue() {
     final doctorProvider = Provider.of<DoctorProvider>(context, listen: false);
@@ -443,7 +439,9 @@ void _navigateTowrittenPrescriptions() {
       ),
     );
   }
-
+void _navigatetoAmmountAnalysis(){
+  Navigator.push(context, MaterialPageRoute(builder: (context) => const DoctorRevenueAnalysisPage()));
+}
   
   @override
   Widget build(BuildContext context) {
@@ -1005,23 +1003,18 @@ Widget _buildDefaultAvatar() {
           children: [
             _buildQuickActionButton(
               icon: Icons.calendar_today_outlined,
-              label: 'Appointments',
+              label: 'All Appointments',
               color: primaryDark,
               onTap: _navigateToAppointments,
             ),
             _buildQuickActionButton(
               icon: Icons.schedule_outlined,
-              label: 'Schedule',
+              label: 'Create Session',
               color: primaryColor,
               onTap: _navigateToSchedule,
             ),
             
-            _buildQuickActionButton(
-              icon: Icons.assignment_outlined,
-              label: 'Prescriptions',
-              color: primaryDark,
-              onTap: _navigateToPrescriptions,
-            ),
+            
             _buildQuickActionButton(
               icon: Icons.queue_play_next,
               label: 'Live Queue',
@@ -1030,8 +1023,8 @@ Widget _buildDefaultAvatar() {
               badgeCount: hasActiveQueue ? waitingPatientsCount : 0,
             ),
             _buildQuickActionButton(
-              icon: Icons.qr_code_scanner_outlined,
-              label: 'QR Scanner',
+              icon: Icons.emergency,
+              label: 'Emergency patient',
               color: primaryDark,
               onTap: _navigateToQRScanner,
             ),
@@ -1063,10 +1056,16 @@ Widget _buildDefaultAvatar() {
             ),
             _buildQuickActionButton(
               icon: Icons.medical_information, 
-              label: 'My sessions',
+              label: 'My consultation',
               onTap: _navigatetosessions, 
               color: primaryDark
-            )
+            ),
+            _buildQuickActionButton(
+              icon: Icons.show_chart, 
+              label: 'anlysis ammount',
+              onTap: _navigatetoAmmountAnalysis, 
+              color: primaryDark
+            ),
           ],
         ),
       ],

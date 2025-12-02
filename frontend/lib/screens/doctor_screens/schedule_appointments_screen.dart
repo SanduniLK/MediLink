@@ -414,7 +414,7 @@ class _ScheduleAppointmentsScreenState extends State<ScheduleAppointmentsScreen>
     required Color color,
   }) {
     return Container(
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.all(8),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(12),
@@ -436,7 +436,7 @@ class _ScheduleAppointmentsScreenState extends State<ScheduleAppointmentsScreen>
             ),
             child: Icon(
               icon,
-              size: 16,
+              size: 13,
               color: color,
             ),
           ),
