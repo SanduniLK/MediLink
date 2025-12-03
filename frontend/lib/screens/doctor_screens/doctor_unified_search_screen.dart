@@ -75,42 +75,52 @@ class _DoctorUnifiedSearchScreenState extends State<DoctorUnifiedSearchScreen> w
   }
 
   void _processQueueData(List<DocumentSnapshot> docs) {
-    final appointments = <Map<String, dynamic>>[];
-    final completed = <Map<String, dynamic>>[];
-    
-    for (var doc in docs) {
-      final data = doc.data() as Map<String, dynamic>?;
-      if (data != null) {
-        final appointment = {
-          'id': doc.id,
-          'patientName': data['patientName'] ?? 'Unknown',
-          'tokenNumber': data['tokenNumber'] ?? 0,
-          'queueStatus': data['queueStatus'] ?? 'waiting',
-          'status': data['status'] ?? 'confirmed',
-        };
-        
-        if (data['status'] == 'completed') {
-          completed.add(appointment);
-        } else if (data['status'] == 'confirmed') {
+  final appointments = <Map<String, dynamic>>[];
+  final completed = <Map<String, dynamic>>[];
+  final waiting = <Map<String, dynamic>>[];
+  final inConsultation = <Map<String, dynamic>>[];
+  
+  for (var doc in docs) {
+    final data = doc.data() as Map<String, dynamic>?;
+    if (data != null) {
+      final appointment = {
+        'id': doc.id,
+        'patientName': data['patientName'] ?? 'Unknown',
+        'tokenNumber': data['tokenNumber'] ?? 0,
+        'queueStatus': data['queueStatus'] ?? 'waiting',
+        'status': data['status'] ?? 'confirmed',
+      };
+      
+      if (data['status'] == 'completed') {
+        completed.add(appointment);
+      } else if (data['status'] == 'confirmed') {
+        if (data['queueStatus'] == 'in_consultation') {
+          inConsultation.add(appointment);
+        } else if (data['queueStatus'] == 'waiting') {
+          waiting.add(appointment);
+        } else {
           appointments.add(appointment);
         }
       }
     }
-    
-    // Sort by token number
-    appointments.sort((a, b) => (a['tokenNumber'] as int).compareTo(b['tokenNumber'] as int));
-    completed.sort((a, b) => (a['tokenNumber'] as int).compareTo(b['tokenNumber'] as int));
-    
-    if (mounted) {
-      setState(() {
-        _queueAppointments = appointments;
-        _completedAppointments = completed;
-        _totalQueuePatients = appointments.length + completed.length;
-        _completedPatients = completed.length;
-        _isLoadingQueue = false;
-      });
-    }
   }
+  
+  // Sort waiting appointments by token number
+  waiting.sort((a, b) => (a['tokenNumber'] as int).compareTo(b['tokenNumber'] as int));
+  
+  // Combine inConsultation + waiting for the queue
+  final queue = [...inConsultation, ...waiting];
+  
+  if (mounted) {
+    setState(() {
+      _queueAppointments = queue;
+      _completedAppointments = completed;
+      _totalQueuePatients = queue.length + completed.length;
+      _completedPatients = completed.length;
+      _isLoadingQueue = false;
+    });
+  }
+}
 
   Widget _buildQueueProgress() {
     if (_isLoadingQueue && _queueAppointments.isEmpty) {

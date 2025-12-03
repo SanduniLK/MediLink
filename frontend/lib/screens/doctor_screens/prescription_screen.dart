@@ -1161,7 +1161,7 @@ Future<void> _completeAppointmentAndAdvanceQueue() async {
 
     debugPrint('✅ Appointment ${widget.appointmentId} marked as completed');
 
-    // 2. Find next appointment in queue
+    // 2. Find next appointment in queue (waiting status)
     final nextAppointmentsQuery = await FirebaseFirestore.instance
         .collection('appointments')
         .where('scheduleId', isEqualTo: widget.scheduleId)
@@ -1174,6 +1174,7 @@ Future<void> _completeAppointmentAndAdvanceQueue() async {
     if (nextAppointmentsQuery.docs.isNotEmpty) {
       final nextAppointment = nextAppointmentsQuery.docs.first;
       final nextAppointmentId = nextAppointment.id;
+      final nextTokenNumber = nextAppointment.data()['tokenNumber'] ?? 0;
       
       // 3. Update next appointment to "in_consultation"
       await FirebaseFirestore.instance
@@ -1184,38 +1185,72 @@ Future<void> _completeAppointmentAndAdvanceQueue() async {
         'updatedAt': FieldValue.serverTimestamp(),
       });
 
-      debugPrint('⏭️ Next appointment #${nextAppointment.data()['tokenNumber']} (${nextAppointment.data()['patientName']}) set to in_consultation');
+      debugPrint('⏭️ Next appointment #$nextTokenNumber (${nextAppointment.data()['patientName']}) set to in_consultation');
       
-      // 4. Show notification about next patient
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('✅ Appointment completed. Next patient: ${nextAppointment.data()['patientName']}'),
-          backgroundColor: Colors.green,
-          duration: const Duration(seconds: 3),
-        ),
-      );
+      // 4. Update current queue number in schedule (if you have that field)
+      try {
+        await FirebaseFirestore.instance
+            .collection('schedules')
+            .doc(widget.scheduleId)
+            .update({
+          'currentQueueNumber': nextTokenNumber,
+          'updatedAt': FieldValue.serverTimestamp(),
+        });
+        debugPrint('📊 Updated schedule current queue number to $nextTokenNumber');
+      } catch (e) {
+        debugPrint('⚠️ Could not update schedule queue number: $e');
+      }
+      
+      // 5. Show notification about next patient
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('✅ Consultation completed. Next: ${nextAppointment.data()['patientName']} (#$nextTokenNumber)'),
+            backgroundColor: Colors.green,
+            duration: const Duration(seconds: 3),
+          ),
+        );
+      }
     } else {
-      debugPrint('🏁 No more patients in queue');
+      debugPrint('🏁 No more patients in queue - all completed');
+      
+      // Reset schedule queue number to 0
+      try {
+        await FirebaseFirestore.instance
+            .collection('schedules')
+            .doc(widget.scheduleId)
+            .update({
+          'currentQueueNumber': 0,
+          'updatedAt': FieldValue.serverTimestamp(),
+        });
+        debugPrint('📊 Reset schedule queue number to 0');
+      } catch (e) {
+        debugPrint('⚠️ Could not reset schedule queue number: $e');
+      }
       
       // Show completion message
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('🏁 All appointments completed for this schedule'),
-          backgroundColor: Colors.blue,
-          duration: Duration(seconds: 3),
-        ),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('🏁 All consultations completed for this schedule!'),
+            backgroundColor: Colors.blue,
+            duration: Duration(seconds: 3),
+          ),
+        );
+      }
     }
 
   } catch (e) {
     debugPrint('❌ Error completing appointment: $e');
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('Error completing appointment: $e'),
-        backgroundColor: Colors.red,
-        duration: const Duration(seconds: 3),
-      ),
-    );
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error completing consultation: ${e.toString()}'),
+          backgroundColor: Colors.red,
+          duration: const Duration(seconds: 3),
+        ),
+      );
+    }
   }
 }
  Future<void> _notifyPharmacies(Map<String, dynamic> prescriptionData) async {

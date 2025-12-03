@@ -163,17 +163,23 @@ class _ScheduleAppointmentsScreenState extends State<ScheduleAppointmentsScreen>
     _loadAppointments();
   }
 
- void _loadAppointments() {
+void _loadAppointments() {
   _appointmentsStream = FirebaseFirestore.instance
       .collection('appointments')
       .where('scheduleId', isEqualTo: widget.schedule.id)
       .snapshots();
 
-  _appointmentsStream.listen((snapshot) {
+  _appointmentsStream.listen((snapshot) async {
     final appointments = snapshot.docs
         .map((doc) => ScheduleAppointment.fromFirestore(doc))
         .toList()
       ..sort((a, b) => a.tokenNumber.compareTo(b.tokenNumber));
+
+    // Check and initialize queue status
+    await _initializeQueueStatus(appointments);
+
+    // Get the updated current appointment after initialization
+    final currentAppointment = _getCurrentAppointment(appointments);
 
     final total = appointments.length;
     final active = appointments.where((a) => a.isActive).length;
@@ -182,14 +188,8 @@ class _ScheduleAppointmentsScreenState extends State<ScheduleAppointmentsScreen>
         .where((a) => a.isPaid)
         .fold(0.0, (sum, a) => sum + (double.tryParse(a.fees) ?? 0));
     
-   final currentAppointment = appointments
-          .where((a) => a.isActive && 
-                       a.status.toLowerCase() == 'confirmed' &&
-                       a.queueStatus.toLowerCase() == 'waiting')
-          .firstOrNull;
-      
-      debugPrint('📋 Appointments loaded: ${appointments.length} total, $active active');
-      debugPrint('🔍 Current appointment: ${currentAppointment?.patientName} (#${currentAppointment?.tokenNumber})');
+    debugPrint('📋 Appointments loaded: ${appointments.length} total, $active active');
+    debugPrint('🔍 Current appointment: ${currentAppointment?.patientName} (#${currentAppointment?.tokenNumber})');
 
     setState(() {
       _appointments = appointments;
@@ -202,6 +202,79 @@ class _ScheduleAppointmentsScreenState extends State<ScheduleAppointmentsScreen>
       _isLoading = false;
     });
   });
+}
+
+Future<void> _initializeQueueStatus(List<ScheduleAppointment> appointments) async {
+  final activeConfirmedAppointments = appointments
+      .where((a) => a.isActive && a.status.toLowerCase() == 'confirmed')
+      .toList();
+
+  if (activeConfirmedAppointments.isEmpty) {
+    debugPrint('⏭️ No active confirmed appointments found');
+    return;
+  }
+
+  // Check if there's already an appointment in consultation
+  final inConsultationList = activeConfirmedAppointments
+      .where((a) => a.queueStatus.toLowerCase() == 'in_consultation')
+      .toList();
+
+  final ScheduleAppointment? inConsultation = inConsultationList.isNotEmpty ? inConsultationList.first : null;
+
+  if (inConsultation != null) {
+    debugPrint('🎯 Already have appointment in consultation: #${inConsultation.tokenNumber}');
+    return;
+  }
+
+  // Find the first waiting appointment by token number
+  final waitingAppointments = activeConfirmedAppointments
+      .where((a) => a.queueStatus.toLowerCase() == 'waiting')
+      .toList()
+    ..sort((a, b) => a.tokenNumber.compareTo(b.tokenNumber));
+
+  if (waitingAppointments.isEmpty) {
+    debugPrint('⏭️ No waiting appointments found');
+    return;
+  }
+
+  // Set the first waiting appointment to in_consultation
+  final firstWaiting = waitingAppointments.first;
+  try {
+    await FirebaseFirestore.instance
+        .collection('appointments')
+        .doc(firstWaiting.id)
+        .update({
+      'queueStatus': 'in_consultation',
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+    
+    debugPrint('▶️ Set appointment #${firstWaiting.tokenNumber} (${firstWaiting.patientName}) to in_consultation');
+  } catch (e) {
+    debugPrint('❌ Error updating queue status: $e');
+  }
+}
+
+ScheduleAppointment? _getCurrentAppointment(List<ScheduleAppointment> appointments) {
+  // Get the appointment currently in consultation
+  final inConsultation = appointments
+      .where((a) => a.isActive && 
+                   a.status.toLowerCase() == 'confirmed' &&
+                   a.queueStatus.toLowerCase() == 'in_consultation')
+      .firstOrNull;
+
+  if (inConsultation != null) {
+    return inConsultation;
+  }
+
+  // Fallback to first waiting appointment if none in consultation
+  final waitingAppointments = appointments
+      .where((a) => a.isActive && 
+                   a.status.toLowerCase() == 'confirmed' &&
+                   a.queueStatus.toLowerCase() == 'waiting')
+      .toList()
+    ..sort((a, b) => a.tokenNumber.compareTo(b.tokenNumber));
+
+  return waitingAppointments.isNotEmpty ? waitingAppointments.first : null;
 }
 void _updateQueueStatus(String appointmentId, String newStatus) async {
   try {
