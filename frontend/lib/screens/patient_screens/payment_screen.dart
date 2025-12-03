@@ -255,16 +255,18 @@ class _PaymentScreenState extends State<PaymentScreen> {
 
       // 2) Assign token number
       print('🎫 Assigning token number after payment...');
-      final tokenNumber = await _tokenService.assignTokenNumber(
-        widget.doctorId,
-        widget.selectedDate,
-      );
-      print('✅ Token assigned: $tokenNumber');
+      final tokenNumber = await _tokenService.assignTokenNumberForSchedule(
+  widget.scheduleId,  // Pass scheduleId instead of doctorId
+  widget.doctorId,
+  widget.selectedDate,
+);
+      print('Schedule Token assigned: $tokenNumber');
 
       // 3) Prepare updated appointment data
       final updatedAppointmentData = {
         ...widget.appointmentData,
         'tokenNumber': tokenNumber,
+        'scheduleId': widget.scheduleId, 
         'queueStatus': 'waiting',
         'paymentStatus': 'paid',
         'status': 'confirmed',
@@ -431,97 +433,138 @@ class _PaymentScreenState extends State<PaymentScreen> {
     }
   }
 
-  void _showSuccessDialog(int tokenNumber, String appointmentId) {
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (BuildContext context) {
-        return AlertDialog(
-          title: const Row(
+ void _showSuccessDialog(int tokenNumber, String appointmentId) {
+  showDialog(
+    context: context,
+    barrierDismissible: false,
+    builder: (BuildContext context) {
+      return AlertDialog(
+        title: const Row(
+          children: [
+            Icon(Icons.check_circle, color: Colors.green),
+            SizedBox(width: 8),
+            Text('Booking Confirmed!',style: TextStyle(fontSize: 12),),
+          ],
+        ),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Icon(Icons.check_circle, color: Colors.green),
-              SizedBox(width: 8),
-              Text('Booking Confirmed! 🎉'),
+              Text('Doctor: Dr. ${widget.doctorName}'),
+              Text('Schedule: ${widget.selectedTime}'),
+              Text('Date: ${widget.selectedDate}'),
+              const SizedBox(height: 16),
+              
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFE3F2FD),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: const Color(0xFF18A3B6)),
+                ),
+                child: Column(
+                  children: [
+                    const Text(
+                      'Your Schedule Token',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                        color: Color(0xFF18A3B6),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      '#$tokenNumber',
+                      style: const TextStyle(
+                        fontSize: 32,
+                        fontWeight: FontWeight.bold,
+                        color: Color(0xFF18A3B6),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    
+                    // Schedule-specific info
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: Colors.blue[50],
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Column(
+                        children: [
+                          const Icon(Icons.schedule, size: 24, color: Colors.blue),
+                          const SizedBox(height: 4),
+                          Text(
+                            widget.selectedTime,
+                            style: const TextStyle(
+                              fontWeight: FontWeight.bold,
+                              color: Colors.blue,
+                            ),
+                          ),
+                          Text(
+                            'Time Slot',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.blue[700],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    
+                    const SizedBox(height: 12),
+                    Text(
+                      'You are token #$tokenNumber in the ${widget.selectedTime} schedule',
+                      style: const TextStyle(fontSize: 12, color: Colors.grey),
+                      textAlign: TextAlign.center,
+                    ),
+                  ],
+                ),
+              ),
+              
+              const SizedBox(height: 16),
+              const Text(
+                'Important:',
+                style: TextStyle(fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                '• This token (#$tokenNumber) is for the ${widget.selectedTime} schedule only',
+                style: const TextStyle(fontSize: 12),
+              ),
+              Text(
+                '• Other time slots have their own token sequence starting from 1',
+                style: const TextStyle(fontSize: 12),
+              ),
+              Text(
+                '• Arrive at least 15 minutes before your scheduled time',
+                style: const TextStyle(fontSize: 12),
+              ),
             ],
           ),
-          content: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('Doctor: Dr. ${widget.doctorName}'),
-                Text('Date: ${widget.selectedDate}'),
-                Text('Time: ${widget.selectedTime}'),
-                const SizedBox(height: 16),
-                Container(
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFE3F2FD),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: const Color(0xFF18A3B6)),
-                  ),
-                  child: Column(
-                    children: [
-                      const Text(
-                        'Your Token Number',
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
-                          color: Color(0xFF18A3B6),
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        '#$tokenNumber',
-                        style: const TextStyle(
-                          fontSize: 32,
-                          fontWeight: FontWeight.bold,
-                          color: Color(0xFF18A3B6),
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      const Text(
-                        'Show this token at the clinic',
-                        style: TextStyle(fontSize: 12, color: Colors.grey),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 16),
-                const Text(
-                  'You can view this appointment in "My Appointments" section.',
-                  style: TextStyle(fontSize: 14),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  'Appointment ID: ${appointmentId.substring(0, 8)}...',
-                  style: const TextStyle(fontSize: 12, color: Colors.grey),
-                ),
-              ],
-            ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.of(context).popUntil((route) => route.isFirst);
+            },
+            child: const Text('Go to Home'),
           ),
-          actions: [
-            TextButton(
-              onPressed: () {
-                Navigator.of(context).popUntil((route) => route.isFirst);
-              },
-              child: const Text('Go to Home'),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.of(context).popUntil((route) => route.isFirst);
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF18A3B6),
             ),
-            ElevatedButton(
-              onPressed: () {
-                Navigator.of(context).popUntil((route) => route.isFirst);
-              },
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF18A3B6),
-              ),
-              child: const Text('View My Appointments'),
-            ),
-          ],
-        );
-      },
-    );
-  }
-
+            child: const Text('View My Appointments'),
+          ),
+        ],
+      );
+    },
+  );
+}
   void _showErrorSnackBar(String message) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(

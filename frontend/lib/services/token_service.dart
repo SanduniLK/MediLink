@@ -6,27 +6,31 @@ class DynamicTokenService {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
   // Assign token number - always adds to the end
-  Future<int> assignTokenNumber(String doctorId, String date) async {
+ Future<int> assignTokenNumberForSchedule(String scheduleId, String doctorId, String date) async {
     try {
-      final queueDocRef = _firestore
-          .collection('doctorDailyQueue')
-          .doc('${doctorId}_$date');
+      // Use schedule-specific document
+      final scheduleQueueDocRef = _firestore
+          .collection('scheduleDailyQueue')
+          .doc('${scheduleId}_$date');
 
       return await _firestore.runTransaction<int>((transaction) async {
-        final queueDoc = await transaction.get(queueDocRef);
+        final scheduleQueueDoc = await transaction.get(scheduleQueueDocRef);
         
         int newTokenNumber;
         
-        if (queueDoc.exists) {
-          newTokenNumber = (queueDoc.data()!['lastTokenNumber'] ?? 0) + 1;
-          transaction.update(queueDocRef, {
+        if (scheduleQueueDoc.exists) {
+          // Continue from last token for THIS SCHEDULE on THIS DAY
+          newTokenNumber = (scheduleQueueDoc.data()!['lastTokenNumber'] ?? 0) + 1;
+          transaction.update(scheduleQueueDocRef, {
             'lastTokenNumber': newTokenNumber,
             'totalAppointments': FieldValue.increment(1),
             'updatedAt': FieldValue.serverTimestamp(),
           });
         } else {
+          // NEW SCHEDULE for this day = Start from 1
           newTokenNumber = 1;
-          transaction.set(queueDocRef, {
+          transaction.set(scheduleQueueDocRef, {
+            'scheduleId': scheduleId,
             'doctorId': doctorId,
             'date': date,
             'lastTokenNumber': newTokenNumber,
@@ -37,12 +41,49 @@ class DynamicTokenService {
           });
         }
         
-        print('🎫 Token assigned: $newTokenNumber for Dr. $doctorId on $date');
+        print('🎫 Schedule Token assigned: $newTokenNumber for Schedule $scheduleId on $date');
         return newTokenNumber;
       });
     } catch (e) {
-      print('Error assigning token number: $e');
+      print('Error assigning schedule token number: $e');
       rethrow;
+    }
+  }
+ Future<int> getDoctorDailyAppointmentCount(String doctorId, String date) async {
+    try {
+      final appointmentsQuery = await _firestore
+          .collection('appointments')
+          .where('doctorId', isEqualTo: doctorId)
+          .where('selectedDate', isEqualTo: date)
+          .where('status', whereIn: ['confirmed', 'pending'])
+          .get();
+      
+      return appointmentsQuery.docs.length;
+    } catch (e) {
+      print('Error getting daily appointment count: $e');
+      return 0;
+    }
+  }
+Future<List<Map<String, dynamic>>> getAllSchedulesQueueStatus(String doctorId, String date) async {
+    try {
+      final querySnapshot = await _firestore
+          .collection('scheduleDailyQueue')
+          .where('doctorId', isEqualTo: doctorId)
+          .where('date', isEqualTo: date)
+          .get();
+
+      return querySnapshot.docs.map((doc) {
+        final data = doc.data();
+        return {
+          'scheduleId': data['scheduleId'],
+          'totalAppointments': data['totalAppointments'] ?? 0,
+          'lastTokenNumber': data['lastTokenNumber'] ?? 0,
+          'currentServingToken': data['currentServingToken'] ?? 0,
+        };
+      }).toList();
+    } catch (e) {
+      print('Error getting all schedules queue status: $e');
+      return [];
     }
   }
 
@@ -223,12 +264,11 @@ class DynamicTokenService {
   }
 
   // Local storage methods
-  Future<void> storeTokenLocally(String scheduleId, int tokenNumber) async {
+   Future<void> storeTokenLocally(String scheduleId, int tokenNumber) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setInt('token_$scheduleId', tokenNumber);
     print('💾 Token stored locally: $tokenNumber for schedule $scheduleId');
   }
-
   Future<int?> getStoredToken(String scheduleId) async {
     final prefs = await SharedPreferences.getInstance();
     final token = prefs.getInt('token_$scheduleId');
@@ -236,7 +276,7 @@ class DynamicTokenService {
     return token;
   }
 
-  Future<void> clearStoredToken(String scheduleId) async {
+ Future<void> clearStoredToken(String scheduleId) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove('token_$scheduleId');
     print('🗑️ Cleared local token for schedule $scheduleId');

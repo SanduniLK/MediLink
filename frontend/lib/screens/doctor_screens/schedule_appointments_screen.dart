@@ -135,6 +135,7 @@ class ScheduleAppointment {
 
 class ScheduleAppointmentsScreen extends StatefulWidget {
   final DoctorSchedule schedule;
+  
 
   const ScheduleAppointmentsScreen({
     super.key,
@@ -154,6 +155,7 @@ class _ScheduleAppointmentsScreenState extends State<ScheduleAppointmentsScreen>
   int _cancelledAppointments = 0;
   double _totalRevenue = 0;
   int _currentQueueNumber = 0;
+  String? _currentappointmentId;
 
   @override
   void initState() {
@@ -180,10 +182,14 @@ class _ScheduleAppointmentsScreenState extends State<ScheduleAppointmentsScreen>
         .where((a) => a.isPaid)
         .fold(0.0, (sum, a) => sum + (double.tryParse(a.fees) ?? 0));
     
-    final current = appointments
-        .where((a) => a.isActive && a.status.toLowerCase() == 'confirmed')
-        .firstOrNull
-        ?.tokenNumber ?? 0;
+   final currentAppointment = appointments
+          .where((a) => a.isActive && 
+                       a.status.toLowerCase() == 'confirmed' &&
+                       a.queueStatus.toLowerCase() == 'waiting')
+          .firstOrNull;
+      
+      debugPrint('📋 Appointments loaded: ${appointments.length} total, $active active');
+      debugPrint('🔍 Current appointment: ${currentAppointment?.patientName} (#${currentAppointment?.tokenNumber})');
 
     setState(() {
       _appointments = appointments;
@@ -191,10 +197,63 @@ class _ScheduleAppointmentsScreenState extends State<ScheduleAppointmentsScreen>
       _activeAppointments = active;
       _cancelledAppointments = cancelled;
       _totalRevenue = revenue;
-      _currentQueueNumber = current;
+      _currentQueueNumber = currentAppointment?.tokenNumber ?? 0;
+      _currentappointmentId = currentAppointment?.id;
       _isLoading = false;
     });
   });
+}
+void _updateQueueStatus(String appointmentId, String newStatus) async {
+  try {
+    await FirebaseFirestore.instance
+        .collection('appointments')
+        .doc(appointmentId)
+        .update({
+      'queueStatus': newStatus,
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+    
+    if (newStatus == 'completed') {
+      // Move to next patient in queue
+      await _moveToNextPatient();
+    }
+  } catch (e) {
+    debugPrint('Error updating queue: $e');
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Error: ${e.toString()}'),
+        backgroundColor: Colors.red,
+      ),
+    );
+  }
+}
+
+Future<void> _moveToNextPatient() async {
+  final confirmedAppointments = _appointments
+      .where((a) => a.isActive && 
+                    a.status.toLowerCase() == 'confirmed' &&
+                    a.queueStatus.toLowerCase() == 'waiting')
+      .toList()
+    ..sort((a, b) => a.tokenNumber.compareTo(b.tokenNumber));
+  
+  if (confirmedAppointments.isNotEmpty) {
+    final nextAppointment = confirmedAppointments.first;
+    await FirebaseFirestore.instance
+        .collection('appointments')
+        .doc(nextAppointment.id)
+        .update({
+      'queueStatus': 'in_consultation',
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+    
+    setState(() {
+      _currentQueueNumber = nextAppointment.tokenNumber;
+    });
+  } else {
+    setState(() {
+      _currentQueueNumber = 0;
+    });
+  }
 }
 
   @override
@@ -311,17 +370,24 @@ class _ScheduleAppointmentsScreenState extends State<ScheduleAppointmentsScreen>
                   height: 56,
                   child: ElevatedButton.icon(
                     onPressed: () {
-                      Navigator.push(
-    context,
-    MaterialPageRoute(
-      builder: (context) => DoctorUnifiedSearchScreen(
-        doctorId: widget.schedule.doctorId,
-        doctorName: widget.schedule.doctorName,
-        scheduleId: widget.schedule.id,
-        appointmentType: widget.schedule.appointmentType,
-      ),
-    ),
-  );
+                      debugPrint('🚀 Start Consultation clicked');
+                debugPrint('📌 Doctor: ${widget.schedule.doctorName}');
+                debugPrint('📌 Schedule ID: ${widget.schedule.id}');
+                debugPrint('📌 Current Queue #: $_currentQueueNumber');
+                debugPrint('📌 Current Appointment ID: $_currentappointmentId');
+                
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => DoctorUnifiedSearchScreen(
+                      doctorId: widget.schedule.doctorId,
+                      doctorName: widget.schedule.doctorName,
+                      scheduleId: widget.schedule.id,
+                      appointmentType: widget.schedule.appointmentType,
+                      currentAppointmentId: _currentappointmentId, // PASS APPOINTMENT ID
+                    ),
+                  ),
+                );
                     },
                     style: ElevatedButton.styleFrom(
                       backgroundColor: primaryColor,

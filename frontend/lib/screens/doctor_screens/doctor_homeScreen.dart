@@ -12,7 +12,7 @@ import 'package:frontend/screens/doctor_screens/doctor_appointments_page.dart';
 import 'package:frontend/screens/doctor_screens/doctor_feedback_dashboard.dart';
 import 'package:frontend/screens/doctor_screens/doctor_profile.dart';
 import 'package:frontend/screens/doctor_screens/doctor_qr_scanner_screen.dart';
-import 'package:frontend/screens/doctor_screens/doctor_queue_dashboard.dart';
+
 import 'package:frontend/screens/doctor_screens/doctor_revenue_analyze.dart';
 import 'package:frontend/screens/doctor_screens/prescription_screen.dart';
 
@@ -370,15 +370,7 @@ Future<void> _loadUnreadMessagesCount() async {
   void _navigateToLiveQueue() {
     final doctorProvider = Provider.of<DoctorProvider>(context, listen: false);
   
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => ChangeNotifierProvider.value(
-          value: doctorProvider,
-          child: const DoctorQueueDashboard(),
-        ),
-      ),
-    );
+    
   }
 
   void _navigateToQRScanner() {

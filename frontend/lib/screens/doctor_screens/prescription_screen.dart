@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
@@ -20,13 +21,20 @@ class PrescriptionScreen extends StatefulWidget {
   final String? patientAge;
   final Map<String, dynamic>? patientData;
    final bool isFromProfile;
+    final String? appointmentId;
+  final String? scheduleId;
+  final VoidCallback? onPrescriptionComplete;
 
   const PrescriptionScreen({super.key,
   this.patientId,
     this.patientName,
     this.patientAge,
     this.patientData,
-     this.isFromProfile = false,});
+     this.isFromProfile = false,
+     this.appointmentId,
+    this.scheduleId,
+    this.onPrescriptionComplete,
+     });
 
   @override
   State<PrescriptionScreen> createState() => _PrescriptionScreenState();
@@ -853,7 +861,7 @@ void _drawClinicalDrawing(Canvas canvas, double width) {
     currentY += 170;
   }
 }
- Future<void> _savePrescription({bool shareWithPharmacies = false}) async {
+Future<void> _savePrescription({bool shareWithPharmacies = false}) async {
   if (_patientNameController.text.isEmpty) {
     _showError('Please select a patient');
     return;
@@ -869,7 +877,10 @@ void _drawClinicalDrawing(Canvas canvas, double width) {
   try {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
+    debugPrint('💾 Prescription saved successfully');
 
+    await _completeAppointmentAndAdvanceQueue();
+    
     // Generate prescription image with colors and drawings
     final Uint8List? prescriptionImage = await _generatePrescriptionImage();
     
@@ -889,61 +900,131 @@ void _drawClinicalDrawing(Canvas canvas, double width) {
       prescriptionImageUrl = await _uploadPrescriptionImageToStorage(
         prescriptionImage, 
         user.uid, 
-        _selectedPatientId!
+        widget.patientId ?? _selectedPatientId ?? ''
       );
     }
 
-    final prescription = Prescription(
-      id: DateTime.now().millisecondsSinceEpoch.toString(),
-      doctorId: user.uid,
-      patientName: _patientNameController.text,
-      patientId: _selectedPatientId!,
-      patientAge: _patientAgeController.text.isNotEmpty ? int.tryParse(_patientAgeController.text) : null,
-      date: DateTime.now(),
-      medicines: _getMedicines(),
-      description: _descriptionController.text,
-      diagnosis: _diagnosisController.text,
-      notes: _notesController.text,
-      status: shareWithPharmacies ? 'shared' : 'completed',
-      sharedPharmacies: shareWithPharmacies ? _getSelectedPharmacyIds() : [],
-      createdAt: DateTime.now(),
-      updatedAt: DateTime.now(),
-      drawingImage: drawingImage,
-      signatureImage: signatureImage,
-    );
+    // Create prescription data
+    final prescriptionData = <String, dynamic>{
+      'doctorId': user.uid,
+      'doctorName': _doctorNameController.text,
+      'patientId': widget.patientId ?? _selectedPatientId ?? '',
+      'patientName': _patientNameController.text,
+      'patientAge': _patientAgeController.text.isNotEmpty ? int.tryParse(_patientAgeController.text) : null,
+      'date': DateTime.now(),
+      'medicines': _getMedicines().map((m) => m.toMap()).toList(),
+      'description': _descriptionController.text,
+      'diagnosis': '', // Will be merged with consultation data if available
+      'notes': '',
+      'status': shareWithPharmacies ? 'shared' : 'completed',
+      'sharedPharmacies': shareWithPharmacies ? _getSelectedPharmacyIds() : [],
+      'medicalCenter': _medicalCenterController.text,
+      'doctorRegistration': _doctorRegNoController.text,
+      'prescriptionImageUrl': prescriptionImageUrl,
+      'drawingImage': drawingImage != null ? base64Encode(drawingImage) : null,
+      'signatureImage': signatureImage != null ? base64Encode(signatureImage) : null,
+      'appointmentId': widget.appointmentId,
+      'scheduleId': widget.scheduleId,
+      'createdAt': FieldValue.serverTimestamp(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    };
 
-    // Create a modified map that includes the image URL and medical center
-    final prescriptionMap = prescription.toMap();
-    prescriptionMap['prescriptionImageUrl'] = prescriptionImageUrl;
-    prescriptionMap['medicalCenter'] = _medicalCenterController.text;
-
-    // Save to Firestore
-    final String docId = prescription.id;
-    await FirebaseFirestore.instance
-        .collection('prescriptions')
-        .doc(docId)
-        .set(prescriptionMap);
-
-    if (shareWithPharmacies && prescription.sharedPharmacies.isNotEmpty) {
-      await _notifyPharmacies(prescription);
+    // If there's an appointment, merge with existing consultation data
+    if (widget.appointmentId != null && widget.appointmentId!.isNotEmpty) {
+      try {
+        final consultationQuery = await FirebaseFirestore.instance
+            .collection('prescriptions')
+            .where('appointmentId', isEqualTo: widget.appointmentId)
+            .limit(1)
+            .get();
+        
+        if (consultationQuery.docs.isNotEmpty) {
+          final consultationData = consultationQuery.docs.first.data();
+          prescriptionData['diagnosis'] = consultationData['diagnosis'] ?? '';
+          prescriptionData['notes'] = consultationData['notes'] ?? '';
+          
+          // Update existing document
+          await consultationQuery.docs.first.reference.update(prescriptionData);
+        } else {
+          // Create new document
+          final String docId = DateTime.now().millisecondsSinceEpoch.toString();
+          prescriptionData['id'] = docId;
+          await FirebaseFirestore.instance
+              .collection('prescriptions')
+              .doc(docId)
+              .set(prescriptionData);
+        }
+      } catch (e) {
+        debugPrint('Error merging consultation data: $e');
+        // Create new document anyway
+        final String docId = DateTime.now().millisecondsSinceEpoch.toString();
+        prescriptionData['id'] = docId;
+        await FirebaseFirestore.instance
+            .collection('prescriptions')
+            .doc(docId)
+            .set(prescriptionData);
+      }
+    } else {
+      // Create new document without appointment
+      final String docId = DateTime.now().millisecondsSinceEpoch.toString();
+      prescriptionData['id'] = docId;
+      await FirebaseFirestore.instance
+          .collection('prescriptions')
+          .doc(docId)
+          .set(prescriptionData);
     }
 
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            shareWithPharmacies 
-              ? 'Prescription saved with drawings and shared with pharmacies!'
-              : 'Prescription saved with drawings successfully!',
-          ),
-          backgroundColor: Colors.green,
+    // Update appointment status if applicable
+    if (widget.appointmentId != null && widget.appointmentId!.isNotEmpty) {
+      await FirebaseFirestore.instance
+          .collection('appointments')
+          .doc(widget.appointmentId!)
+          .update({
+        'prescriptionStatus': 'completed',
+        'prescriptionCompletedAt': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+    }
+
+    final sharedPharmacyIds = prescriptionData['sharedPharmacies'] as List<dynamic>;
+    if (shareWithPharmacies && sharedPharmacyIds.isNotEmpty) {
+      await _notifyPharmacies(prescriptionData);
+    }
+
+    // Use mounted check before calling setState or Navigator
+    if (!mounted) return;
+    
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          shareWithPharmacies 
+            ? 'Prescription saved and shared with pharmacies!'
+            : 'Prescription saved successfully!',
         ),
-      );
-    }
-
-    if (!shareWithPharmacies && mounted) {
+        backgroundColor: Colors.green,
+        duration: const Duration(seconds: 2),
+      ),
+    );
+    
+    // Call the completion callback
+    Future.delayed(const Duration(milliseconds: 1500), () {
+      if (!mounted) return;
+      
+      debugPrint('🔄 Navigating back to Doctor Unified Search Screen');
+      
+      // Go back TWICE: 
+      // 1. First pop: Close prescription screen
+      // 2. Second pop: Close patient profile screen  
+      // 3. This will return to DoctorUnifiedSearchScreen
+      
+      // First pop the prescription screen
       Navigator.pop(context);
-    }
+      
+      // Then call the completion callback if provided
+      if (widget.onPrescriptionComplete != null) {
+        widget.onPrescriptionComplete!();
+      }
+    });
   } catch (e) {
     if (mounted) {
       _showError('Failed to save prescription: $e');
@@ -952,7 +1033,12 @@ void _drawClinicalDrawing(Canvas canvas, double width) {
     if (mounted) {
       setState(() => _isLoading = false);
     }
-  }
+}
+}
+
+// Helper method to encode image to base64
+String _encodeImageToBase64(Uint8List imageBytes) {
+  return base64Encode(imageBytes);
 }
 
   Future<String?> _uploadPrescriptionImageToStorage(
@@ -1049,28 +1135,112 @@ void _drawClinicalDrawing(Canvas canvas, double width) {
   List<String> _getSelectedPharmacyIds() {
     return _availablePharmacies.map((pharmacy) => pharmacy['id'] as String).toList();
   }
-
-  Future<void> _notifyPharmacies(Prescription prescription) async {
-    try {
-      for (String pharmacyId in prescription.sharedPharmacies) {
-        await FirebaseFirestore.instance
-            .collection('pharmacyNotifications')
-            .add({
-          'pharmacyId': pharmacyId,
-          'prescriptionId': prescription.id,
-          'patientName': prescription.patientName,
-          'doctorId': prescription.doctorId,
-          'doctorName': _doctorNameController.text,
-          'medicalCenter': _medicalCenterController.text,
-          'timestamp': DateTime.now().millisecondsSinceEpoch,
-          'status': 'pending',
-          'medicinesCount': prescription.medicines.length,
-        });
-      }
-    } catch (e) {
-      debugPrint('Error notifying pharmacies: $e');
-    }
+// ADD THIS METHOD TO PRESCRIPTION SCREEN
+Future<void> _completeAppointmentAndAdvanceQueue() async {
+  debugPrint('🏁 Completing appointment and advancing queue...');
+  debugPrint('📋 Appointment ID: ${widget.appointmentId}');
+  debugPrint('📅 Schedule ID: ${widget.scheduleId}');
+  
+  if (widget.appointmentId == null || widget.appointmentId!.isEmpty) {
+    debugPrint('⚠️ No appointment ID provided - skipping queue advancement');
+    return;
   }
+
+  try {
+    // 1. Mark current appointment as completed
+    await FirebaseFirestore.instance
+        .collection('appointments')
+        .doc(widget.appointmentId!)
+        .update({
+      'status': 'completed',
+      'queueStatus': 'completed',
+      'completedAt': FieldValue.serverTimestamp(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+
+    debugPrint('✅ Appointment ${widget.appointmentId} marked as completed');
+
+    // 2. Find next appointment in queue
+    final nextAppointmentsQuery = await FirebaseFirestore.instance
+        .collection('appointments')
+        .where('scheduleId', isEqualTo: widget.scheduleId)
+        .where('status', isEqualTo: 'confirmed')
+        .where('queueStatus', isEqualTo: 'waiting')
+        .orderBy('tokenNumber')
+        .limit(1)
+        .get();
+
+    if (nextAppointmentsQuery.docs.isNotEmpty) {
+      final nextAppointment = nextAppointmentsQuery.docs.first;
+      final nextAppointmentId = nextAppointment.id;
+      
+      // 3. Update next appointment to "in_consultation"
+      await FirebaseFirestore.instance
+          .collection('appointments')
+          .doc(nextAppointmentId)
+          .update({
+        'queueStatus': 'in_consultation',
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+
+      debugPrint('⏭️ Next appointment #${nextAppointment.data()['tokenNumber']} (${nextAppointment.data()['patientName']}) set to in_consultation');
+      
+      // 4. Show notification about next patient
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('✅ Appointment completed. Next patient: ${nextAppointment.data()['patientName']}'),
+          backgroundColor: Colors.green,
+          duration: const Duration(seconds: 3),
+        ),
+      );
+    } else {
+      debugPrint('🏁 No more patients in queue');
+      
+      // Show completion message
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('🏁 All appointments completed for this schedule'),
+          backgroundColor: Colors.blue,
+          duration: Duration(seconds: 3),
+        ),
+      );
+    }
+
+  } catch (e) {
+    debugPrint('❌ Error completing appointment: $e');
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Error completing appointment: $e'),
+        backgroundColor: Colors.red,
+        duration: const Duration(seconds: 3),
+      ),
+    );
+  }
+}
+ Future<void> _notifyPharmacies(Map<String, dynamic> prescriptionData) async {
+  try {
+    final sharedPharmacies = prescriptionData['sharedPharmacies'] as List<dynamic>?;
+    if (sharedPharmacies == null || sharedPharmacies.isEmpty) return;
+    
+    for (var pharmacyId in sharedPharmacies) {
+      await FirebaseFirestore.instance
+          .collection('pharmacyNotifications')
+          .add({
+        'pharmacyId': pharmacyId,
+        'prescriptionId': prescriptionData['id'] ?? DateTime.now().millisecondsSinceEpoch.toString(),
+        'patientName': prescriptionData['patientName'] ?? 'Unknown',
+        'doctorId': prescriptionData['doctorId'] ?? '',
+        'doctorName': prescriptionData['doctorName'] ?? 'Dr. Unknown',
+        'medicalCenter': prescriptionData['medicalCenter'] ?? '',
+        'timestamp': DateTime.now().millisecondsSinceEpoch,
+        'status': 'pending',
+        'medicinesCount': (prescriptionData['medicines'] as List<dynamic>?)?.length ?? 0,
+      });
+    }
+  } catch (e) {
+    debugPrint('Error notifying pharmacies: $e');
+  }
+}
 
   Future<void> _shareWithPharmacies() async {
     final selectedPharmacies = await Navigator.push(
@@ -1129,6 +1299,45 @@ void _drawClinicalDrawing(Canvas canvas, double width) {
                   padding: const EdgeInsets.all(16.0),
                   child: Column(
                     children: [
+                       if (widget.appointmentId != null && widget.appointmentId!.isNotEmpty)
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        margin: const EdgeInsets.only(bottom: 16),
+                        decoration: BoxDecoration(
+                          color: Colors.blue[50],
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: Colors.blue[100] ?? Colors.blue),
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(Icons.people, color: Colors.blue[700]),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'Queue Consultation',
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      color: Colors.blue[700],
+                                      fontSize: 14,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    'Finishing prescription will complete this appointment and move to next patient',
+                                    style: TextStyle(
+                                      color: Colors.blue[600],
+                                      fontSize: 12,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
                       // Header Section with Medical Center
                       _buildHeaderSection(),
                       const SizedBox(height: 20),
@@ -2204,7 +2413,7 @@ Widget _buildPatientDropdownSection() {
               child: ElevatedButton.icon(
                 onPressed: _isLoading ? null : () => _savePrescription(),
                 icon: const Icon(Icons.save, color: Colors.white),
-                label: const Text('Save Prescription', style: TextStyle(color: Colors.white)),
+                label: const Text('finish Prescription', style: TextStyle(color: Colors.white)),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: _primaryColor,
                   padding: const EdgeInsets.symmetric(vertical: 16),
@@ -2301,7 +2510,15 @@ Widget _buildPatientDropdownSection() {
     );
   }
 }
-
+void debugPrintQueueInfo(String message) {
+  final timestamp = DateTime.now().toIso8601String();
+  debugPrint('🕒 [$timestamp] $message');
+}
+void setupDebugLogging() {
+  debugPrint('🚀 === MEDICAL QUEUE SYSTEM STARTED ===');
+  debugPrint('📱 Platform: ${Platform.operatingSystem}');
+  debugPrint('📅 Date: ${DateTime.now()}');
+}
 // FIXED CUSTOM PAINTERS - Add these at the bottom of the file
 class FixedDrawingPainter extends CustomPainter {
   final List<DrawingPoint> points;

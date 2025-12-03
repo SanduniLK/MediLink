@@ -1,4 +1,5 @@
 // screens/doctor_screens/doctor_patient_profile_screen.dart - FIXED IMAGE LOADING
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
@@ -13,13 +14,16 @@ class DoctorPatientProfileScreen extends StatefulWidget {
   final String patientName;
   final Map<String, dynamic> patientData;
   final String? accessType;
-
+  final String? scheduleId; 
+  final String? appointmentId;
   const DoctorPatientProfileScreen({
     super.key,
     required this.patientId,
     required this.patientName,
     required this.patientData,
     this.accessType = 'appointment',
+    this.scheduleId, 
+    this.appointmentId,
   });
 
   @override
@@ -64,19 +68,131 @@ class _DoctorPatientProfileScreenState extends State<DoctorPatientProfileScreen>
     }
   }
  void _navigateToPrescriptionScreen() {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => PrescriptionScreen(
+  debugPrint('📝 Navigating to prescription screen');
+  debugPrint('📋 Appointment ID: ${widget.appointmentId}');
+  debugPrint('📅 Schedule ID: ${widget.scheduleId}');
+  debugPrint('👨‍⚕️ Patient: ${_patientDetails['fullname'] ?? widget.patientName}');
+  
+  Navigator.push(
+    context,
+    MaterialPageRoute(
+      builder: (context) => PrescriptionScreen(
         patientId: widget.patientId,
         patientName: _patientDetails['fullname'] ?? widget.patientName,
         patientAge: _patientDetails['age']?.toString() ?? '',
         patientData: _patientDetails,
         isFromProfile: true,
+        appointmentId: widget.appointmentId, // PASS APPOINTMENT ID
+        scheduleId: widget.scheduleId, // PASS SCHEDULE ID
+        onPrescriptionComplete: _handlePrescriptionComplete, // ADD CALLBACK
+      ),
+    ),
+  );
+}
+void _handlePrescriptionComplete() {
+  debugPrint('✅ Prescription completed for patient: ${widget.patientName}');
+  debugPrint('📋 Appointment ID: ${widget.appointmentId}');
+  debugPrint('📅 Schedule ID: ${widget.scheduleId}');
+  
+  // Show success message
+  ScaffoldMessenger.of(context).showSnackBar(
+    SnackBar(
+      content: Text('Prescription completed for ${widget.patientName}'),
+      backgroundColor: Colors.green,
+      duration: const Duration(seconds: 2),
+    ),
+  );
+  
+  // Navigate back to DoctorUnifiedSearchScreen for next patient
+  Future.delayed(const Duration(milliseconds: 1500), () {
+    if (mounted) {
+      debugPrint('🔙 Returning to Doctor Unified Search Screen');
+      Navigator.pop(context); // Go back to search screen
+    }
+  });
+}
+Future<void> _completeAppointmentAndAdvanceQueue() async {
+  debugPrint('🏁 Completing appointment and advancing queue...');
+  debugPrint('📋 Appointment ID: ${widget.appointmentId}');
+  debugPrint('📅 Schedule ID: ${widget.scheduleId}');
+  
+  if (widget.appointmentId == null || widget.appointmentId!.isEmpty) {
+    debugPrint('⚠️ No appointment ID provided - skipping queue advancement');
+    return;
+  }
+
+  try {
+    // 1. Mark current appointment as completed
+    await FirebaseFirestore.instance
+        .collection('appointments')
+        .doc(widget.appointmentId!)
+        .update({
+      'status': 'completed',
+      'queueStatus': 'completed',
+      'completedAt': FieldValue.serverTimestamp(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+
+    debugPrint('✅ Appointment ${widget.appointmentId} marked as completed');
+
+    // 2. Find next appointment in queue
+    final nextAppointmentsQuery = await FirebaseFirestore.instance
+        .collection('appointments')
+        .where('scheduleId', isEqualTo: widget.scheduleId)
+        .where('status', isEqualTo: 'confirmed')
+        .where('queueStatus', isEqualTo: 'waiting')
+        .orderBy('tokenNumber')
+        .limit(1)
+        .get();
+
+    if (nextAppointmentsQuery.docs.isNotEmpty) {
+      final nextAppointment = nextAppointmentsQuery.docs.first;
+      final nextAppointmentId = nextAppointment.id;
+      
+      // 3. Update next appointment to "in_consultation"
+      await FirebaseFirestore.instance
+          .collection('appointments')
+          .doc(nextAppointmentId)
+          .update({
+        'queueStatus': 'in_consultation',
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+
+      debugPrint('⏭️ Next appointment #${nextAppointment.data()['tokenNumber']} (${nextAppointment.data()['patientName']}) set to in_consultation');
+      
+      // 4. Show notification about next patient
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('✅ Appointment completed. Next patient: ${nextAppointment.data()['patientName']}'),
+          backgroundColor: Colors.green,
+          duration: const Duration(seconds: 3),
         ),
+      );
+    } else {
+      debugPrint('🏁 No more patients in queue');
+      
+      // Show completion message
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('🏁 All appointments completed for this schedule'),
+          backgroundColor: Colors.blue,
+          duration: Duration(seconds: 3),
+        ),
+      );
+    }
+
+  } catch (e) {
+    debugPrint('❌ Error completing appointment: $e');
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Error completing appointment: $e'),
+        backgroundColor: Colors.red,
+        duration: const Duration(seconds: 3),
       ),
     );
   }
+}
+
   @override
   Widget build(BuildContext context) {
     if (_isLoading) {
