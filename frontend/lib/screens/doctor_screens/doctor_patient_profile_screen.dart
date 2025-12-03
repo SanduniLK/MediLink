@@ -84,7 +84,14 @@ class _DoctorPatientProfileScreenState extends State<DoctorPatientProfileScreen>
         isFromProfile: true,
         appointmentId: widget.appointmentId, // PASS APPOINTMENT ID
         scheduleId: widget.scheduleId, // PASS SCHEDULE ID
-        onPrescriptionComplete: _handlePrescriptionComplete, // ADD CALLBACK
+       onPrescriptionComplete: () {
+          Navigator.pop(context);
+          Navigator.pop(context);
+        },
+        onQueueUpdated: () {
+          // This will refresh queue data in parent screens
+          debugPrint('🔄 Queue data should be refreshed');
+        },
       ),
     ),
   );

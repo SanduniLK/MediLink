@@ -24,7 +24,7 @@ class PrescriptionScreen extends StatefulWidget {
     final String? appointmentId;
   final String? scheduleId;
   final VoidCallback? onPrescriptionComplete;
-
+   final VoidCallback? onQueueUpdated;
   const PrescriptionScreen({super.key,
   this.patientId,
     this.patientName,
@@ -34,6 +34,7 @@ class PrescriptionScreen extends StatefulWidget {
      this.appointmentId,
     this.scheduleId,
     this.onPrescriptionComplete,
+    this.onQueueUpdated,
      });
 
   @override
