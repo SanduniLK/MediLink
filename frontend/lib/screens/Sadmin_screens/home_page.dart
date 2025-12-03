@@ -6,8 +6,7 @@ import 'package:frontend/screens/Sadmin_screens/SuperAdminPharmacyApprovalScreen
 import 'package:frontend/screens/Sadmin_screens/patientManagement.dart';
 import 'package:intl/intl.dart';
 
-// Screens
-import 'package:frontend/screens/Sadmin_screens/analysisScreen.dart';
+
 import 'package:frontend/screens/Sadmin_screens/mediclecenteManagement.dart' as sadmin;
 import 'package:frontend/screens/Sadmin_screens/pharmacy_management.dart';
 
@@ -110,7 +109,7 @@ class _SuperAdminDashboardState extends State<SuperAdminDashboard> {
       const PharmacyManagementScreen(),
       // These screens are only accessible from drawer or quick actions
       sadmin.MedicalCenterManagementScreen(),
-      const AnalysisScreen(),
+      
       const SuperAdminPharmacyApprovalScreen(),
     ];
   }
@@ -121,7 +120,7 @@ class _SuperAdminDashboardState extends State<SuperAdminDashboard> {
     'Patients',
     'Pharmacies',
     'Medical Centers', // Only in drawer
-    'Analysis', // Only in drawer
+    
     'Approvals', // Only in quick actions
   ];
 
@@ -352,8 +351,7 @@ class SuperAdminHomePage extends StatelessWidget {
                       _buildStatsGrid(state),
                       const SizedBox(height: 20),
                       _buildQuickActions(),
-                      const SizedBox(height: 20),
-                      _buildRecentActivity(),
+                      
                     ],
                   ),
                 ),
@@ -598,13 +596,9 @@ class SuperAdminHomePage extends StatelessWidget {
                 _buildActionChip(
                   icon: Icons.local_pharmacy,
                   label: 'Pharmacy Approvals',
-                  onTap: () => onNavigate(6),
-                ),
-                _buildActionChip(
-                  icon: Icons.analytics,
-                  label: 'View Reports',
                   onTap: () => onNavigate(5),
                 ),
+               
               ],
             ),
           ],
@@ -633,38 +627,5 @@ class SuperAdminHomePage extends StatelessWidget {
     );
   }
 
-  Widget _buildRecentActivity() {
-    return Card(
-      elevation: 2,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      child: const Padding(
-        padding: EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Recent Activity',
-              style: TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            SizedBox(height: 12),
-            Center(
-              child: Column(
-                children: [
-                  Icon(Icons.history, size: 40, color: Colors.grey),
-                  SizedBox(height: 8),
-                  Text(
-                    'No recent activity',
-                    style: TextStyle(color: Colors.grey),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
+  
 }
