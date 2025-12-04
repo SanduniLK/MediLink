@@ -7,7 +7,7 @@ class NetworkConfig {
       return "http://localhost:3000";
     } else if (Platform.isAndroid) {
       // Use 10.0.2.2 for USB tethering and Android
-      return "http://192.168.1.126:5001";
+      return "http://10.240.123.201:5001";
     } else if (Platform.isIOS) {
       return "http://localhost:3000";
     } else {
