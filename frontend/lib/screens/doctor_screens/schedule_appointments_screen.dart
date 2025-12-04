@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'allschedule.dart';
@@ -156,7 +158,7 @@ class _ScheduleAppointmentsScreenState extends State<ScheduleAppointmentsScreen>
   double _totalRevenue = 0;
   int _currentQueueNumber = 0;
   String? _currentappointmentId;
-
+ StreamSubscription<QuerySnapshot>? _appointmentsSubscription;
   @override
   void initState() {
     super.initState();
@@ -169,7 +171,11 @@ void _loadAppointments() {
       .where('scheduleId', isEqualTo: widget.schedule.id)
       .snapshots();
 
-  _appointmentsStream.listen((snapshot) async {
+  // Use the subscription variable instead of direct listen
+  _appointmentsSubscription = _appointmentsStream.listen((snapshot) async {
+    // Check if widget is still mounted
+    if (!mounted) return;
+
     final appointments = snapshot.docs
         .map((doc) => ScheduleAppointment.fromFirestore(doc))
         .toList()
@@ -177,6 +183,9 @@ void _loadAppointments() {
 
     // Check and initialize queue status
     await _initializeQueueStatus(appointments);
+
+    // Check again after async operation
+    if (!mounted) return;
 
     // Get the updated current appointment after initialization
     final currentAppointment = _getCurrentAppointment(appointments);
@@ -191,16 +200,27 @@ void _loadAppointments() {
     debugPrint('📋 Appointments loaded: ${appointments.length} total, $active active');
     debugPrint('🔍 Current appointment: ${currentAppointment?.patientName} (#${currentAppointment?.tokenNumber})');
 
-    setState(() {
-      _appointments = appointments;
-      _totalAppointments = total;
-      _activeAppointments = active;
-      _cancelledAppointments = cancelled;
-      _totalRevenue = revenue;
-      _currentQueueNumber = currentAppointment?.tokenNumber ?? 0;
-      _currentappointmentId = currentAppointment?.id;
-      _isLoading = false;
-    });
+    // Use setState only if widget is still mounted
+    if (mounted) {
+      setState(() {
+        _appointments = appointments;
+        _totalAppointments = total;
+        _activeAppointments = active;
+        _cancelledAppointments = cancelled;
+        _totalRevenue = revenue;
+        _currentQueueNumber = currentAppointment?.tokenNumber ?? 0;
+        _currentappointmentId = currentAppointment?.id;
+        _isLoading = false;
+      });
+    }
+  }, onError: (error) {
+    debugPrint('❌ Error loading appointments: $error');
+    // Check mounted before updating state
+    if (mounted) {
+      setState(() {
+        _isLoading = false;
+      });
+    }
   });
 }
 

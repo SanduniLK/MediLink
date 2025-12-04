@@ -26,6 +26,14 @@ class _AdminTestReportsScreenState extends State<AdminTestReportsScreen> with Si
   bool _isLoading = true;
   String? _errorMessage;
   final TextEditingController _searchController = TextEditingController();
+  
+  Map<String, int> _reportStats = {
+    'total': 0,
+    'normal': 0,
+    'abnormal': 0,
+    'critical': 0,
+  };
+  bool _isStatsLoading = true;
 
   // Enhanced color scheme
   final Color _primaryColor = const Color(0xFF18A3B6);
@@ -55,33 +63,77 @@ class _AdminTestReportsScreenState extends State<AdminTestReportsScreen> with Si
   }
 
   Future<void> _loadInitialData() async {
-    try {
-      setState(() {
-        _isLoading = true;
-        _errorMessage = null;
-      });
+  try {
+    print('🟡 START _loadInitialData()');
+    setState(() {
+      _isLoading = true;
+      _isStatsLoading = true;
+      _errorMessage = null;
+    });
 
-      // Load all patients (not filtered by medical center)
-      _patients = await TestReportService.getAllPatients();
-      
-      debugPrint('Loaded ${_patients.length} patients');
-      
-      setState(() {
-        _isLoading = false;
-      });
-    } catch (e) {
-      debugPrint('Error loading initial data: $e');
-      setState(() {
-        _isLoading = false;
-        _errorMessage = 'Failed to load data: $e';
-      });
-    }
+    print('🟡 Loading patients...');
+    _patients = await TestReportService.getAllPatients();
+    print('🟢 Loaded ${_patients.length} patients');
+    
+    print('🟡 Loading statistics...');
+    _reportStats = await _getTestReportStats();
+    print('🟢 Statistics loaded: $_reportStats');
+    
+    setState(() {
+      print('🟡 Setting state: isLoading=false, isStatsLoading=false');
+      _isLoading = false;
+      _isStatsLoading = false;
+    });
+    print('🟢 _loadInitialData completed successfully');
+    
+  } catch (e) {
+    print('🔴 Error in _loadInitialData: $e');
+    debugPrint('Error loading initial data: $e');
+    setState(() {
+      _isLoading = false;
+      _isStatsLoading = false;
+      _errorMessage = 'Failed to load data: $e';
+    });
   }
+}
 Widget _buildTestReportStats() {
-  final totalReports = _testReports.length;
-  final normalReports = _testReports.where((r) => r.status == 'normal').length;
-  final abnormalReports = _testReports.where((r) => r.status == 'abnormal').length;
-  final criticalReports = _testReports.where((r) => r.status == 'critical').length;
+  if (_isStatsLoading) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: _cardColor,
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.08),
+            blurRadius: 20,
+            offset: const Offset(0, 8),
+          ),
+        ],
+      ),
+      child: Column(
+        children: [
+          const Text(
+            'Reports Summary',
+            style: TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.bold,
+              color: Colors.black87,
+            ),
+          ),
+          const SizedBox(height: 16),
+          SizedBox(
+            height: 100,
+            child: Center(
+              child: CircularProgressIndicator(
+                valueColor: AlwaysStoppedAnimation<Color>(_primaryColor),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 
   return Container(
     padding: const EdgeInsets.all(16),
@@ -110,15 +162,15 @@ Widget _buildTestReportStats() {
         GridView.count(
           shrinkWrap: true,
           physics: const NeverScrollableScrollPhysics(),
-          crossAxisCount: 4, // 4 items in one row
+          crossAxisCount: 4,
           crossAxisSpacing: 8,
           mainAxisSpacing: 8,
-          childAspectRatio: 0.7, // Wider than tall
+          childAspectRatio: 0.7,
           children: [
-            _buildCompactStatCard(totalReports, 'Total', Icons.assignment_outlined, _primaryColor),
-            _buildCompactStatCard(normalReports, 'Normal', Icons.check_circle_outlined, _successColor),
-            _buildCompactStatCard(abnormalReports, 'Abnormal', Icons.warning_amber_outlined, _warningColor),
-            _buildCompactStatCard(criticalReports, 'Critical', Icons.error_outline, _dangerColor),
+            _buildCompactStatCard(_reportStats['total'] ?? 0, 'Total', Icons.assignment_outlined, _primaryColor),
+            _buildCompactStatCard(_reportStats['normal'] ?? 0, 'Normal', Icons.check_circle_outlined, _successColor),
+            _buildCompactStatCard(_reportStats['abnormal'] ?? 0, 'Abnormal', Icons.warning_amber_outlined, _warningColor),
+            _buildCompactStatCard(_reportStats['critical'] ?? 0, 'Critical', Icons.error_outline, _dangerColor),
           ],
         ),
       ],
@@ -537,32 +589,70 @@ Widget _buildCompactStatCard(int count, String title, IconData icon, Color color
     );
   }
 
-  void _showUploadTestReportDialog() {
-    if (_patients.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('No patients available to upload test reports'),
-          backgroundColor: _warningColor,
-          behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        ),
-      );
-      return;
-    }
-
-    showDialog(
-      context: context,
-      builder: (context) => UploadTestReportDialog(
-        patients: _patients,
-        medicalCenterId: widget.medicalCenterId,
-        medicalCenterName: widget.medicalCenterName,
-        onReportUploaded: () {
-          _loadInitialData();
-        },
+ void _showUploadTestReportDialog() {
+  if (_patients.isEmpty) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('No patients available to upload test reports'),
+        backgroundColor: _warningColor,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       ),
     );
+    return;
   }
 
+  showDialog(
+    context: context,
+    builder: (context) => UploadTestReportDialog(
+      patients: _patients,
+      medicalCenterId: widget.medicalCenterId,
+      medicalCenterName: widget.medicalCenterName,
+      onReportUploaded: () {
+        _refreshStats(); // Refresh statistics after upload
+        _loadInitialData(); // Also reload initial data if needed
+      },
+    ),
+  );
+}
+
+Future<Map<String, int>> _getTestReportStats() async {
+  try {
+    print('🟡 Fetching test reports from Firestore...');
+    
+    final snapshot = await FirebaseFirestore.instance
+        .collection('test_reports')
+        .where('medicalCenterId', isEqualTo: widget.medicalCenterId)
+        .get();
+
+    print('🟢 Firestore query completed, ${snapshot.docs.length} documents found');
+    
+    final reports = snapshot.docs
+        .map((doc) {
+          print('🟡 Processing document: ${doc.id}');
+          return TestReportModel.fromFirestore(doc);
+        })
+        .toList();
+
+    final total = reports.length;
+    final normal = reports.where((r) => r.status == 'normal').length;
+    final abnormal = reports.where((r) => r.status == 'abnormal').length;
+    final critical = reports.where((r) => r.status == 'critical').length;
+    
+    print('🟢 Stats calculated - Total: $total, Normal: $normal, Abnormal: $abnormal, Critical: $critical');
+    
+    return {
+      'total': total,
+      'normal': normal,
+      'abnormal': abnormal,
+      'critical': critical,
+    };
+  } catch (e) {
+    print('🔴 Error in _getTestReportStats: $e');
+    debugPrint('Error getting stats: $e');
+    return {'total': 0, 'normal': 0, 'abnormal': 0, 'critical': 0};
+  }
+}
   Widget _buildTestReportsList() {
     return StreamBuilder<QuerySnapshot>(
       stream: TestReportService.getMedicalCenterTestReports(widget.medicalCenterId),
@@ -969,7 +1059,25 @@ Widget _buildCompactStatCard(int count, String title, IconData icon, Color color
       ),
     );
   }
-
+Future<void> _refreshStats() async {
+  try {
+    setState(() {
+      _isStatsLoading = true;
+    });
+    
+    final newStats = await _getTestReportStats();
+    
+    setState(() {
+      _reportStats = newStats;
+      _isStatsLoading = false;
+    });
+  } catch (e) {
+    debugPrint('Error refreshing stats: $e');
+    setState(() {
+      _isStatsLoading = false;
+    });
+  }
+}
   void _downloadTestReport(TestReportModel report) {
     // TODO: Implement download functionality
     ScaffoldMessenger.of(context).showSnackBar(
@@ -1036,31 +1144,35 @@ Widget _buildCompactStatCard(int count, String title, IconData icon, Color color
     ) ?? false;
 
     if (confirm && mounted) {
-      try {
-        await TestReportService.deleteTestReport(report.id);
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Test report deleted successfully'),
-              backgroundColor: _successColor,
-              behavior: SnackBarBehavior.floating,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-            ),
-          );
-        }
-      } catch (e) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Failed to delete test report: $e'),
-              backgroundColor: _dangerColor,
-              behavior: SnackBarBehavior.floating,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-            ),
-          );
-        }
-      }
+  try {
+    await TestReportService.deleteTestReport(report.id);
+    
+    // Refresh statistics
+    await _refreshStats();
+    
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Test report deleted successfully'),
+          backgroundColor: _successColor,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        ),
+      );
     }
+  } catch (e) {
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to delete test report: $e'),
+          backgroundColor: _dangerColor,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        ),
+      );
+    }
+  }
+}
   }
 
   @override
