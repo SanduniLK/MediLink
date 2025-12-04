@@ -553,56 +553,6 @@ class _PatientQueueStatusState extends State<PatientQueueStatus> {
           ),
           const SizedBox(height: 20),
 
-          // Now Consulting List
-          if (consultingEntry.isNotEmpty) ...[
-            const Align(
-              alignment: Alignment.centerLeft,
-              child: Text(
-                "Currently in Room",
-                style: TextStyle(
-                  fontWeight: FontWeight.bold,
-                  color: Colors.grey,
-                ),
-              ),
-            ),
-            const SizedBox(height: 8),
-            _buildPatientCard(
-              consultingEntry,
-              isCurrent: true,
-              isYou: consultingEntry['tokenNumber'] == myToken,
-            ),
-            const SizedBox(height: 16),
-          ],
-
-          // Waiting List
-          if (waitingPatients.isNotEmpty) ...[
-            const Align(
-              alignment: Alignment.centerLeft,
-              child: Text(
-                "Up Next",
-                style: TextStyle(
-                  fontWeight: FontWeight.bold,
-                  color: Colors.grey,
-                ),
-              ),
-            ),
-            const SizedBox(height: 8),
-            ...waitingPatients
-                .take(4)
-                .map(
-                  (p) =>
-                      _buildPatientCard(p, isYou: p['tokenNumber'] == myToken),
-                ),
-            if (waitingPatients.length > 4)
-              Padding(
-                padding: const EdgeInsets.all(8.0),
-                child: Text(
-                  "+ ${waitingPatients.length - 4} more waiting",
-                  style: const TextStyle(color: Colors.grey),
-                ),
-              ),
-          ],
-
           const SizedBox(height: 20),
           OutlinedButton(
             onPressed: () {
