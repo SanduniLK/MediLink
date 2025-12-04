@@ -1,30 +1,37 @@
-import 'package:dio/dio.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart';
 
 class PatientService {
-  static const String baseUrl = "http://10.222.212.133:5001/api";
-  static final Dio _dio = Dio();
+  static final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
-  // Get patient appointments
-  static Future<Map<String, dynamic>> getPatientAppointments(String patientId) async {
+  /// Fetch appointments stored in Firestore for the provided patient ID.
+  static Future<Map<String, dynamic>> getPatientAppointments(
+    String patientId,
+  ) async {
     try {
-      print('📋 Getting appointments for patient: $patientId');
-      
-      final response = await _dio.get(
-        '$baseUrl/patients/$patientId/appointments',
-      );
-
-      print('✅ Patient appointments response: ${response.statusCode}');
-
-      if (response.statusCode == 200) {
-        return response.data;
-      } else {
-        throw Exception('Failed to get patient appointments: ${response.statusCode}');
+      if (kDebugMode) {
+        debugPrint('📋 Loading appointments for patient: $patientId');
       }
-    } on DioException catch (e) {
-      print('❌ Dio error getting patient appointments: ${e.message}');
-      throw Exception('Dio error: ${e.message}');
+
+      final querySnapshot = await _firestore
+          .collection('appointments')
+          .where('patientId', isEqualTo: patientId)
+          .get();
+
+      final appointments = querySnapshot.docs
+          .map((doc) => {'id': doc.id, ...doc.data()})
+          .toList();
+
+      if (kDebugMode) {
+        debugPrint('✅ Found ${appointments.length} appointments');
+      }
+
+      return {'success': true, 'data': appointments};
     } catch (e) {
-      throw Exception('Network error: $e');
+      if (kDebugMode) {
+        debugPrint('❌ Error loading appointments: $e');
+      }
+      return {'success': false, 'error': e.toString()};
     }
   }
 }
