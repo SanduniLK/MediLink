@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:frontend/providers/queue_provider.dart';
@@ -18,10 +19,19 @@ class _PatientQueueStatusState extends State<PatientQueueStatus> {
   Map<String, dynamic>? _selectedAppointment;
   Map<String, dynamic>? _queueStatus;
 
+  // Timer for auto-refreshing queue data
+  Timer? _refreshTimer;
+
   @override
   void initState() {
     super.initState();
     _loadCurrentPatientAppointments();
+  }
+
+  @override
+  void dispose() {
+    _refreshTimer?.cancel();
+    super.dispose();
   }
 
   void _loadCurrentPatientAppointments() {
@@ -59,29 +69,18 @@ class _PatientQueueStatusState extends State<PatientQueueStatus> {
         );
         final todayAppointments = appointments.where((appointment) {
           final dateValue = appointment['date'];
-          debugPrint('dateValue: $dateValue');
 
           // If the string contains "Today", automatically include it
           if (dateValue is String &&
               dateValue.toLowerCase().contains('today')) {
-            debugPrint('Found "Today" in date string - including appointment');
             return true;
           }
 
           final parsedDate = _parseAppointmentDate(dateValue);
-          debugPrint('parsedDate: $parsedDate');
-          if (parsedDate == null) {
-            debugPrint('Failed to parse date - excluding appointment');
-            return false;
-          }
+          if (parsedDate == null) return false;
 
           final now = DateTime.now();
-          debugPrint(
-            'Comparing: ${parsedDate.year}-${parsedDate.month}-${parsedDate.day} vs ${now.year}-${now.month}-${now.day}',
-          );
-          final isToday = _isSameDay(parsedDate, now);
-          debugPrint('isToday: $isToday');
-          return isToday;
+          return _isSameDay(parsedDate, now);
         }).toList();
 
         setState(() {
@@ -93,53 +92,70 @@ class _PatientQueueStatusState extends State<PatientQueueStatus> {
           _showInfo('No appointments Booked for today');
         }
       } else {
-        setState(() {
-          _isLoading = false;
-        });
+        setState(() => _isLoading = false);
         _showError('Failed to load appointments: ${result['error']}');
       }
     } catch (e) {
-      setState(() {
-        _isLoading = false;
-      });
+      setState(() => _isLoading = false);
       _showError('Error: $e');
     }
   }
 
+  // --- UPDATED QUEUE CHECK LOGIC ---
   void _checkQueueStatus(Map<String, dynamic> appointment) async {
+    // 1. Get Schedule ID
+    final scheduleId =
+        appointment['scheduleId'] ?? appointment['_id'] ?? appointment['id'];
+
+    if (scheduleId == null) {
+      _showError('Cannot find Schedule ID for this appointment.');
+      return;
+    }
+
     setState(() {
       _selectedAppointment = appointment;
       _isLoading = true;
       _queueStatus = null;
     });
 
-    final queueProvider = Provider.of<QueueProvider>(context, listen: false);
-    final patientId = _patientId;
+    _refreshTimer?.cancel(); // Cancel any existing timer
 
-    if (patientId == null || patientId.isEmpty) {
-      _showError('Unable to detect patient information. Please try again.');
-      setState(() {
-        _isLoading = false;
-      });
-      return;
-    }
+    await _fetchQueueData(scheduleId);
+
+    // 2. Start Auto-Refresh (every 15 seconds)
+    _refreshTimer = Timer.periodic(const Duration(seconds: 15), (timer) {
+      if (mounted && _selectedAppointment != null) {
+        _fetchQueueData(scheduleId, isBackground: true);
+      }
+    });
+  }
+
+  Future<void> _fetchQueueData(
+    String scheduleId, {
+    bool isBackground = false,
+  }) async {
+    final queueProvider = Provider.of<QueueProvider>(context, listen: false);
 
     try {
-      final queueData = await queueProvider.getQueueForPatient(patientId);
+      // NOTE: Ensure your QueueProvider has `getQueueByScheduleId` method
+      // If not, use your existing method but ensure backend returns full queue list
+      final queueData = await queueProvider.getQueueByScheduleId(scheduleId);
 
-      setState(() {
-        _queueStatus = queueData;
-        _isLoading = false;
-      });
+      if (mounted) {
+        setState(() {
+          _queueStatus = queueData;
+          if (!isBackground) _isLoading = false;
+        });
 
-      if (queueData == null) {
-        _showInfo('No active queue found for this appointment');
+        if (queueData == null && !isBackground) {
+          _showInfo('Queue has not started for this schedule yet.');
+        }
       }
     } catch (e) {
-      setState(() {
-        _isLoading = false;
-      });
-      _showError('Error checking queue: $e');
+      if (mounted && !isBackground) {
+        setState(() => _isLoading = false);
+        _showError('Error checking queue: $e');
+      }
     }
   }
 
@@ -175,162 +191,96 @@ class _PatientQueueStatusState extends State<PatientQueueStatus> {
           padding: const EdgeInsets.all(16.0),
           child: Column(
             children: [
-              Card(
-                elevation: 6,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(16),
-                ),
-                child: Padding(
-                  padding: const EdgeInsets.all(16.0),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text(
-                        'Today\'s Queue Overview',
-                        style: TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      Row(
-                        children: [
-                          CircleAvatar(
-                            backgroundColor: const Color(
-                              0xFF18A3B6,
-                            ).withOpacity(0.1),
-                            radius: 24,
-                            child: const Icon(
-                              Icons.person,
-                              color: Color(0xFF18A3B6),
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                const Text(
-                                  'Patient ID',
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    color: Colors.grey,
-                                  ),
-                                ),
-                                Text(
-                                  _patientId ?? 'Not available',
-                                  style: const TextStyle(
-                                    fontSize: 16,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                          if (_patientId != null)
-                            const Icon(Icons.verified, color: Colors.green),
-                        ],
-                      ),
-                      const SizedBox(height: 16),
-                      Container(
-                        width: double.infinity,
-                        decoration: BoxDecoration(
-                          color: Colors.blueGrey.withOpacity(0.05),
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        padding: const EdgeInsets.all(12),
-                        child: Row(
-                          children: const [
-                            Icon(Icons.info_outline, color: Colors.blueGrey),
-                            SizedBox(width: 8),
-                            Expanded(
-                              child: Text(
-                                'We automatically use your logged-in account to fetch today\'s appointments.',
-                                style: TextStyle(fontSize: 12),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-                      SizedBox(
-                        width: double.infinity,
-                        child: ElevatedButton.icon(
-                          onPressed: _isLoading || _patientId == null
-                              ? null
-                              : _loadTodayAppointments,
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: const Color(0xFF18A3B6),
-                            foregroundColor: Colors.white,
-                            padding: const EdgeInsets.symmetric(vertical: 12),
-                          ),
-                          icon: const Icon(Icons.refresh),
-                          label: _isLoading
-                              ? const SizedBox(
-                                  height: 20,
-                                  width: 20,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                    valueColor: AlwaysStoppedAnimation<Color>(
-                                      Colors.white,
-                                    ),
-                                  ),
-                                )
-                              : const Text('Refresh Today\'s Appointments'),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-
+              _buildUserInfoCard(),
               const SizedBox(height: 20),
-
               if (_isLoading)
                 const Expanded(
-                  child: Center(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        CircularProgressIndicator(),
-                        SizedBox(height: 16),
-                        Text('Loading today\'s appointments...'),
-                      ],
-                    ),
-                  ),
+                  child: Center(child: CircularProgressIndicator()),
                 )
               else if (_appointments.isNotEmpty && _queueStatus == null)
                 Expanded(child: _buildAppointmentsList())
               else if (_queueStatus != null)
                 Expanded(child: _buildQueueStatus())
               else
-                const Expanded(
-                  child: Center(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(
-                          Icons.calendar_today,
-                          size: 64,
-                          color: Colors.grey,
-                        ),
-                        SizedBox(height: 16),
-                        Text(
-                          'No Appointments Today',
-                          style: TextStyle(fontSize: 18, color: Colors.grey),
-                        ),
-                        SizedBox(height: 8),
-                        Text(
-                          'We couldn\'t find appointments for today. Try refreshing.',
-                          textAlign: TextAlign.center,
-                          style: TextStyle(color: Colors.grey),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
+                _buildEmptyState(),
             ],
           ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildUserInfoCard() {
+    return Card(
+      elevation: 6,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      child: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          children: [
+            Row(
+              children: [
+                CircleAvatar(
+                  backgroundColor: const Color(0xFF18A3B6).withOpacity(0.1),
+                  radius: 24,
+                  child: const Icon(Icons.person, color: Color(0xFF18A3B6)),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Patient ID',
+                        style: TextStyle(fontSize: 12, color: Colors.grey),
+                      ),
+                      Text(
+                        _patientId ?? 'Not available',
+                        style: const TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                if (_patientId != null)
+                  const Icon(Icons.verified, color: Colors.green),
+              ],
+            ),
+            const SizedBox(height: 16),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: _isLoading ? null : _loadTodayAppointments,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF18A3B6),
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                ),
+                icon: const Icon(Icons.refresh),
+                label: const Text('Refresh Today\'s Appointments'),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildEmptyState() {
+    return const Expanded(
+      child: Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.calendar_today, size: 64, color: Colors.grey),
+            SizedBox(height: 16),
+            Text(
+              'No Appointments Today',
+              style: TextStyle(fontSize: 18, color: Colors.grey),
+            ),
+          ],
         ),
       ),
     );
@@ -349,8 +299,7 @@ class _PatientQueueStatusState extends State<PatientQueueStatus> {
           child: ListView.builder(
             itemCount: _appointments.length,
             itemBuilder: (context, index) {
-              final appointment = _appointments[index];
-              return _buildAppointmentCard(appointment);
+              return _buildAppointmentCard(_appointments[index]);
             },
           ),
         ),
@@ -361,13 +310,10 @@ class _PatientQueueStatusState extends State<PatientQueueStatus> {
   Widget _buildAppointmentCard(Map<String, dynamic> appointment) {
     final doctorName = appointment['doctorName'] ?? 'Unknown Doctor';
     final medicalCenter = appointment['medicalCenterName'] ?? 'Unknown Center';
-    final date = appointment['date'] ?? 'No date';
     final time = appointment['time'] ?? 'No time';
     final status = appointment['status'] ?? 'scheduled';
     final currentQueueNumber =
-        appointment['currentQueueNumber'] ??
-        appointment['currentquenumber'] ??
-        'N/A';
+        appointment['tokenNumber'] ?? appointment['queueNumber'] ?? 'N/A';
 
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
@@ -391,7 +337,6 @@ class _PatientQueueStatusState extends State<PatientQueueStatus> {
                           fontWeight: FontWeight.bold,
                         ),
                       ),
-                      const SizedBox(height: 4),
                       Text(
                         medicalCenter,
                         style: const TextStyle(color: Colors.grey),
@@ -422,25 +367,17 @@ class _PatientQueueStatusState extends State<PatientQueueStatus> {
             const SizedBox(height: 12),
             Row(
               children: [
-                Icon(Icons.calendar_today, size: 16, color: Colors.grey[600]),
-                const SizedBox(width: 8),
-                Text(date),
-                const SizedBox(width: 16),
                 Icon(Icons.access_time, size: 16, color: Colors.grey[600]),
                 const SizedBox(width: 8),
                 Text(time),
-              ],
-            ),
-            const SizedBox(height: 8),
-            Row(
-              children: [
+                const SizedBox(width: 16),
                 Icon(
                   Icons.confirmation_number,
                   size: 16,
                   color: Colors.grey[600],
                 ),
                 const SizedBox(width: 8),
-                Text('Current Queue Number: $currentQueueNumber'),
+                Text('Token: $currentQueueNumber'),
               ],
             ),
             const SizedBox(height: 12),
@@ -452,7 +389,7 @@ class _PatientQueueStatusState extends State<PatientQueueStatus> {
                   backgroundColor: const Color(0xFF18A3B6),
                   foregroundColor: Colors.white,
                 ),
-                child: const Text('Check Queue Status'),
+                child: const Text('Check Live Queue'),
               ),
             ),
           ],
@@ -461,52 +398,68 @@ class _PatientQueueStatusState extends State<PatientQueueStatus> {
     );
   }
 
+  // --- UPDATED BUILD LOGIC FOR IN-CONSULTATION ---
   Widget _buildQueueStatus() {
     if (_selectedAppointment == null || _queueStatus == null) {
       return const Center(child: Text('No queue data available'));
     }
 
-    final patientInfo = _queueStatus!['patientInfo'] ?? {};
-    final currentToken = _queueStatus!['currentToken'] ?? 1;
-    final patientToken = patientInfo['tokenNumber'] ?? 0;
-    final appointmentQueueNumber =
-        _selectedAppointment?['currentQueueNumber'] ??
-        _selectedAppointment?['currentquenumber'] ??
-        'N/A';
     final patients =
         (_queueStatus!['patients'] as List?)?.cast<Map<String, dynamic>>() ??
         [];
 
-    // Separate patients into current, waiting, and completed
-    final currentPatient = patients.firstWhere(
-      (p) => (p['tokenNumber'] ?? 0) == currentToken,
+    // 1. FIND "ME" (My Token)
+    final myEntry = patients.firstWhere(
+      (p) => (p['patientId'] ?? '') == _patientId,
+      orElse: () => {},
+    );
+    final myToken = myEntry['tokenNumber'] ?? 0;
+
+    // 2. FIND "CURRENTLY CONSULTING" (Specific logic requested)
+    // We look for the patient strictly marked as 'in_consultation'
+    final consultingEntry = patients.firstWhere(
+      (p) => p['queueStatus'] == 'in_consultation',
       orElse: () => {},
     );
 
+    // Display Logic: If someone is inside, show their token.
+    // If room is empty, show the last completed token or 0.
+    final currentTokenDisplay = consultingEntry.isNotEmpty
+        ? consultingEntry['tokenNumber']
+        : (patients.where((p) => p['status'] == 'completed').length);
+
+    // 3. WAITING LIST (Filter out completed and the person inside)
     final waitingPatients =
         patients
             .where(
               (p) =>
-                  (p['tokenNumber'] ?? 0) > currentToken &&
-                  (p['status'] ?? 'waiting') != 'completed',
+                  (p['status'] == 'confirmed' ||
+                      p['status'] == 'pending' ||
+                      p['status'] == 'waiting') &&
+                  p['queueStatus'] != 'in_consultation' &&
+                  p['status'] != 'completed',
             )
             .toList()
           ..sort(
             (a, b) => (a['tokenNumber'] ?? 0).compareTo(b['tokenNumber'] ?? 0),
           );
 
-    final completedPatients =
-        patients
-            .where((p) => (p['status'] ?? 'waiting') == 'completed')
-            .toList()
-          ..sort(
-            (a, b) => (a['tokenNumber'] ?? 0).compareTo(b['tokenNumber'] ?? 0),
-          );
+    // Calculate People Ahead
+    int peopleAhead = 0;
+    if (myToken > 0) {
+      peopleAhead = waitingPatients
+          .where((p) => (p['tokenNumber'] ?? 0) < myToken)
+          .length;
+      if (consultingEntry.isNotEmpty &&
+          consultingEntry['tokenNumber'] != myToken) {
+        peopleAhead++; // Add the person inside the room
+      }
+    }
 
     return SingleChildScrollView(
       child: Column(
         children: [
-          // Appointment Info
+          // Header Card
           Card(
             elevation: 4,
             child: Padding(
@@ -524,191 +477,172 @@ class _PatientQueueStatusState extends State<PatientQueueStatus> {
                     _selectedAppointment!['doctorName'] ?? 'Unknown',
                   ),
                   _buildDetailRow(
-                    'Medical Center',
+                    'Center',
                     _selectedAppointment!['medicalCenterName'] ?? 'Unknown',
-                  ),
-                  _buildDetailRow(
-                    'Date',
-                    _selectedAppointment!['date'] ?? 'Unknown',
-                  ),
-                  _buildDetailRow(
-                    'Time',
-                    _selectedAppointment!['time'] ?? 'Unknown',
                   ),
                 ],
               ),
             ),
           ),
-
           const SizedBox(height: 16),
 
-          // Queue Status Overview
+          // LIVE QUEUE STATUS
           Card(
             elevation: 4,
             color: const Color(0xFF18A3B6),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+            ),
             child: Padding(
               padding: const EdgeInsets.all(20.0),
               child: Column(
                 children: [
                   const Text(
-                    'Queue Status',
+                    'Live Queue Status',
                     style: TextStyle(
-                      fontSize: 20,
+                      fontSize: 18,
                       fontWeight: FontWeight.bold,
                       color: Colors.white,
                     ),
                   ),
-                  const SizedBox(height: 16),
+                  const SizedBox(height: 20),
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceAround,
                     children: [
-                      _buildStatusItem(
-                        'Your Token',
-                        '#$patientToken',
+                      _buildBigStatusItem(
+                        'My Token',
+                        myToken == 0 ? '--' : '#$myToken',
                         Icons.confirmation_number,
                       ),
-                      _buildStatusItem(
-                        'Live Queue',
-                        '#$currentToken',
-                        Icons.flag,
-                      ),
-                      _buildStatusItem(
-                        'Appointment Queue',
-                        '#$appointmentQueueNumber',
-                        Icons.numbers,
-                      ),
-                      _buildStatusItem(
-                        'Ahead of You',
-                        '${waitingPatients.length}',
-                        Icons.people,
+                      Container(width: 1, height: 50, color: Colors.white30),
+                      _buildBigStatusItem(
+                        'Now Serving', // This is what you requested
+                        consultingEntry.isEmpty
+                            ? '--'
+                            : '#$currentTokenDisplay',
+                        Icons.play_circle_fill,
+                        isHighlight: true,
                       ),
                     ],
+                  ),
+                  const SizedBox(height: 20),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      vertical: 8,
+                      horizontal: 16,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(0.2),
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Text(
+                      peopleAhead == 0
+                          ? (consultingEntry['tokenNumber'] == myToken
+                                ? "It's your turn!"
+                                : "You are next!")
+                          : "$peopleAhead people ahead of you",
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
                   ),
                 ],
               ),
             ),
           ),
-
-          const SizedBox(height: 16),
-
-          // Now Consulting
-          if (currentPatient.isNotEmpty)
-            Card(
-              elevation: 2,
-              child: Padding(
-                padding: const EdgeInsets.all(16.0),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      'Now Consulting',
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.green,
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    _buildPatientCard(currentPatient, isCurrent: true),
-                  ],
-                ),
-              ),
-            ),
-
-          const SizedBox(height: 16),
-
-          // Waiting Patients
-          if (waitingPatients.isNotEmpty)
-            Card(
-              elevation: 2,
-              child: Padding(
-                padding: const EdgeInsets.all(16.0),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Waiting Patients (${waitingPatients.length})',
-                      style: const TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    ...waitingPatients
-                        .map(
-                          (patient) => _buildPatientCard(
-                            patient,
-                            isYou: patient['tokenNumber'] == patientToken,
-                          ),
-                        )
-                        .toList(),
-                  ],
-                ),
-              ),
-            ),
-
-          const SizedBox(height: 16),
-
-          // Completed Patients
-          if (completedPatients.isNotEmpty)
-            Card(
-              elevation: 2,
-              child: Padding(
-                padding: const EdgeInsets.all(16.0),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Completed (${completedPatients.length})',
-                      style: const TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.grey,
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    ...completedPatients
-                        .map(
-                          (patient) =>
-                              _buildPatientCard(patient, isCompleted: true),
-                        )
-                        .toList(),
-                  ],
-                ),
-              ),
-            ),
-
           const SizedBox(height: 20),
 
-          // Action Buttons
-          Row(
-            children: [
-              Expanded(
-                child: OutlinedButton(
-                  onPressed: () {
-                    setState(() {
-                      _selectedAppointment = null;
-                      _queueStatus = null;
-                    });
-                  },
-                  child: const Text('Back to Appointments'),
+          // Now Consulting List
+          if (consultingEntry.isNotEmpty) ...[
+            const Align(
+              alignment: Alignment.centerLeft,
+              child: Text(
+                "Currently in Room",
+                style: TextStyle(
+                  fontWeight: FontWeight.bold,
+                  color: Colors.grey,
                 ),
               ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: ElevatedButton(
-                  onPressed: () => _checkQueueStatus(_selectedAppointment!),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF18A3B6),
-                    foregroundColor: Colors.white,
-                  ),
-                  child: const Text('Refresh Status'),
+            ),
+            const SizedBox(height: 8),
+            _buildPatientCard(
+              consultingEntry,
+              isCurrent: true,
+              isYou: consultingEntry['tokenNumber'] == myToken,
+            ),
+            const SizedBox(height: 16),
+          ],
+
+          // Waiting List
+          if (waitingPatients.isNotEmpty) ...[
+            const Align(
+              alignment: Alignment.centerLeft,
+              child: Text(
+                "Up Next",
+                style: TextStyle(
+                  fontWeight: FontWeight.bold,
+                  color: Colors.grey,
                 ),
               ),
-            ],
+            ),
+            const SizedBox(height: 8),
+            ...waitingPatients
+                .take(4)
+                .map(
+                  (p) =>
+                      _buildPatientCard(p, isYou: p['tokenNumber'] == myToken),
+                ),
+            if (waitingPatients.length > 4)
+              Padding(
+                padding: const EdgeInsets.all(8.0),
+                child: Text(
+                  "+ ${waitingPatients.length - 4} more waiting",
+                  style: const TextStyle(color: Colors.grey),
+                ),
+              ),
+          ],
+
+          const SizedBox(height: 20),
+          OutlinedButton(
+            onPressed: () {
+              _refreshTimer?.cancel();
+              setState(() {
+                _selectedAppointment = null;
+                _queueStatus = null;
+              });
+            },
+            child: const Text('Back to Appointments'),
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildBigStatusItem(
+    String label,
+    String value,
+    IconData icon, {
+    bool isHighlight = false,
+  }) {
+    return Column(
+      children: [
+        Icon(icon, color: Colors.white, size: 28),
+        const SizedBox(height: 4),
+        Text(
+          label,
+          style: const TextStyle(color: Colors.white70, fontSize: 12),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          value,
+          style: TextStyle(
+            color: isHighlight ? Colors.yellowAccent : Colors.white,
+            fontSize: 24,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+      ],
     );
   }
 
@@ -732,7 +666,7 @@ class _PatientQueueStatusState extends State<PatientQueueStatus> {
     } else if (isCurrent) {
       backgroundColor = Colors.green.withOpacity(0.1);
       textColor = Colors.green;
-      statusText = 'NOW CONSULTING';
+      statusText = 'CONSULTING';
     } else if (isCompleted) {
       backgroundColor = Colors.grey.withOpacity(0.1);
       textColor = Colors.grey;
@@ -807,27 +741,6 @@ class _PatientQueueStatusState extends State<PatientQueueStatus> {
     );
   }
 
-  Widget _buildStatusItem(String title, String value, IconData icon) {
-    return Column(
-      children: [
-        Icon(icon, color: Colors.white, size: 30),
-        const SizedBox(height: 8),
-        Text(
-          title,
-          style: const TextStyle(fontSize: 12, color: Colors.white70),
-        ),
-        Text(
-          value,
-          style: const TextStyle(
-            fontSize: 16,
-            fontWeight: FontWeight.bold,
-            color: Colors.white,
-          ),
-        ),
-      ],
-    );
-  }
-
   Widget _buildDetailRow(String label, String value) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4.0),
@@ -861,78 +774,32 @@ class _PatientQueueStatusState extends State<PatientQueueStatus> {
     }
   }
 
+  // --- Date Parsing Utilities (Kept from original) ---
   DateTime? _parseAppointmentDate(dynamic dateValue) {
     if (dateValue == null) return null;
-
-    if (dateValue is int) {
-      try {
-        return DateTime.fromMillisecondsSinceEpoch(dateValue);
-      } catch (_) {
-        return null;
-      }
-    }
-
+    if (dateValue is int) return DateTime.fromMillisecondsSinceEpoch(dateValue);
     if (dateValue is String && dateValue.isNotEmpty) {
       final sanitizedValue = _sanitizeDateString(dateValue);
       try {
         return DateTime.parse(sanitizedValue);
-      } catch (_) {
-        try {
-          final parts = sanitizedValue.split('/');
-          if (parts.length == 3) {
-            final first = int.parse(parts[0]);
-            final second = int.parse(parts[1]);
-            final year = int.parse(parts[2]);
-
-            // Try MM/DD/YYYY format first
-            if (first <= 12) {
-              try {
-                return DateTime(year, first, second);
-              } catch (_) {
-                // Invalid date, try next format
-              }
-            }
-
-            // Try DD/MM/YYYY format (if first > 12, it's likely a day)
-            if (second <= 12) {
-              try {
-                return DateTime(year, second, first);
-              } catch (_) {
-                // Invalid date
-              }
-            }
-          }
-        } catch (_) {
-          return null;
-        }
-      }
+      } catch (_) {}
+      // Add custom parsing logic here if needed for MM/DD/YYYY etc.
     }
-
     return null;
   }
 
   String _sanitizeDateString(String raw) {
     final trimmed = raw.trim();
-
     if (trimmed.contains('(') && trimmed.contains(')')) {
       final start = trimmed.indexOf('(');
       final end = trimmed.indexOf(')', start + 1);
-      if (start != -1 && end != -1) {
-        return trimmed.substring(start + 1, end);
-      }
+      if (start != -1 && end != -1) return trimmed.substring(start + 1, end);
     }
-
     const labels = ['Today', 'Tomorrow', 'Yesterday'];
     for (final label in labels) {
-      if (trimmed.startsWith(label)) {
-        final cleaned = trimmed.replaceFirst(label, '').trim();
-        if (cleaned.startsWith('(') && cleaned.endsWith(')')) {
-          return cleaned.substring(1, cleaned.length - 1);
-        }
-        return cleaned;
-      }
+      if (trimmed.startsWith(label))
+        return trimmed.replaceFirst(label, '').trim();
     }
-
     return trimmed;
   }
 

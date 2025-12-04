@@ -1,10 +1,9 @@
 import 'dart:async';
-
 import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'doctor_patient_profile_screen.dart';
+import 'doctor_patient_profile_screen.dart'; // Ensure this import is correct
 
 class DoctorUnifiedSearchScreen extends StatefulWidget {
   final String doctorId;
@@ -12,37 +11,39 @@ class DoctorUnifiedSearchScreen extends StatefulWidget {
   final String scheduleId;
   final String appointmentType;
   final String? currentAppointmentId;
+
   const DoctorUnifiedSearchScreen({
-    super.key, 
+    super.key,
     required this.doctorId,
     required this.doctorName,
     required this.scheduleId,
     required this.appointmentType,
-    this.currentAppointmentId, 
+    this.currentAppointmentId,
   });
 
   @override
-  State<DoctorUnifiedSearchScreen> createState() => _DoctorUnifiedSearchScreenState();
+  State<DoctorUnifiedSearchScreen> createState() =>
+      _DoctorUnifiedSearchScreenState();
 }
 
-class _DoctorUnifiedSearchScreenState extends State<DoctorUnifiedSearchScreen> with SingleTickerProviderStateMixin {
+class _DoctorUnifiedSearchScreenState extends State<DoctorUnifiedSearchScreen>
+    with SingleTickerProviderStateMixin {
   late TabController _tabController;
   bool _showQueueProgress = false;
-  List<Map<String, dynamic>> _queueAppointments = [];
-  List<Map<String, dynamic>> _completedAppointments = [];
-  int _totalQueuePatients = 0;
-  int _completedPatients = 0;
+
+  // Lists to manage different states
+  List<Map<String, dynamic>> _queueAppointments =
+      []; // Waiting + In Consultation
+  List<Map<String, dynamic>> _completedAppointments = []; // Done
+  List<Map<String, dynamic>> _skippedAppointments = []; // Absent/Skipped
+
   bool _isLoadingQueue = false;
   StreamSubscription? _queueSubscription;
 
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(
-      length: 2,
-      vsync: this,
-      initialIndex: 0,
-    );
+    _tabController = TabController(length: 2, vsync: this, initialIndex: 0);
     _setupQueueStream();
   }
 
@@ -53,7 +54,6 @@ class _DoctorUnifiedSearchScreenState extends State<DoctorUnifiedSearchScreen> w
     super.dispose();
   }
 
-  // ADD THIS METHOD: Toggle queue visibility
   void _toggleQueueProgress() {
     setState(() {
       _showQueueProgress = !_showQueueProgress;
@@ -62,85 +62,110 @@ class _DoctorUnifiedSearchScreenState extends State<DoctorUnifiedSearchScreen> w
 
   void _setupQueueStream() {
     if (widget.scheduleId.isEmpty) return;
-    
+
     setState(() => _isLoadingQueue = true);
-    
+
     _queueSubscription = FirebaseFirestore.instance
         .collection('appointments')
         .where('scheduleId', isEqualTo: widget.scheduleId)
         .snapshots()
         .listen((snapshot) {
-      _processQueueData(snapshot.docs);
-    });
+          _processQueueData(snapshot.docs);
+        });
   }
 
+  // --- FIXED LOGIC HERE ---
   void _processQueueData(List<DocumentSnapshot> docs) {
-  final appointments = <Map<String, dynamic>>[];
-  final completed = <Map<String, dynamic>>[];
-  final waiting = <Map<String, dynamic>>[];
-  final inConsultation = <Map<String, dynamic>>[];
-  
-  for (var doc in docs) {
-    final data = doc.data() as Map<String, dynamic>?;
-    if (data != null) {
-      final appointment = {
-        'id': doc.id,
-        'patientName': data['patientName'] ?? 'Unknown',
-        'tokenNumber': data['tokenNumber'] ?? 0,
-        'queueStatus': data['queueStatus'] ?? 'waiting',
-        'status': data['status'] ?? 'confirmed',
-      };
-      
-      if (data['status'] == 'completed') {
-        completed.add(appointment);
-      } else if (data['status'] == 'confirmed') {
-        if (data['queueStatus'] == 'in_consultation') {
-          inConsultation.add(appointment);
-        } else if (data['queueStatus'] == 'waiting') {
-          waiting.add(appointment);
-        } else {
-          appointments.add(appointment);
+    final appointments = <Map<String, dynamic>>[];
+    final completed = <Map<String, dynamic>>[];
+    final skipped = <Map<String, dynamic>>[];
+    final inConsultation = <Map<String, dynamic>>[];
+
+    for (var doc in docs) {
+      final data = doc.data() as Map<String, dynamic>?;
+      if (data != null) {
+        final appointment = {
+          'id': doc.id,
+          'patientName': data['patientName'] ?? 'Unknown',
+          'tokenNumber': data['tokenNumber'] ?? 0,
+          'queueStatus': data['queueStatus'] ?? 'waiting',
+          'status': data['status'] ?? 'confirmed',
+        };
+
+        final status = data['status'];
+        final queueStatus = data['queueStatus'];
+
+        // 1. Handle Completed
+        if (status == 'completed') {
+          completed.add(appointment);
+        }
+        // 2. Handle Skipped/Absent/Cancelled (The Fix)
+        else if (status == 'skipped' ||
+            status == 'absent' ||
+            status == 'cancelled' ||
+            queueStatus == 'skipped') {
+          skipped.add(appointment);
+        }
+        // 3. Handle Active Queue (Confirmed/Pending)
+        else if (status == 'confirmed' || status == 'pending') {
+          if (queueStatus == 'in_consultation') {
+            inConsultation.add(appointment);
+          } else if (queueStatus == 'waiting') {
+            appointments.add(appointment); // Add to waiting list
+          } else {
+            // Fallback for weird states, put in waiting
+            appointments.add(appointment);
+          }
         }
       }
     }
+
+    // Sort waiting appointments by token number
+    appointments.sort(
+      (a, b) => (a['tokenNumber'] as int).compareTo(b['tokenNumber'] as int),
+    );
+    completed.sort(
+      (a, b) => (a['tokenNumber'] as int).compareTo(b['tokenNumber'] as int),
+    );
+    skipped.sort(
+      (a, b) => (a['tokenNumber'] as int).compareTo(b['tokenNumber'] as int),
+    );
+
+    // Combine inConsultation + waiting for the active queue display
+    final queue = [...inConsultation, ...appointments];
+
+    if (mounted) {
+      setState(() {
+        _queueAppointments = queue;
+        _completedAppointments = completed;
+        _skippedAppointments = skipped;
+        _isLoadingQueue = false;
+      });
+    }
   }
-  
-  // Sort waiting appointments by token number
-  waiting.sort((a, b) => (a['tokenNumber'] as int).compareTo(b['tokenNumber'] as int));
-  
-  // Combine inConsultation + waiting for the queue
-  final queue = [...inConsultation, ...waiting];
-  
-  if (mounted) {
-    setState(() {
-      _queueAppointments = queue;
-      _completedAppointments = completed;
-      _totalQueuePatients = queue.length + completed.length;
-      _completedPatients = completed.length;
-      _isLoadingQueue = false;
-    });
-  }
-}
 
   Widget _buildQueueProgress() {
     if (_isLoadingQueue && _queueAppointments.isEmpty) {
-      return Container(
-        padding: const EdgeInsets.all(16),
-        child: const Center(
-          child: CircularProgressIndicator(
-            color: Color(0xFF18A3B6),
-          ),
+      return const Padding(
+        padding: EdgeInsets.all(16),
+        child: Center(
+          child: CircularProgressIndicator(color: Color(0xFF18A3B6)),
         ),
       );
     }
 
-    // Calculate progress correctly
-    final totalForToday = _queueAppointments.length + _completedAppointments.length;
-    final progress = totalForToday > 0 
-        ? _completedAppointments.length / totalForToday 
+    // Calculate totals correctly including skipped
+    final totalPatients =
+        _queueAppointments.length +
+        _completedAppointments.length +
+        _skippedAppointments.length;
+    // Progress based on Completed + Skipped (Work done) OR just Completed.
+    // Here we show Completed vs Total
+    final progress = totalPatients > 0
+        ? _completedAppointments.length / totalPatients
         : 0.0;
-    
-    // Find current appointment (in_consultation)
+
+    // Find current appointment
     final currentAppointment = _queueAppointments.firstWhere(
       (appt) => appt['queueStatus'] == 'in_consultation',
       orElse: () => {},
@@ -169,20 +194,17 @@ class _DoctorUnifiedSearchScreenState extends State<DoctorUnifiedSearchScreen> w
               Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
+                  const Text(
                     'Consultation Queue',
                     style: TextStyle(
                       fontSize: 18,
                       fontWeight: FontWeight.bold,
-                      color: const Color(0xFF18A3B6),
+                      color: Color(0xFF18A3B6),
                     ),
                   ),
                   Text(
                     'Schedule: ${widget.scheduleId.substring(0, 8)}...',
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: Colors.grey[600],
-                    ),
+                    style: TextStyle(fontSize: 12, color: Colors.grey[600]),
                   ),
                 ],
               ),
@@ -193,115 +215,47 @@ class _DoctorUnifiedSearchScreenState extends State<DoctorUnifiedSearchScreen> w
               ),
             ],
           ),
-          
+
           const SizedBox(height: 16),
-          
-          // Progress Card
-          Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: const Color(0xFF18A3B6).withOpacity(0.05),
-              borderRadius: BorderRadius.circular(10),
-              border: Border.all(color: const Color(0xFF18A3B6).withOpacity(0.2)),
-            ),
-            child: Column(
-              children: [
-                // Progress Row
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'PROGRESS',
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: Colors.grey[600],
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          '${_completedAppointments.length}/$totalForToday',
-                          style: const TextStyle(
-                            fontSize: 24,
-                            fontWeight: FontWeight.bold,
-                            color: Color(0xFF18A3B6),
-                          ),
-                        ),
-                      ],
-                    ),
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.end,
-                      children: [
-                        Text(
-                          '${(progress * 100).toStringAsFixed(0)}%',
-                          style: const TextStyle(
-                            fontSize: 24,
-                            fontWeight: FontWeight.bold,
-                            color: Color(0xFF18A3B6),
-                          ),
-                        ),
-                        Text(
-                          'COMPLETED',
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: Colors.grey[600],
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-                
-                const SizedBox(height: 16),
-                
-                // Progress Bar
-                Container(
-                  height: 12,
-                  width: double.infinity,
-                  decoration: BoxDecoration(
-                    color: Colors.grey[200],
-                    borderRadius: BorderRadius.circular(6),
-                  ),
-                  child: Stack(
-                    children: [
-                      // Background
-                      Container(
-                        decoration: BoxDecoration(
-                          color: Colors.grey[200],
-                          borderRadius: BorderRadius.circular(6),
-                        ),
-                      ),
-                      
-                      // Progress
-                      AnimatedContainer(
-                        duration: const Duration(milliseconds: 500),
-                        width: MediaQuery.of(context).size.width * progress,
-                        decoration: BoxDecoration(
-                          gradient: const LinearGradient(
-                            colors: [
-                              Color(0xFF18A3B6),
-                              Color(0xFF32BACD),
-                            ],
-                            begin: Alignment.centerLeft,
-                            end: Alignment.centerRight,
-                          ),
-                          borderRadius: BorderRadius.circular(6),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
+
+          // Progress Stats
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              _buildStatItem(
+                'Completed',
+                '${_completedAppointments.length}',
+                Colors.green,
+              ),
+              _buildStatItem(
+                'Waiting',
+                '${_queueAppointments.length}',
+                const Color(0xFF18A3B6),
+              ),
+              _buildStatItem(
+                'Skipped',
+                '${_skippedAppointments.length}',
+                Colors.orange,
+              ), // Show Skipped explicitly
+            ],
+          ),
+
+          const SizedBox(height: 12),
+
+          // Progress Bar
+          ClipRRect(
+            borderRadius: BorderRadius.circular(6),
+            child: LinearProgressIndicator(
+              value: progress,
+              backgroundColor: Colors.grey[200],
+              valueColor: const AlwaysStoppedAnimation<Color>(Colors.green),
+              minHeight: 8,
             ),
           ),
-          
+
           const SizedBox(height: 16),
-          
-          // Current Status
+
+          // Current Status Text
           Container(
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
@@ -311,40 +265,26 @@ class _DoctorUnifiedSearchScreenState extends State<DoctorUnifiedSearchScreen> w
             ),
             child: Row(
               children: [
-                const Icon(
-                  Icons.info,
-                  color: Color(0xFF18A3B6),
-                  size: 20,
-                ),
+                const Icon(Icons.info, color: Color(0xFF18A3B6), size: 20),
                 const SizedBox(width: 12),
                 Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        currentAppointment.isNotEmpty
-                            ? 'Consulting: ${currentAppointment['patientName']} (#${currentAppointment['tokenNumber']})'
-                            : 'Next Patient: ${_queueAppointments.isNotEmpty ? _queueAppointments.first['patientName'] : "None"}',
-                        style: const TextStyle(
-                          fontWeight: FontWeight.bold,
-                          color: Color(0xFF18A3B6),
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        '${_queueAppointments.length} patients waiting • ${_completedAppointments.length} completed',
-                        style: TextStyle(
-                          color: Colors.blue[700],
-                          fontSize: 12,
-                        ),
-                      ),
-                    ],
+                  child: Text(
+                    currentAppointment.isNotEmpty
+                        ? 'Consulting: ${currentAppointment['patientName']} (#${currentAppointment['tokenNumber']})'
+                        : _queueAppointments.isNotEmpty
+                        ? 'Next: ${_queueAppointments.first['patientName']} (#${_queueAppointments.first['tokenNumber']})'
+                        : 'Queue is clear',
+                    style: const TextStyle(
+                      fontWeight: FontWeight.bold,
+                      color: Color(0xFF18A3B6),
+                    ),
                   ),
                 ),
               ],
             ),
           ),
-          
+
+          // Active Queue List
           if (_queueAppointments.isNotEmpty) ...[
             const SizedBox(height: 20),
             const Text(
@@ -356,107 +296,10 @@ class _DoctorUnifiedSearchScreenState extends State<DoctorUnifiedSearchScreen> w
               ),
             ),
             const SizedBox(height: 8),
-            
-            // Patient List
             ..._queueAppointments.take(5).map((appointment) {
               final isCurrent = appointment['queueStatus'] == 'in_consultation';
-              final isNext = _queueAppointments.indexOf(appointment) == 0 && !isCurrent;
-              
-              return Container(
-                margin: const EdgeInsets.only(bottom: 8),
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: isCurrent ? const Color(0xFF18A3B6).withOpacity(0.1) : 
-                          isNext ? Colors.orange.withOpacity(0.05) : Colors.grey[50],
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(
-                    color: isCurrent ? const Color(0xFF18A3B6) : 
-                            isNext ? Colors.orange : Colors.grey[200]!,
-                    width: isCurrent ? 1.5 : isNext ? 1.5 : 1,
-                  ),
-                ),
-                child: Row(
-                  children: [
-                    Container(
-                      width: 32,
-                      height: 32,
-                      decoration: BoxDecoration(
-                        color: isCurrent ? const Color(0xFF18A3B6) : 
-                                isNext ? Colors.orange : Colors.grey[400]!,
-                        shape: BoxShape.circle,
-                      ),
-                      child: Center(
-                        child: Text(
-                          '#${appointment['tokenNumber']}',
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 12,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            appointment['patientName'],
-                            style: TextStyle(
-                              fontWeight: FontWeight.w600,
-                              color: isCurrent ? const Color(0xFF18A3B6) : 
-                                      isNext ? Colors.orange[800] : Colors.grey[800]!,
-                            ),
-                          ),
-                          Text(
-                            'Status: ${appointment['queueStatus']}',
-                            style: TextStyle(
-                              fontSize: 11,
-                              color: isCurrent ? Colors.blue[600] : 
-                                      isNext ? Colors.orange[600] : Colors.grey[600]!,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    if (isCurrent)
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                        decoration: BoxDecoration(
-                          color: Colors.green[100],
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: const Text(
-                          'IN PROGRESS',
-                          style: TextStyle(
-                            fontSize: 10,
-                            color: Colors.green,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      )
-                    else if (isNext)
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                        decoration: BoxDecoration(
-                          color: Colors.orange[100],
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: const Text(
-                          'NEXT',
-                          style: TextStyle(
-                            fontSize: 10,
-                            color: Colors.orange,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ),
-                  ],
-                ),
-              );
+              return _buildQueueItem(appointment, isCurrent: isCurrent);
             }).toList(),
-            
             if (_queueAppointments.length > 5)
               Padding(
                 padding: const EdgeInsets.only(top: 8),
@@ -469,73 +312,116 @@ class _DoctorUnifiedSearchScreenState extends State<DoctorUnifiedSearchScreen> w
                   ),
                 ),
               ),
-          ] else if (_completedAppointments.isNotEmpty) ...[
-            const SizedBox(height: 16),
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: Colors.green[50],
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: Colors.green[100]!),
-              ),
-              child: Row(
-                children: [
-                  Icon(Icons.check_circle, color: Colors.green[600]),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Text(
-                      'All consultations completed! ${_completedAppointments.length} patients seen.',
-                      style: TextStyle(
-                        color: Colors.green[800],
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ] else ...[
-            const SizedBox(height: 16),
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: Colors.grey[100],
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Row(
-                children: [
-                  const Icon(Icons.info, color: Colors.grey),
-                  const SizedBox(width: 12),
-                  const Expanded(
-                    child: Text(
-                      'No patients in queue for this schedule',
-                      style: TextStyle(
-                        color: Colors.grey,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
           ],
-          
-          const SizedBox(height: 20),
-          
-          // Status Legend
-          Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: Colors.grey[50],
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: Colors.grey[200]!),
+
+          // Show Skipped List if any (To fix the confusion about "Patient 2")
+          if (_skippedAppointments.isNotEmpty) ...[
+            const SizedBox(height: 20),
+            const Text(
+              'Absent / Skipped',
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w600,
+                color: Colors.orange,
+              ),
             ),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+            const SizedBox(height: 8),
+            ..._skippedAppointments.take(3).map((appointment) {
+              return _buildQueueItem(appointment, isSkipped: true);
+            }).toList(),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildStatItem(String label, String count, Color color) {
+    return Column(
+      children: [
+        Text(
+          count,
+          style: TextStyle(
+            fontSize: 20,
+            fontWeight: FontWeight.bold,
+            color: color,
+          ),
+        ),
+        Text(label, style: TextStyle(fontSize: 12, color: Colors.grey[600])),
+      ],
+    );
+  }
+
+  Widget _buildQueueItem(
+    Map<String, dynamic> appointment, {
+    bool isCurrent = false,
+    bool isSkipped = false,
+  }) {
+    Color bgColor = Colors.grey[50]!;
+    Color borderColor = Colors.grey[200]!;
+    Color textColor = Colors.grey[800]!;
+    String statusText = appointment['queueStatus'].toString();
+
+    if (isCurrent) {
+      bgColor = const Color(0xFF18A3B6).withOpacity(0.1);
+      borderColor = const Color(0xFF18A3B6);
+      textColor = const Color(0xFF18A3B6);
+      statusText = 'IN PROGRESS';
+    } else if (isSkipped) {
+      bgColor = Colors.orange.withOpacity(0.05);
+      borderColor = Colors.orange.withOpacity(0.3);
+      textColor = Colors.orange[800]!;
+      statusText = 'ABSENT';
+    }
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: bgColor,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: borderColor),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 32,
+            height: 32,
+            decoration: BoxDecoration(
+              color: isCurrent
+                  ? const Color(0xFF18A3B6)
+                  : (isSkipped ? Colors.orange : Colors.grey[400]),
+              shape: BoxShape.circle,
+            ),
+            child: Center(
+              child: Text(
+                '#${appointment['tokenNumber']}',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                _buildLegendItem(Colors.green, 'In Progress'),
-                _buildLegendItem(const Color(0xFF18A3B6), 'Current'),
-                _buildLegendItem(Colors.orange, 'Next'),
-                _buildLegendItem(Colors.grey, 'Waiting'),
+                Text(
+                  appointment['patientName'],
+                  style: TextStyle(
+                    fontWeight: FontWeight.w600,
+                    color: textColor,
+                  ),
+                ),
+                Text(
+                  statusText.toUpperCase(),
+                  style: TextStyle(
+                    fontSize: 10,
+                    color: textColor.withOpacity(0.7),
+                  ),
+                ),
               ],
             ),
           ),
@@ -544,31 +430,14 @@ class _DoctorUnifiedSearchScreenState extends State<DoctorUnifiedSearchScreen> w
     );
   }
 
-  Widget _buildLegendItem(Color color, String text) {
-    return Row(
-      children: [
-        Container(
-          width: 12,
-          height: 12,
-          decoration: BoxDecoration(
-            color: color,
-            shape: BoxShape.circle,
-          ),
-        ),
-        const SizedBox(width: 4),
-        Text(
-          text,
-          style: TextStyle(
-            fontSize: 10,
-            color: Colors.grey[700],
-          ),
-        ),
-      ],
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
+    // Total count calculation for badge
+    final totalCount =
+        _queueAppointments.length +
+        _completedAppointments.length +
+        _skippedAppointments.length;
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('Find Patient'),
@@ -582,13 +451,15 @@ class _DoctorUnifiedSearchScreenState extends State<DoctorUnifiedSearchScreen> w
           ],
         ),
         actions: [
-          // Queue Status Badge
           Padding(
             padding: const EdgeInsets.only(right: 16.0),
             child: GestureDetector(
               onTap: _toggleQueueProgress,
               child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 6,
+                ),
                 decoration: BoxDecoration(
                   color: Colors.white.withOpacity(0.2),
                   borderRadius: BorderRadius.circular(20),
@@ -601,7 +472,7 @@ class _DoctorUnifiedSearchScreenState extends State<DoctorUnifiedSearchScreen> w
                     ),
                     const SizedBox(width: 6),
                     Text(
-                      '${_completedAppointments.length}/${_queueAppointments.length + _completedAppointments.length}',
+                      '${_completedAppointments.length}/$totalCount',
                       style: const TextStyle(
                         fontSize: 14,
                         fontWeight: FontWeight.bold,
@@ -616,7 +487,7 @@ class _DoctorUnifiedSearchScreenState extends State<DoctorUnifiedSearchScreen> w
       ),
       body: Column(
         children: [
-          // Always show queue status at top
+          // Collapsed Header
           if (!_showQueueProgress)
             GestureDetector(
               onTap: _toggleQueueProgress,
@@ -626,10 +497,7 @@ class _DoctorUnifiedSearchScreenState extends State<DoctorUnifiedSearchScreen> w
                 color: const Color(0xFF18A3B6).withOpacity(0.05),
                 child: Row(
                   children: [
-                    const Icon(
-                      Icons.people,
-                      color: Color(0xFF18A3B6),
-                    ),
+                    const Icon(Icons.people, color: Color(0xFF18A3B6)),
                     const SizedBox(width: 12),
                     Expanded(
                       child: Column(
@@ -643,9 +511,9 @@ class _DoctorUnifiedSearchScreenState extends State<DoctorUnifiedSearchScreen> w
                             ),
                           ),
                           Text(
-                            _isLoadingQueue 
+                            _isLoadingQueue
                                 ? 'Loading...'
-                                : '${_completedAppointments.length} completed • ${_queueAppointments.length} waiting',
+                                : '${_completedAppointments.length} done • ${_skippedAppointments.length} absent • ${_queueAppointments.length} waiting',
                             style: TextStyle(
                               fontSize: 12,
                               color: Colors.grey[600],
@@ -654,24 +522,19 @@ class _DoctorUnifiedSearchScreenState extends State<DoctorUnifiedSearchScreen> w
                         ],
                       ),
                     ),
-                    const Icon(
-                      Icons.arrow_drop_down,
-                      color: Color(0xFF18A3B6),
-                    ),
+                    const Icon(Icons.arrow_drop_down, color: Color(0xFF18A3B6)),
                   ],
                 ),
               ),
             ),
-          
-          // Queue Progress Section (toggleable)
+
+          // Expanded Queue
           if (_showQueueProgress)
             Expanded(
-              child: SingleChildScrollView(
-                child: _buildQueueProgress(),
-              ),
+              child: SingleChildScrollView(child: _buildQueueProgress()),
             ),
-          
-          // Tab Content (only show when queue is collapsed)
+
+          // Tab View
           if (!_showQueueProgress)
             Expanded(
               child: TabBarView(
@@ -684,10 +547,7 @@ class _DoctorUnifiedSearchScreenState extends State<DoctorUnifiedSearchScreen> w
                     appointmentType: widget.appointmentType,
                     checkAppointmentsMethod: _checkIfPatientHasAppointments,
                     currentAppointmentId: widget.currentAppointmentId,
-                    onQueueUpdated: () {
-                      // This will be called when queue needs refresh
-                      _setupQueueStream();
-                    },
+                    onQueueUpdated: () => _setupQueueStream(),
                   ),
                   PhoneNumberTab(
                     doctorId: widget.doctorId,
@@ -696,10 +556,7 @@ class _DoctorUnifiedSearchScreenState extends State<DoctorUnifiedSearchScreen> w
                     appointmentType: widget.appointmentType,
                     checkAppointmentsMethod: _checkIfPatientHasAppointments,
                     currentAppointmentId: widget.currentAppointmentId,
-                    onQueueUpdated: () {
-                      // This will be called when queue needs refresh
-                      _setupQueueStream();
-                    },
+                    onQueueUpdated: () => _setupQueueStream(),
                   ),
                 ],
               ),
@@ -709,9 +566,11 @@ class _DoctorUnifiedSearchScreenState extends State<DoctorUnifiedSearchScreen> w
     );
   }
 
-  Future<bool> _checkIfPatientHasAppointments(String patientId, String scheduleId) async {
+  Future<bool> _checkIfPatientHasAppointments(
+    String patientId,
+    String scheduleId,
+  ) async {
     try {
-      // Check in appointments collection for this specific schedule
       final appointmentsQuery = await FirebaseFirestore.instance
           .collection('appointments')
           .where('patientId', isEqualTo: patientId)
@@ -723,24 +582,24 @@ class _DoctorUnifiedSearchScreenState extends State<DoctorUnifiedSearchScreen> w
       if (appointmentsQuery.docs.isNotEmpty) {
         final appointmentData = appointmentsQuery.docs.first.data();
         final status = appointmentData['status'] as String?;
-        
-        // Check if appointment is confirmed, pending, or waiting
-        if (status == 'confirmed' || status == 'pending' || status == 'waiting') {
+        // Allow confirmed, pending, waiting.
+        // NOTE: You might want to allow 'skipped' if you want to allow them to be "re-processed"
+        if (status == 'confirmed' ||
+            status == 'pending' ||
+            status == 'waiting' ||
+            status == 'skipped') {
           return true;
         }
       }
-
       return false;
     } catch (e) {
       debugPrint('Error checking appointments: $e');
       return false;
     }
   }
-
-  // ... rest of your existing methods (QRCodeTab and PhoneNumberTab classes should be below)
 }
-  
 
+// ... QRCodeTab, PhoneNumberTab, HelpText, ScannerOverlayPainter remain same as previous code
 
 // QR Code Tab
 class QRCodeTab extends StatefulWidget {
@@ -749,7 +608,7 @@ class QRCodeTab extends StatefulWidget {
   final String scheduleId;
   final String appointmentType;
   final Future<bool> Function(String, String) checkAppointmentsMethod;
- final String? currentAppointmentId; 
+  final String? currentAppointmentId;
   final VoidCallback? onQueueUpdated;
   const QRCodeTab({
     super.key,
@@ -758,8 +617,8 @@ class QRCodeTab extends StatefulWidget {
     required this.scheduleId,
     required this.appointmentType,
     required this.checkAppointmentsMethod,
-   this.currentAppointmentId,
-   this.onQueueUpdated
+    this.currentAppointmentId,
+    this.onQueueUpdated,
   });
 
   @override
@@ -806,15 +665,15 @@ class _QRCodeTabState extends State<QRCodeTab> {
   void _handleBarcode(BarcodeCapture barcodes) {
     if (barcodes.barcodes.isNotEmpty && !_isSearching && !_hasScanned) {
       final String? qrData = barcodes.barcodes.first.rawValue;
-      
+
       if (qrData != null && qrData.isNotEmpty && qrData != _lastScannedData) {
         debugPrint('QR Code scanned: $qrData');
-        
+
         setState(() {
           _hasScanned = true;
           _lastScannedData = qrData;
         });
-        
+
         _stopCamera();
         _processScannedQRCode(qrData);
       }
@@ -887,7 +746,7 @@ class _QRCodeTabState extends State<QRCodeTab> {
           const SizedBox(height: 12),
           _buildCameraControls(),
           const SizedBox(height: 12),
-          
+
           const SizedBox(height: 12),
           _buildHelpSection(),
         ],
@@ -906,9 +765,7 @@ class _QRCodeTabState extends State<QRCodeTab> {
           color: Colors.black,
           borderRadius: BorderRadius.circular(16),
         ),
-        child: Stack(
-          children: _buildScannerStackChildren()
-        ),
+        child: Stack(children: _buildScannerStackChildren()),
       ),
     );
   }
@@ -920,18 +777,28 @@ class _QRCodeTabState extends State<QRCodeTab> {
     ];
 
     if (_isSearching) {
-      children.add(_buildScanningOverlay('Processing QR Code...', Icons.hourglass_empty));
+      children.add(
+        _buildScanningOverlay('Processing QR Code...', Icons.hourglass_empty),
+      );
     } else if (_hasScanned) {
-      children.add(_buildScanningOverlay('QR Code Scanned!\nTap "Scan Again" to rescan', Icons.check_circle, color: Colors.green));
+      children.add(
+        _buildScanningOverlay(
+          'QR Code Scanned!\nTap "Scan Again" to rescan',
+          Icons.check_circle,
+          color: Colors.green,
+        ),
+      );
     } else if (!_isCameraActive) {
-      children.add(_buildScanningOverlay('Camera Paused\nTap Start to resume', Icons.videocam_off, color: Colors.orange));
+      children.add(
+        _buildScanningOverlay(
+          'Camera Paused\nTap Start to resume',
+          Icons.videocam_off,
+          color: Colors.orange,
+        ),
+      );
     } else {
       children.add(
-        Positioned.fill(
-          child: CustomPaint(
-            painter: ScannerOverlayPainter(),
-          ),
-        ),
+        Positioned.fill(child: CustomPaint(painter: ScannerOverlayPainter())),
       );
     }
 
@@ -946,7 +813,11 @@ class _QRCodeTabState extends State<QRCodeTab> {
     );
   }
 
-  Widget _buildScanningOverlay(String text, IconData icon, {Color color = Colors.white}) {
+  Widget _buildScanningOverlay(
+    String text,
+    IconData icon, {
+    Color color = Colors.white,
+  }) {
     return Positioned.fill(
       child: Container(
         color: Colors.black54,
@@ -1020,7 +891,11 @@ class _QRCodeTabState extends State<QRCodeTab> {
           children: [
             const Text(
               'How to scan QR Code:',
-              style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF18A3B6)),
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.bold,
+                color: Color(0xFF18A3B6),
+              ),
             ),
             const SizedBox(height: 4),
             HelpText('Ask patient to show their QR code'),
@@ -1033,150 +908,210 @@ class _QRCodeTabState extends State<QRCodeTab> {
     );
   }
 
-Future<void> _searchByQR(String qrData) async {
-  setState(() => _isSearching = true);
-
-  try {
-    debugPrint('🔍 Searching patient by QR: $qrData');
-    debugPrint('📋 Schedule ID: ${widget.scheduleId}');
-    debugPrint('🏥 Doctor ID: ${widget.doctorId}');
-    debugPrint('📝 Current Appointment ID: ${widget.currentAppointmentId}');
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) => const AlertDialog(
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            CircularProgressIndicator(),
-            SizedBox(height: 16),
-            Text('Searching for patient...'),
-          ],
-        ),
-      ),
-    );
-
-    Map<String, dynamic>? patientData;
-    String? patientId;
+  Future<void> _searchByQR(String qrData) async {
+    setState(() => _isSearching = true);
 
     try {
-      final userDoc = await FirebaseFirestore.instance
-          .collection('users')
-          .doc(qrData)
-          .get();
-
-      if (userDoc.exists) {
-        patientData = userDoc.data();
-        patientId = userDoc.id;
-      }
-    } catch (e) {
-      debugPrint('Error searching in users: $e');
-    }
-
-    if (patientData == null || patientId == null) {
-      _showError('Patient not found. Please check QR code and try again.');
-      _resetScanState();
-      return;
-    }
-
-    // Check if patient has appointments for THIS SPECIFIC SCHEDULE
-    final hasAppointments = await widget.checkAppointmentsMethod(patientId, widget.scheduleId);
-
-    if (context.mounted) {
-      Navigator.of(context).pop();
-    }
-
-    if (!hasAppointments) {
-      debugPrint('❌ Patient ${patientData['name']} has no appointment for schedule ${widget.scheduleId}');
-      await _showNoAppointmentDialog(
-        context,
-        patientId,
-        patientData,
-        widget.scheduleId,
-      );
-      _resetScanState();
-      return;
-    }
-
-    // ✅ PATIENT VERIFIED - Proceed to consultation
-    debugPrint('✅ Patient verified: ${patientData['name']}');
-    debugPrint('🎯 Proceeding to consultation...');
-    
-    if (context.mounted) {
-      // Navigate to patient profile with appointment context
-      await Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (context) => DoctorPatientProfileScreen(
-            patientId: patientId!,
-            patientName: patientData?['name'] ?? patientData?['fullName'] ?? 'Patient',
-            patientData: patientData ?? {},
-            scheduleId: widget.scheduleId, // PASS SCHEDULE ID
-            appointmentId: widget.currentAppointmentId, // PASS APPOINTMENT ID
+      debugPrint('🔍 Searching patient by QR: $qrData');
+      debugPrint('📋 Schedule ID: ${widget.scheduleId}');
+      debugPrint('🏥 Doctor ID: ${widget.doctorId}');
+      debugPrint('📝 Current Appointment ID: ${widget.currentAppointmentId}');
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => const AlertDialog(
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              CircularProgressIndicator(),
+              SizedBox(height: 16),
+              Text('Searching for patient...'),
+            ],
           ),
         ),
       );
-      
-      // After returning from consultation, reset scanner
-      debugPrint('🔁 Returning to search screen for next patient');
+
+      Map<String, dynamic>? patientData;
+      String? patientId;
+
+      try {
+        final userDoc = await FirebaseFirestore.instance
+            .collection('users')
+            .doc(qrData)
+            .get();
+
+        if (userDoc.exists) {
+          patientData = userDoc.data();
+          patientId = userDoc.id;
+        }
+      } catch (e) {
+        debugPrint('Error searching in users: $e');
+      }
+
+      if (patientData == null || patientId == null) {
+        _showError('Patient not found. Please check QR code and try again.');
+        _resetScanState();
+        return;
+      }
+
+      // Check if patient has appointments for THIS SPECIFIC SCHEDULE
+      final hasAppointments = await widget.checkAppointmentsMethod(
+        patientId,
+        widget.scheduleId,
+      );
+
+      if (context.mounted) {
+        Navigator.of(context).pop();
+      }
+
+      if (!hasAppointments) {
+        debugPrint(
+          '❌ Patient ${patientData['name']} has no appointment for schedule ${widget.scheduleId}',
+        );
+        await _showNoAppointmentDialog(
+          context,
+          patientId,
+          patientData,
+          widget.scheduleId,
+        );
+        _resetScanState();
+        return;
+      }
+
+      // ✅ PATIENT VERIFIED - Proceed to consultation
+      debugPrint('✅ Patient verified: ${patientData['name']}');
+      debugPrint('🎯 Proceeding to consultation...');
+
+      if (context.mounted) {
+        // Navigate to patient profile with appointment context
+        await Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => DoctorPatientProfileScreen(
+              patientId: patientId!,
+              patientName:
+                  patientData?['name'] ?? patientData?['fullName'] ?? 'Patient',
+              patientData: patientData ?? {},
+              scheduleId: widget.scheduleId, // PASS SCHEDULE ID
+              appointmentId: widget.currentAppointmentId, // PASS APPOINTMENT ID
+            ),
+          ),
+        );
+
+        // After returning from consultation, reset scanner
+        debugPrint('🔁 Returning to search screen for next patient');
+      }
+
+      _resetScanState();
+    } catch (e) {
+      if (context.mounted) Navigator.of(context).pop();
+      _showError('Error: $e');
+      _resetScanState();
     }
-
-    _resetScanState();
-
-  } catch (e) {
-    if (context.mounted) Navigator.of(context).pop();
-    _showError('Error: $e');
-    _resetScanState();
   }
-}
 
-// Make sure this method exists in _QRCodeTabState
-Future<void> _showNoAppointmentDialog(
-  BuildContext context,
-  String patientId,
-  Map<String, dynamic> patientData,
-  String scheduleId,
-) async {
-  await showDialog(
-    context: context,
-    barrierDismissible: false,
-    builder: (context) => AlertDialog(
-      title: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Icon(Icons.warning, color: Colors.red, size: 24),
-              const SizedBox(width: 8),
-              Flexible(
-                child: Text(
-                  'No Appointment',
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
+  // Make sure this method exists in _QRCodeTabState
+  Future<void> _showNoAppointmentDialog(
+    BuildContext context,
+    String patientId,
+    Map<String, dynamic> patientData,
+    String scheduleId,
+  ) async {
+    await showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        title: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.warning, color: Colors.red, size: 24),
+                const SizedBox(width: 8),
+                Flexible(
+                  child: Text(
+                    'No Appointment',
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                   ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'Found',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
+          ],
+        ),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.red[50],
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.red[200]!),
+                ),
+                child: const Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '🚫 Access Denied',
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        color: Colors.red,
+                      ),
+                    ),
+                    SizedBox(height: 8),
+                    Text(
+                      'This patient does not have any scheduled appointments for this schedule.',
+                      style: TextStyle(fontSize: 14),
+                    ),
+                  ],
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 4),
-          Text(
-            'Found',
-            style: TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.bold,
+        ),
+        actions: [
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF18A3B6),
+              foregroundColor: Colors.white,
             ),
+            child: const Text('OK'),
           ),
         ],
       ),
-      content: SingleChildScrollView(
-        child: Column(
+    );
+  }
+
+  // Add this method to show access denied dialog
+  void _showAccessDeniedDialog(
+    BuildContext context,
+    Map<String, dynamic> patientData,
+  ) {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        title: const Row(
+          children: [
+            Icon(Icons.warning, color: Colors.red),
+            SizedBox(width: 8),
+            Text('Access Denied'),
+          ],
+        ),
+        content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            
             Container(
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
@@ -1184,121 +1119,69 @@ Future<void> _showNoAppointmentDialog(
                 borderRadius: BorderRadius.circular(8),
                 border: Border.all(color: Colors.red[200]!),
               ),
-              child: const Column(
+              child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    '🚫 Access Denied',
-                    style: TextStyle(fontWeight: FontWeight.bold, color: Colors.red),
+                  const Text(
+                    '🚫 Cannot Access Medical Profile',
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      color: Colors.red,
+                    ),
                   ),
-                  SizedBox(height: 8),
-                  Text(
-                    'This patient does not have any scheduled appointments for this schedule.',
+                  const SizedBox(height: 8),
+                  const Text(
+                    'This patient does not have any scheduled appointments with you.',
                     style: TextStyle(fontSize: 14),
                   ),
+                  const SizedBox(height: 8),
+                  const Text(
+                    'To access patient medical records:',
+                    style: TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 4),
+                  _buildListPointRed(
+                    'Patient must have a scheduled appointment',
+                  ),
+                  _buildListPointRed('Appointments can be scheduled via admin'),
+                  _buildListPointRed('Or patient can book through the app'),
                 ],
               ),
             ),
           ],
         ),
-      ),
-      actions: [
-        ElevatedButton(
-          onPressed: () => Navigator.pop(context),
-          style: ElevatedButton.styleFrom(
-            backgroundColor: const Color(0xFF18A3B6),
-            foregroundColor: Colors.white,
+        actions: [
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF18A3B6),
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('OK'),
           ),
-          child: const Text('OK'),
-        ),
-      ],
-    ),
-  );
-}
-
-// Add this method to show access denied dialog
-void _showAccessDeniedDialog(BuildContext context, Map<String, dynamic> patientData) {
-  showDialog(
-    context: context,
-    barrierDismissible: false,
-    builder: (context) => AlertDialog(
-      title: const Row(
-        children: [
-          Icon(Icons.warning, color: Colors.red),
-          SizedBox(width: 8),
-          Text('Access Denied'),
         ],
       ),
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
+    );
+  }
+
+  Widget _buildListPointRed(String text) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 4),
+      child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-         
-          Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: Colors.red[50],
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: Colors.red[200]!),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  '🚫 Cannot Access Medical Profile',
-                  style: TextStyle(fontWeight: FontWeight.bold, color: Colors.red),
-                ),
-                const SizedBox(height: 8),
-                const Text(
-                  'This patient does not have any scheduled appointments with you.',
-                  style: TextStyle(fontSize: 14),
-                ),
-                const SizedBox(height: 8),
-                const Text(
-                  'To access patient medical records:',
-                  style: TextStyle(fontWeight: FontWeight.bold),
-                ),
-                const SizedBox(height: 4),
-                _buildListPointRed('Patient must have a scheduled appointment'),
-                _buildListPointRed('Appointments can be scheduled via admin'),
-                _buildListPointRed('Or patient can book through the app'),
-              ],
+          const Icon(Icons.block, size: 14, color: Colors.red),
+          const SizedBox(width: 6),
+          Expanded(
+            child: Text(
+              text,
+              style: const TextStyle(fontSize: 13, color: Colors.red),
             ),
           ),
         ],
       ),
-      actions: [
-        ElevatedButton(
-          onPressed: () => Navigator.pop(context),
-          style: ElevatedButton.styleFrom(
-            backgroundColor: const Color(0xFF18A3B6),
-            foregroundColor: Colors.white,
-          ),
-          child: const Text('OK'),
-        ),
-      ],
-    ),
-  );
-}
-
-Widget _buildListPointRed(String text) {
-  return Padding(
-    padding: const EdgeInsets.only(bottom: 4),
-    child: Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Icon(Icons.block, size: 14, color: Colors.red),
-        const SizedBox(width: 6),
-        Expanded(
-          child: Text(
-            text,
-            style: const TextStyle(fontSize: 13, color: Colors.red),
-          ),
-        ),
-      ],
-    ),
-  );
-}
+    );
+  }
 
   void _resetScanState() {
     if (mounted) {
@@ -1338,7 +1221,7 @@ class PhoneNumberTab extends StatefulWidget {
     required this.scheduleId,
     required this.appointmentType,
     required this.checkAppointmentsMethod,
-    this.currentAppointmentId, 
+    this.currentAppointmentId,
     this.onQueueUpdated,
   });
 
@@ -1353,10 +1236,7 @@ class _PhoneNumberTabState extends State<PhoneNumberTab> {
   void _showError(String message) {
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(message),
-          backgroundColor: Colors.red,
-        ),
+        SnackBar(content: Text(message), backgroundColor: Colors.red),
       );
     }
   }
@@ -1370,17 +1250,27 @@ class _PhoneNumberTabState extends State<PhoneNumberTab> {
         children: [
           Card(
             elevation: 3,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+            ),
             child: Padding(
               padding: const EdgeInsets.all(16),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  const Icon(Icons.phone_iphone, size: 50, color: Color(0xFF18A3B6)),
+                  const Icon(
+                    Icons.phone_iphone,
+                    size: 50,
+                    color: Color(0xFF18A3B6),
+                  ),
                   const SizedBox(height: 12),
                   const Text(
                     'Enter Patient Mobile Number',
-                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF18A3B6)),
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      color: Color(0xFF18A3B6),
+                    ),
                     textAlign: TextAlign.center,
                   ),
                   const SizedBox(height: 16),
@@ -1391,7 +1281,10 @@ class _PhoneNumberTabState extends State<PhoneNumberTab> {
                       prefixIcon: Icon(Icons.phone),
                       border: OutlineInputBorder(),
                       hintText: 'Enter patient mobile number',
-                      contentPadding: EdgeInsets.symmetric(vertical: 10, horizontal: 12),
+                      contentPadding: EdgeInsets.symmetric(
+                        vertical: 10,
+                        horizontal: 12,
+                      ),
                     ),
                     keyboardType: TextInputType.phone,
                   ),
@@ -1404,7 +1297,9 @@ class _PhoneNumberTabState extends State<PhoneNumberTab> {
                       style: ElevatedButton.styleFrom(
                         backgroundColor: const Color(0xFF18A3B6),
                         foregroundColor: Colors.white,
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8),
+                        ),
                       ),
                       child: _isSearching
                           ? const SizedBox(
@@ -1412,10 +1307,15 @@ class _PhoneNumberTabState extends State<PhoneNumberTab> {
                               height: 16,
                               child: CircularProgressIndicator(
                                 strokeWidth: 2,
-                                valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                                valueColor: AlwaysStoppedAnimation<Color>(
+                                  Colors.white,
+                                ),
                               ),
                             )
-                          : const Text('Search Patient', style: TextStyle(fontSize: 14)),
+                          : const Text(
+                              'Search Patient',
+                              style: TextStyle(fontSize: 14),
+                            ),
                     ),
                   ),
                 ],
@@ -1423,7 +1323,7 @@ class _PhoneNumberTabState extends State<PhoneNumberTab> {
             ),
           ),
           const SizedBox(height: 12),
-          
+
           const SizedBox(height: 12),
           const Card(
             child: Padding(
@@ -1434,10 +1334,16 @@ class _PhoneNumberTabState extends State<PhoneNumberTab> {
                 children: [
                   Text(
                     'Using Phone Number:',
-                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF18A3B6)),
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                      color: Color(0xFF18A3B6),
+                    ),
                   ),
                   SizedBox(height: 4),
-                  HelpText('Enter the exact mobile number registered by patient'),
+                  HelpText(
+                    'Enter the exact mobile number registered by patient',
+                  ),
                   HelpText('System will search across all patient records'),
                   HelpText('View medical history and start consultation'),
                   HelpText('For new patients, use the registration option'),
@@ -1499,7 +1405,8 @@ class _PhoneNumberTabState extends State<PhoneNumberTab> {
             .get();
 
         if (querySnapshot.docs.isNotEmpty) {
-          patientData = querySnapshot.docs.first.data() as Map<String, dynamic>?;
+          patientData =
+              querySnapshot.docs.first.data() as Map<String, dynamic>?;
           patientId = querySnapshot.docs.first.id;
         }
       }
@@ -1515,10 +1422,15 @@ class _PhoneNumberTabState extends State<PhoneNumberTab> {
       }
 
       // Check if patient has appointments for THIS SPECIFIC SCHEDULE
-      final hasAppointments = await widget.checkAppointmentsMethod(patientId, widget.scheduleId);
+      final hasAppointments = await widget.checkAppointmentsMethod(
+        patientId,
+        widget.scheduleId,
+      );
 
       if (!hasAppointments) {
-        debugPrint('❌ Patient ${patientData['name']} has no appointment for schedule ${widget.scheduleId}');
+        debugPrint(
+          '❌ Patient ${patientData['name']} has no appointment for schedule ${widget.scheduleId}',
+        );
         await _showNoAppointmentDialog(
           context,
           patientId,
@@ -1528,10 +1440,10 @@ class _PhoneNumberTabState extends State<PhoneNumberTab> {
         setState(() => _isSearching = false);
         return;
       }
-      
+
       debugPrint('✅ Patient verified: ${patientData['name']}');
       debugPrint('🎯 Proceeding to consultation...');
-      
+
       if (context.mounted) {
         // Navigate to patient profile with appointment context
         await Navigator.push(
@@ -1539,21 +1451,21 @@ class _PhoneNumberTabState extends State<PhoneNumberTab> {
           MaterialPageRoute(
             builder: (context) => DoctorPatientProfileScreen(
               patientId: patientId!,
-              patientName: patientData?['name'] ?? patientData?['fullName'] ?? 'Patient',
+              patientName:
+                  patientData?['name'] ?? patientData?['fullName'] ?? 'Patient',
               patientData: patientData ?? {},
               scheduleId: widget.scheduleId,
               appointmentId: widget.currentAppointmentId,
             ),
           ),
         );
-         if (widget.onQueueUpdated != null) {
-    widget.onQueueUpdated!();
-  }
+        if (widget.onQueueUpdated != null) {
+          widget.onQueueUpdated!();
+        }
         debugPrint('🔁 Returning to search screen for next patient');
       }
 
       setState(() => _isSearching = false);
-
     } catch (e) {
       if (context.mounted) Navigator.of(context).pop();
       _showError('Error searching patient: $e');
@@ -1575,11 +1487,9 @@ class _PhoneNumberTabState extends State<PhoneNumberTab> {
           children: [
             Icon(Icons.warning, color: Colors.red),
             SizedBox(width: 8),
-            Text('No Appointment Found',
-              style: TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.bold,
-              ),
+            Text(
+              'No Appointment Found',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
             ),
           ],
         ),
@@ -1599,7 +1509,10 @@ class _PhoneNumberTabState extends State<PhoneNumberTab> {
                 children: [
                   Text(
                     '🚫 Access Denied',
-                    style: TextStyle(fontWeight: FontWeight.bold, color: Colors.red),
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      color: Colors.red,
+                    ),
                   ),
                   SizedBox(height: 8),
                   Text(
@@ -1632,10 +1545,6 @@ class _PhoneNumberTabState extends State<PhoneNumberTab> {
   }
 }
 
-
-
-
-
 class HelpText extends StatelessWidget {
   final String text;
 
@@ -1665,7 +1574,6 @@ class HelpText extends StatelessWidget {
   }
 }
 
-
 // Custom scanner overlay
 class ScannerOverlayPainter extends CustomPainter {
   @override
@@ -1688,7 +1596,7 @@ class ScannerOverlayPainter extends CustomPainter {
     canvas.drawRect(rect, paint);
 
     const cornerLength = 20.0;
-    
+
     canvas.drawLine(
       Offset(rect.left, rect.top),
       Offset(rect.left + cornerLength, rect.top),
