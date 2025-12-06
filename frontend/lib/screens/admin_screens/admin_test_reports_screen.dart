@@ -907,67 +907,7 @@ Future<Map<String, int>> _getTestReportStats() async {
               const SizedBox(height: 12),
             ],
             
-            // Lab Findings
-            if (report.labFindings.isNotEmpty) ...[
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: _accentColor.withOpacity(0.3),
-                  borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: _accentColor.withOpacity(0.5)),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Icon(Icons.science, size: 18, color: _primaryColor),
-                        const SizedBox(width: 8),
-                        Text(
-                          'Lab Findings',
-                          style: TextStyle(
-                            fontSize: 15,
-                            fontWeight: FontWeight.bold,
-                            color: _textPrimary,
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 8),
-                    ...report.labFindings.entries.map((entry) {
-                      return Padding(
-                        padding: const EdgeInsets.only(bottom: 4),
-                        child: Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Container(
-                              margin: const EdgeInsets.only(top: 6, right: 8),
-                              width: 6,
-                              height: 6,
-                              decoration: BoxDecoration(
-                                color: _primaryColor,
-                                shape: BoxShape.circle,
-                              ),
-                            ),
-                            Expanded(
-                              child: Text(
-                                '${entry.key}: ${entry.value}',
-                                style: TextStyle(
-                                  fontSize: 13,
-                                  color: _textPrimary,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      );
-                    }),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 12),
-            ],
+           
             
             // Notes
             if (report.notes.isNotEmpty) ...[

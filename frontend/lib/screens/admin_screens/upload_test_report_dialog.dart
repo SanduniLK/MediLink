@@ -36,21 +36,15 @@ class _UploadTestReportDialogState extends State<UploadTestReportDialog> {
   PlatformFile? _selectedFile;
   bool _isUploading = false;
 
-  // Lab findings fields
-  final Map<String, TextEditingController> _labFindingsControllers = {};
+  
 
   @override
   void initState() {
     super.initState();
-    _initializeLabFindings();
+    
   }
 
-  void _initializeLabFindings() {
-    final commonFindings = ['Hemoglobin', 'WBC Count', 'RBC Count', 'Platelets', 'Glucose'];
-    for (final finding in commonFindings) {
-      _labFindingsControllers[finding] = TextEditingController();
-    }
-  }
+  
 
   Future<void> _pickFile() async {
     try {
@@ -106,14 +100,7 @@ class _UploadTestReportDialogState extends State<UploadTestReportDialog> {
       debugPrint('📋 Patient: ${selectedPatient['fullname']}');
       debugPrint('📋 Test: ${_testNameController.text}');
 
-      final Map<String, dynamic> labFindings = {};
-      for (final entry in _labFindingsControllers.entries) {
-        if (entry.value.text.isNotEmpty) {
-          labFindings[entry.key] = entry.value.text;
-        }
-      }
-
-      debugPrint('🔬 Lab findings: ${labFindings.length} items');
+      
 
       await TestReportService.addTestReport(
         patientId: _selectedPatientId!,
@@ -125,7 +112,6 @@ class _UploadTestReportDialogState extends State<UploadTestReportDialog> {
         description: _descriptionController.text,
         platformFile: _selectedFile!,
         testDate: _selectedDate,
-        labFindings: labFindings,
         status: _selectedStatus!,
         notes: _notesController.text,
       );
@@ -163,34 +149,7 @@ class _UploadTestReportDialogState extends State<UploadTestReportDialog> {
     }
   }
 
-  void _addLabFinding() {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Add Lab Finding'),
-        content: TextFormField(
-          decoration: const InputDecoration(
-            labelText: 'Finding Name',
-            hintText: 'e.g., Cholesterol Level',
-          ),
-          onFieldSubmitted: (value) {
-            if (value.isNotEmpty && !_labFindingsControllers.containsKey(value)) {
-              setState(() {
-                _labFindingsControllers[value] = TextEditingController();
-              });
-              Navigator.pop(context);
-            }
-          },
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
-          ),
-        ],
-      ),
-    );
-  }
+  
 
   @override
   Widget build(BuildContext context) {
@@ -512,54 +471,11 @@ class _UploadTestReportDialogState extends State<UploadTestReportDialog> {
 
                         const SizedBox(height: 20),
 
-                        // Lab Findings
-                        _buildSectionHeader('Lab Findings', Icons.science_outlined),
-                        _buildCard(
-                          Column(
-                            children: [
-                              ..._labFindingsControllers.entries.map((entry) {
-                                return Padding(
-                                  padding: const EdgeInsets.only(bottom: 12),
-                                  child: Row(
-                                    children: [
-                                      Expanded(
-                                        child: TextFormField(
-                                          controller: entry.value,
-                                          decoration: InputDecoration(
-                                            labelText: entry.key,
-                                            border: InputBorder.none,
-                                            floatingLabelBehavior: FloatingLabelBehavior.auto,
-                                          ),
-                                        ),
-                                      ),
-                                      IconButton(
-                                        icon: Icon(Icons.remove_circle_outline, 
-                                            color: Colors.red.shade300, size: 20),
-                                        onPressed: () {
-                                          setState(() {
-                                            _labFindingsControllers.remove(entry.key);
-                                          });
-                                        },
-                                      ),
-                                    ],
-                                  ),
-                                );
-                              }),
-                              const SizedBox(height: 8),
-                              Align(
-                                alignment: Alignment.centerLeft,
-                                child: TextButton.icon(
-                                  onPressed: _addLabFinding,
-                                  icon: const Icon(Icons.add_circle_outline, size: 18),
-                                  label: const Text('Add Custom Finding'),
-                                  style: TextButton.styleFrom(
-                                    foregroundColor: const Color(0xFF18A3B6),
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
+                        
+                              
+                            
+                          
+                        
 
                         const SizedBox(height: 20),
 
@@ -699,9 +615,7 @@ class _UploadTestReportDialogState extends State<UploadTestReportDialog> {
     _testTypeController.dispose();
     _descriptionController.dispose();
     _notesController.dispose();
-    for (final controller in _labFindingsControllers.values) {
-      controller.dispose();
-    }
+   
     super.dispose();
   }
 }

@@ -108,7 +108,7 @@ class TestReportService {
     required String description,
     required PlatformFile platformFile,
     required DateTime testDate,
-    required Map<String, dynamic> labFindings,
+    
     required String status,
     required String notes,
   }) async {
@@ -118,7 +118,7 @@ class TestReportService {
       debugPrint('🟡 Medical Center: $medicalCenterName ($medicalCenterId)');
       debugPrint('🟡 Test: $testName ($testType)');
       debugPrint('🟡 Status: $status');
-      debugPrint('🟡 Lab findings count: ${labFindings.length}');
+      
 
       // Validate inputs
       if (patientId.isEmpty) throw Exception('Patient ID is required');
@@ -158,7 +158,7 @@ class TestReportService {
         'uploadedAt': Timestamp.now(),
         'uploadedBy': _auth.currentUser?.uid ?? 'unknown',
         'uploadedByName': _auth.currentUser?.email ?? 'admin',
-        'labFindings': labFindings,
+        
         'status': status,
         'notes': notes.trim(),
         'updatedAt': Timestamp.now(),

@@ -783,12 +783,7 @@ Widget _buildHeader(double screenWidth) {
             },
             child: _buildActionButton(Icons.upload_file_outlined, "Upload past\nrecords", kBrightCyan),
           ),
-          GestureDetector(
-            onTap: () {
-              Navigator.push(context, MaterialPageRoute(builder: (_) => FeedbackFormScreen(patientId: patientId ?? '',)));
-            },
-            child: _buildActionButton(Icons.star_border, "feedback", kBrightCyan),
-          ),
+         
           GestureDetector(
             onTap: () {
               Navigator.push(context, MaterialPageRoute(builder: (_) => PatientTestReportsScreen()));

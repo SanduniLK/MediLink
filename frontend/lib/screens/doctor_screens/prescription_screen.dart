@@ -1228,16 +1228,7 @@ Future<void> _completeAppointmentAndAdvanceQueue() async {
         debugPrint('⚠️ Could not reset schedule queue number: $e');
       }
       
-      // Show completion message
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('🏁 All consultations completed for this schedule!'),
-            backgroundColor: Colors.blue,
-            duration: Duration(seconds: 3),
-          ),
-        );
-      }
+      
     }
 
   } catch (e) {

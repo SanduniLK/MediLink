@@ -24,6 +24,7 @@ class DoctorSchedule {
   final String doctorId;
   final String doctorName;
   final int maxAppointments;
+   final int bookedAppointments;
   final String medicalCenterAdminId;
   final String medicalCenterId;
   final String medicalCenterName;
@@ -45,6 +46,7 @@ class DoctorSchedule {
     required this.doctorId,
     required this.doctorName,
     required this.maxAppointments,
+    required this.bookedAppointments,
     required this.medicalCenterAdminId,
     required this.medicalCenterId,
     required this.medicalCenterName,
@@ -70,6 +72,7 @@ class DoctorSchedule {
       doctorId: data['doctorId'] ?? '',
       doctorName: data['doctorName'] ?? '',
       maxAppointments: data['maxAppointments'] ?? 0,
+      bookedAppointments: data['bookedAppointments'] ?? 0,
       medicalCenterAdminId: data['medicalCenterAdminId'] ?? '',
       medicalCenterId: data['medicalCenterId'] ?? '',
       medicalCenterName: data['medicalCenterName'] ?? '',
@@ -83,7 +86,58 @@ class DoctorSchedule {
       ),
     );
   }
-
+ String get sessionTime {
+    if (weeklySchedule.isEmpty) return 'Not specified';
+    
+    // Find today's day
+    final today = DateTime.now();
+    final days = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+    final todayDay = days[today.weekday % 7];
+    
+    // Find schedule for today
+    for (var schedule in weeklySchedule) {
+      if (schedule['day'].toString().toLowerCase() == todayDay.toLowerCase()) {
+        final timeSlots = List<Map<String, dynamic>>.from(schedule['timeSlots'] ?? []);
+        if (timeSlots.isNotEmpty) {
+          final firstSlot = timeSlots.first;
+          final startTime = firstSlot['startTime']?.toString() ?? '';
+          final endTime = firstSlot['endTime']?.toString() ?? '';
+          
+          if (startTime.isNotEmpty && endTime.isNotEmpty) {
+            return '$startTime - $endTime';
+          } else if (startTime.isNotEmpty) {
+            return 'From $startTime';
+          }
+        }
+        break;
+      }
+    }
+    
+    return 'Not specified';
+  }
+  String get formattedTimeSlots {
+    if (weeklySchedule.isEmpty) return 'No time slots';
+    
+    // Find today's day
+    final today = DateTime.now();
+    final days = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+    final todayDay = days[today.weekday % 7];
+    
+    // Find schedule for today
+    for (var schedule in weeklySchedule) {
+      if (schedule['day'].toString().toLowerCase() == todayDay.toLowerCase()) {
+        final timeSlots = List<Map<String, dynamic>>.from(schedule['timeSlots'] ?? []);
+        if (timeSlots.isEmpty) return 'No time slots';
+        
+        return timeSlots
+            .map((slot) => '${slot['startTime'] ?? ''} - ${slot['endTime'] ?? ''}')
+            .where((time) => time.isNotEmpty && time != ' - ')
+            .join(', ');
+      }
+    }
+    
+    return 'No time slots for today';
+  }
   List<String> get availableDays {
     return weeklySchedule
         .where((day) => day['available'] == true)
@@ -424,232 +478,232 @@ class _AllscheduleState extends State<Allschedule> {
     );
   }
 
-  Widget _buildScheduleCard(
-    DoctorSchedule schedule, {
-    required bool isTelemedicine,
-  }) {
-    return GestureDetector(
-      onTap: () => _onScheduleTap(schedule),
-      child: Container(
-        margin: const EdgeInsets.only(bottom: 16),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(16),
-          boxShadow: [
-            BoxShadow(
-              color: primaryColor.withOpacity(0.08),
-              blurRadius: 12,
-              offset: const Offset(0, 4),
-            ),
-          ],
-        ),
-        child: Stack(
-          children: [
-            // Background Pattern
-            Positioned(
-              right: -20,
-              top: -20,
-              child: Container(
-                width: 80,
-                height: 80,
-                decoration: BoxDecoration(
-                  color: accentColor2,
-                  shape: BoxShape.circle,
-                ),
+Widget _buildScheduleCard(
+  DoctorSchedule schedule, {
+  required bool isTelemedicine,
+}) {
+  return GestureDetector(
+    onTap: () => _onScheduleTap(schedule),
+    child: Container(
+      margin: const EdgeInsets.only(bottom: 16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: primaryColor.withOpacity(0.08),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Stack(
+        children: [
+          // Background Pattern
+          Positioned(
+            right: -20,
+            top: -20,
+            child: Container(
+              width: 80,
+              height: 80,
+              decoration: BoxDecoration(
+                color: accentColor2,
+                shape: BoxShape.circle,
               ),
             ),
+          ),
 
-            Padding(
-              padding: const EdgeInsets.all(20),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // Header Row
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          Padding(
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Header Row
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Row(
+                      children: [
+                        Container(
+                          width: 48,
+                          height: 48,
+                          decoration: BoxDecoration(
+                            color: isTelemedicine
+                                ? accentColor1
+                                : secondaryColor,
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Icon(
+                            isTelemedicine
+                                ? Icons.video_call
+                                : Icons.local_hospital,
+                            color: Colors.white,
+                            size: 24,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              schedule.doctorName,
+                              style: TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.bold,
+                                color: textColorDark,
+                              ),
+                            ),
+                            Text(
+                              schedule.medicalCenterName,
+                              style: TextStyle(
+                                fontSize: 14,
+                                color: textColorLight,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                    _buildStatusBadge(schedule.status),
+                  ],
+                ),
+
+                const SizedBox(height: 20),
+
+                // Details Grid - FIXED
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: backgroundColor,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Column(
                     children: [
+                      // First Row: Date and Max Appointments
                       Row(
                         children: [
-                          Container(
-                            width: 48,
-                            height: 48,
-                            decoration: BoxDecoration(
-                              color: isTelemedicine
-                                  ? accentColor1
-                                  : secondaryColor,
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            child: Icon(
-                              isTelemedicine
-                                  ? Icons.video_call
-                                  : Icons.local_hospital,
-                              color: Colors.white,
-                              size: 24,
-                            ),
+                          _buildDetailItem(
+                            icon: Icons.calendar_today,
+                            label: 'Date',
+                            value: schedule.formatDate(schedule.scheduleDate),
                           ),
                           const SizedBox(width: 12),
-                          Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                schedule.doctorName,
-                                style: TextStyle(
-                                  fontSize: 18,
-                                  fontWeight: FontWeight.bold,
-                                  color: textColorDark,
-                                ),
-                              ),
-                              Text(
-                                schedule.medicalCenterName,
-                                style: TextStyle(
-                                  fontSize: 14,
-                                  color: textColorLight,
-                                ),
-                              ),
-                            ],
+                          _buildDetailItem(
+                            icon: Icons.people,
+                            label: 'Max Appointments',
+                            value: schedule.maxAppointments.toString(),
                           ),
                         ],
                       ),
-                      _buildStatusBadge(schedule.status),
+                      const SizedBox(height: 12),
+                      // Second Row: Session Time and Booked Appointments
+                      Row(
+                        children: [
+                          _buildDetailItem(
+                            icon: Icons.access_time,
+                            label: 'Session Time',
+                            value: schedule.sessionTime,
+                          ),
+                          const SizedBox(width: 12),
+                          _buildDetailItem(
+                            icon: Icons.event_available,
+                            label: 'Booked',
+                            value: '${schedule.bookedAppointments}/${schedule.maxAppointments}',
+                            color: schedule.bookedAppointments >= schedule.maxAppointments
+                                ? Colors.red
+                                : Colors.green,
+                          ),
+                        ],
+                      ),
+                     
+                    ],
+                  ),
+                ),
+
+                const SizedBox(height: 16),
+
+                // Available Days
+                if (schedule.availableDays.isNotEmpty)
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Available Days',
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                          color: textColorDark,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: schedule.availableDays.map((day) {
+                          return Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 6,
+                            ),
+                            decoration: BoxDecoration(
+                              color: accentColor2,
+                              borderRadius: BorderRadius.circular(20),
+                            ),
+                            child: Text(
+                              day.capitalize(),
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: primaryColor,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          );
+                        }).toList(),
+                      ),
                     ],
                   ),
 
-                  const SizedBox(height: 20),
+                const SizedBox(height: 16),
 
-                  // Details Grid
-                  Container(
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      color: backgroundColor,
-                      borderRadius: BorderRadius.circular(12),
+                // Action Button
+                Container(
+                  height: 36,
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: [secondaryColor, primaryColor],
+                      begin: Alignment.centerLeft,
+                      end: Alignment.centerRight,
                     ),
-                    child: Column(
-                      children: [
-                        Row(
-                          children: [
-                            _buildDetailItem(
-                              icon: Icons.calendar_today,
-                              label: 'Date',
-                              value: schedule.formatDate(schedule.scheduleDate),
-                            ),
-                            const SizedBox(width: 12),
-                            _buildDetailItem(
-                              icon: Icons.people,
-                              label: 'Max Appointments',
-                              value: schedule.maxAppointments.toString(),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 12),
-                        Row(
-                          children: [
-                            _buildDetailItem(
-                              icon: Icons.date_range,
-                              label: 'Available Date',
-                              value: schedule.availableDate,
-                            ),
-                            const SizedBox(width: 12),
-                            _buildDetailItem(
-                              icon: schedule.adminApproved
-                                  ? Icons.check_circle
-                                  : Icons.pending,
-                              label: 'Admin Status',
-                              value: schedule.adminApproved
-                                  ? 'Approved'
-                                  : 'Pending',
-                              color: schedule.adminApproved
-                                  ? Colors.green
-                                  : Colors.orange,
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
+                    borderRadius: BorderRadius.circular(8),
                   ),
-
-                  const SizedBox(height: 16),
-
-                  // Available Days
-                  if (schedule.availableDays.isNotEmpty)
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Available Days',
-                          style: TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w600,
-                            color: textColorDark,
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        Wrap(
-                          spacing: 8,
-                          runSpacing: 8,
-                          children: schedule.availableDays.map((day) {
-                            return Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 12,
-                                vertical: 6,
-                              ),
-                              decoration: BoxDecoration(
-                                color: accentColor2,
-                                borderRadius: BorderRadius.circular(20),
-                              ),
-                              child: Text(
-                                day.capitalize(),
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  color: primaryColor,
-                                  fontWeight: FontWeight.w500,
-                                ),
-                              ),
-                            );
-                          }).toList(),
-                        ),
-                      ],
-                    ),
-
-                  const SizedBox(height: 16),
-
-                  // Action Button
-                  Container(
-                    height: 36,
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        colors: [secondaryColor, primaryColor],
-                        begin: Alignment.centerLeft,
-                        end: Alignment.centerRight,
-                      ),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Text(
-                          'View Appointments',
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        Icon(
-                          Icons.arrow_forward,
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Text(
+                        'View Appointments',
+                        style: TextStyle(
                           color: Colors.white,
-                          size: 16,
+                          fontWeight: FontWeight.w600,
                         ),
-                      ],
-                    ),
+                      ),
+                      const SizedBox(width: 8),
+                      Icon(
+                        Icons.arrow_forward,
+                        color: Colors.white,
+                        size: 16,
+                      ),
+                    ],
                   ),
-                ],
-              ),
+                ),
+              ],
             ),
-          ],
-        ),
+          ),
+        ],
       ),
-    );
+    )
+  );
   }
+}
 
   Widget _buildStatusBadge(String status) {
     Color bgColor;
@@ -745,7 +799,7 @@ class _AllscheduleState extends State<Allschedule> {
       ),
     );
   }
-}
+
 
 extension StringExt on String {
   String capitalizeFirst() {

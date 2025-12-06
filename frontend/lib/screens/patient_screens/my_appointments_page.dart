@@ -1,142 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:frontend/services/Cancellation_Service.dart';
 import 'package:intl/intl.dart';
+import 'package:frontend/services/feedback_service.dart'; // Add this import
 
+// Add this import for your feedback screen
+import 'feedback_form_screen.dart'; // Make sure this path is correct
 
 class TokenService {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
-
-  Future<int> assignTokenNumber(String doctorId, String date) async {
-    try {
-      final queueDocRef = _firestore
-          .collection('doctorDailyQueue')
-          .doc('${doctorId}_$date');
-
-      return await _firestore.runTransaction<int>((transaction) async {
-        final queueDoc = await transaction.get(queueDocRef);
-        
-        int newTokenNumber;
-        
-        if (queueDoc.exists) {
-          newTokenNumber = (queueDoc.data()!['lastTokenNumber'] ?? 0) + 1;
-          transaction.update(queueDocRef, {
-            'lastTokenNumber': newTokenNumber,
-            'totalAppointments': FieldValue.increment(1),
-            'updatedAt': FieldValue.serverTimestamp(),
-          });
-        } else {
-          newTokenNumber = 1;
-          transaction.set(queueDocRef, {
-            'doctorId': doctorId,
-            'date': date,
-            'lastTokenNumber': newTokenNumber,
-            'currentServingToken': 0,
-            'totalAppointments': 1,
-            'createdAt': FieldValue.serverTimestamp(),
-            'updatedAt': FieldValue.serverTimestamp(),
-          });
-        }
-        
-        print('🎫 Token assigned: $newTokenNumber for Dr. $doctorId on $date');
-        return newTokenNumber;
-      });
-    } catch (e) {
-      print('Error assigning token number: $e');
-      rethrow;
-    }
-  }
-
-  // FIXED: Token adjustment for cancellations with robust error handling
-  Future<void> adjustTokensAfterCancellation(String doctorId, String date, int cancelledTokenNumber) async {
-    try {
-      print('🔄 Adjusting tokens after cancellation...');
-      print('   Doctor: $doctorId, Date: $date, Cancelled Token: $cancelledTokenNumber');
-
-      final queueDocRef = _firestore
-          .collection('doctorDailyQueue')
-          .doc('${doctorId}_$date');
-
-      // First check if queue document exists
-      final queueDoc = await queueDocRef.get();
-      if (!queueDoc.exists) {
-        print('⚠️ Queue document not found, no tokens to adjust');
-        return;
-      }
-
-      final queueData = queueDoc.data()!;
-      final lastTokenNumber = queueData['lastTokenNumber'] ?? 0;
-      
-      print('   Current last token: $lastTokenNumber');
-      print('   Cancelled token: $cancelledTokenNumber');
-
-      // If no tokens exist or cancelled token is invalid, just return
-      if (lastTokenNumber == 0 || cancelledTokenNumber <= 0) {
-        print('⚠️ No valid tokens to adjust');
-        return;
-      }
-
-      // If cancelled token is the last one, simple decrement
-      if (cancelledTokenNumber == lastTokenNumber) {
-        await queueDocRef.update({
-          'lastTokenNumber': lastTokenNumber - 1,
-          'totalAppointments': FieldValue.increment(-1),
-          'updatedAt': FieldValue.serverTimestamp(),
-        });
-        print('✅ Cancelled last token, simple decrement');
-        return;
-      }
-
-      // Get all appointments for this doctor-date to adjust tokens
-      final appointmentsQuery = await _firestore
-          .collection('appointments')
-          .where('doctorId', isEqualTo: doctorId)
-          .where('date', isEqualTo: date)
-          .where('status', whereIn: ['confirmed', 'pending'])
-          .where('tokenNumber', isGreaterThan: cancelledTokenNumber)
-          .orderBy('tokenNumber')
-          .get();
-
-      print('   Found ${appointmentsQuery.docs.length} appointments to adjust');
-
-      // Use batch write instead of transaction for better reliability
-      final batch = _firestore.batch();
-
-      // Adjust tokens for all appointments after the cancelled one
-      for (var doc in appointmentsQuery.docs) {
-        final appointmentData = doc.data();
-        final currentToken = appointmentData['tokenNumber'] as int?;
-        
-        if (currentToken != null && currentToken > cancelledTokenNumber) {
-          final newToken = currentToken - 1;
-          batch.update(doc.reference, {
-            'tokenNumber': newToken,
-            'updatedAt': FieldValue.serverTimestamp(),
-          });
-          print('   Adjusted token $currentToken → $newToken for ${appointmentData['patientName']}');
-        }
-      }
-
-      // Update queue counters
-      batch.update(queueDocRef, {
-        'lastTokenNumber': lastTokenNumber - 1,
-        'totalAppointments': FieldValue.increment(-1),
-        'updatedAt': FieldValue.serverTimestamp(),
-      });
-
-      // Commit the batch
-      await batch.commit();
-
-      print('✅ Token adjustment completed');
-      print('   New last token: ${lastTokenNumber - 1}');
-
-    } catch (e) {
-      print('❌ Error adjusting tokens after cancellation: $e');
-      // Don't rethrow - allow cancellation to proceed even if token adjustment fails
-      print('⚠️ Continuing with cancellation without token adjustment');
-    }
-  }
 }
 
 class MyAppointmentsPage extends StatefulWidget {
@@ -159,7 +31,7 @@ class _MyAppointmentsPageState extends State<MyAppointmentsPage>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 3, vsync: this);
+    _tabController = TabController(length: 2, vsync: this); // 2 tabs only
     _loadAppointments();
   }
 
@@ -208,6 +80,7 @@ class _MyAppointmentsPageState extends State<MyAppointmentsPage>
           'doctorName': data['doctorName'] ?? 'Doctor',
           'doctorSpecialty': data['doctorSpecialty'] ?? 'General Practitioner',
           'medicalCenterName': data['medicalCenterName'] ?? 'Medical Center',
+          'medicalCenterId': data['medicalCenterId'] ?? '', // Added for feedback
           'date': data['date'] ?? 'Not specified',
           'time': data['time'] ?? 'Not specified',
           'appointmentType': data['appointmentType'] ?? 'physical',
@@ -222,6 +95,7 @@ class _MyAppointmentsPageState extends State<MyAppointmentsPage>
           'qrCodeData': data['qrCodeData'] ?? '',
           'currentQueueNumber': data['currentQueueNumber'] ?? 0,
           'scheduleId': data['scheduleId'] ?? '',
+          'feedbackSubmitted': data['feedbackSubmitted'] ?? false, // Added feedback status
         });
       }
 
@@ -229,15 +103,13 @@ class _MyAppointmentsPageState extends State<MyAppointmentsPage>
         appointments = appointmentsList;
       });
 
-      // Debug: Print all appointments and their categories
       print('📊 ALL APPOINTMENTS:');
       for (var apt in appointments) {
-        print(' - ${apt['doctorName']} | Date: ${apt['date']} | Status: ${apt['status']} | Token: ${apt['tokenNumber']}');
+        print(' - ${apt['doctorName']} | Date: ${apt['date']} | Status: ${apt['status']} | Feedback: ${apt['feedbackSubmitted']}');
       }
       
       print('📈 UPCOMING: ${_getUpcomingAppointments().length}');
       print('📈 PAST: ${_getPastAppointments().length}');
-      print('📈 CANCELLED: ${_getCancelledAppointments().length}');
 
     } catch (e) {
       print('❌ Error loading appointments: $e');
@@ -248,283 +120,14 @@ class _MyAppointmentsPageState extends State<MyAppointmentsPage>
       setState(() => isLoading = false);
     }
   }
-  // ✅ ADD THIS METHOD: Refresh token numbers for all appointments
-// ✅ FIXED: Better token refresh with real-time updates
-Future<void> _refreshTokenNumbers() async {
-  try {
-    print('🔄 Refreshing ALL token numbers...');
-    
-    // Get fresh data from Firestore
-    final querySnapshot = await FirebaseFirestore.instance
-        .collection('appointments')
-        .where('patientId', isEqualTo: widget.patientId)
-        .orderBy('createdAt', descending: true)
-        .get();
-
-    // Create a map of fresh data
-    final freshAppointments = <String, Map<String, dynamic>>{};
-    for (var doc in querySnapshot.docs) {
-      freshAppointments[doc.id] = {...doc.data(), 'id': doc.id};
-    }
-
-    // Update local appointments with fresh data
-    bool hasChanges = false;
-    for (int i = 0; i < appointments.length; i++) {
-      final localAppt = appointments[i];
-      final freshAppt = freshAppointments[localAppt['id']];
-      
-      if (freshAppt != null) {
-        // Check for token number changes
-        final freshToken = freshAppt['tokenNumber'] ?? 0;
-        final localToken = localAppt['tokenNumber'] ?? 0;
-        
-        if (freshToken != localToken) {
-          appointments[i]['tokenNumber'] = freshToken;
-          hasChanges = true;
-          print('   🔄 Token updated: $localToken → $freshToken for ${localAppt['doctorName']}');
-        }
-
-        // Check for status changes
-        final freshStatus = freshAppt['status'] ?? '';
-        final localStatus = localAppt['status'] ?? '';
-        if (freshStatus != localStatus) {
-          appointments[i]['status'] = freshStatus;
-          hasChanges = true;
-        }
-      }
-    }
-
-    if (hasChanges && mounted) {
-      setState(() {});
-      print('✅ Token refresh completed with changes');
-    }
-
-  } catch (e) {
-    print('❌ Error refreshing tokens: $e');
-  }
-}
-
-// ✅ UPDATED: Cancel appointment with token refresh
-// ✅ FIXED: Complete cancel appointment method
-// ✅ ENHANCED: Complete cancel appointment method with dynamic token management
-// ✅ FIXED: Complete cancellation with dynamic token renumbering
-Future<void> _cancelAppointment(String appointmentId, Map<String, dynamic> appointment) async {
-  try {
-    // Show confirmation dialog
-    final bool? confirmed = await showDialog<bool>(
-      context: context,
-      builder: (BuildContext context) {
-        final tokenNumber = appointment['tokenNumber'] ?? 0;
-        return AlertDialog(
-          title: const Text('Cancel Appointment'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text('Cancel appointment with Dr. ${appointment['doctorName']}?'),
-              const SizedBox(height: 8),
-              Text('Date: ${appointment['date']} | Time: ${appointment['time']}'),
-              if (tokenNumber > 0) ...[
-                const SizedBox(height: 12),
-                Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    color: Colors.orange[50],
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Row(
-                    children: [
-                      Icon(Icons.info, size: 16, color: Colors.orange[700]),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'Token #$tokenNumber will be cancelled',
-                              style: TextStyle(
-                                color: Colors.orange[700],
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              'Other patients tokens will be automatically renumbered',
-                              style: TextStyle(
-                                color: Colors.orange[700],
-                                fontSize: 12,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context, false),
-              child: const Text('Keep Appointment'),
-            ),
-            ElevatedButton(
-              onPressed: () => Navigator.pop(context, true),
-              style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-              child: const Text('Cancel Appointment'),
-            ),
-          ],
-        );
-      },
-    );
-
-    if (confirmed != true) return;
-
-    setState(() => isLoading = true);
-
-    final tokenNumber = appointment['tokenNumber'] as int?;
-    final doctorId = appointment['doctorId'];
-    final date = appointment['date'];
-    final scheduleId = appointment['scheduleId'];
-
-    print('🔄 STARTING CANCELLATION PROCESS...');
-    print('   Appointment: $appointmentId');
-    print('   Token: $tokenNumber, Doctor: $doctorId, Date: $date');
-
-    // ✅ STEP 1: Update appointment status first
-    await FirebaseFirestore.instance
-        .collection('appointments')
-        .doc(appointmentId)
-        .update({
-      'status': 'cancelled',
-      'cancelledAt': FieldValue.serverTimestamp(),
-      'updatedAt': FieldValue.serverTimestamp(),
-      'queueStatus': 'cancelled',
-    });
-    print('✅ Appointment status updated to cancelled');
-
-    // ✅ STEP 2: Decrease slot count in doctorSchedules
-    final scheduleDoc = await FirebaseFirestore.instance
-        .collection('doctorSchedules')
-        .doc(scheduleId)
-        .get();
-
-    if (scheduleDoc.exists) {
-      final currentBooked = (scheduleDoc.data()!['bookedAppointments'] as int? ?? 0);
-      final newBookedCount = currentBooked > 0 ? currentBooked - 1 : 0;
-      
-      await FirebaseFirestore.instance
-          .collection('doctorSchedules')
-          .doc(scheduleId)
-          .update({
-        'bookedAppointments': newBookedCount,
-        'updatedAt': FieldValue.serverTimestamp(),
-      });
-      print('📊 Slot count updated: $currentBooked → $newBookedCount');
-    }
-
-    // ✅ STEP 3: DYNAMIC TOKEN RENUMBERING (THE MAIN FIX)
-    if (tokenNumber != null && tokenNumber > 0) {
-      print('🔄 Starting dynamic token renumbering...');
-      
-      // Get all appointments with higher token numbers
-      final appointmentsToUpdate = await FirebaseFirestore.instance
-          .collection('appointments')
-          .where('doctorId', isEqualTo: doctorId)
-          .where('date', isEqualTo: date)
-          .where('status', whereIn: ['confirmed', 'pending'])
-          .where('tokenNumber', isGreaterThan: tokenNumber)
-          .orderBy('tokenNumber')
-          .get();
-
-      print('📝 Found ${appointmentsToUpdate.docs.length} appointments to renumber');
-
-      // Update each appointment's token number (shift down by 1)
-      final batch = FirebaseFirestore.instance.batch();
-      
-      for (final doc in appointmentsToUpdate.docs) {
-        final currentToken = doc.data()['tokenNumber'] as int?;
-        if (currentToken != null && currentToken > tokenNumber) {
-          final newTokenNumber = currentToken - 1;
-          batch.update(doc.reference, {
-            'tokenNumber': newTokenNumber,
-            'updatedAt': FieldValue.serverTimestamp(),
-          });
-          print('   🔄 Token $currentToken → $newTokenNumber for ${doc.data()['patientName']}');
-        }
-      }
-
-      // Update queue document
-      final queueDocRef = FirebaseFirestore.instance
-          .collection('doctorDailyQueue')
-          .doc('${doctorId}_$date');
-
-      final queueDoc = await queueDocRef.get();
-      if (queueDoc.exists) {
-        batch.update(queueDocRef, {
-          'lastTokenNumber': FieldValue.increment(-1),
-          'totalAppointments': FieldValue.increment(-1),
-          'updatedAt': FieldValue.serverTimestamp(),
-        });
-      }
-
-      await batch.commit();
-      print('✅ Dynamic token renumbering completed');
-    }
-
-    // ✅ STEP 4: Refresh data
-    await _loadAppointments();
-    await _refreshTokenNumbers();
-
-    // ✅ STEP 5: Show success message
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Text('Appointment cancelled successfully!'),
-              if (tokenNumber != null && tokenNumber > 0)
-                const Text(
-                  'Token has been freed and other tokens renumbered',
-                  style: TextStyle(fontSize: 12),
-                ),
-            ],
-          ),
-          backgroundColor: Colors.green,
-          duration: const Duration(seconds: 4),
-        ),
-      );
-
-      // Switch to cancelled tab
-      _tabController.animateTo(2);
-    }
-
-  } catch (e) {
-    print('❌ Error cancelling appointment: $e');
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Failed to cancel: ${e.toString()}'),
-          backgroundColor: Colors.red,
-        ),
-      );
-    }
-  } finally {
-    if (mounted) {
-      setState(() => isLoading = false);
-    }
-  }
-}
-
-  // FIXED: Simplified appointment filtering logic
+  
   List<Map<String, dynamic>> _getUpcomingAppointments() {
     return appointments.where((apt) {
       final status = apt['status']?.toString() ?? '';
       // Upcoming appointments are confirmed/pending and not completed/cancelled
-      return (status == 'confirmed' || status == 'pending') && status != 'completed' && status != 'cancelled';
+      return (status == 'confirmed' || status == 'pending') && 
+             status != 'completed' && 
+             status != 'cancelled';
     }).toList();
   }
 
@@ -535,42 +138,10 @@ Future<void> _cancelAppointment(String appointmentId, Map<String, dynamic> appoi
     }).toList();
   }
 
-  List<Map<String, dynamic>> _getCancelledAppointments() {
-    return appointments.where((apt) {
-      return apt['status']?.toString() == 'cancelled';
-    }).toList();
-  }
-
-  // FIXED: Removed complex date parsing that was causing issues
-  DateTime? _extractDateFromString(String dateString) {
-    try {
-      // Try to extract date from formats like "Tomorrow (10/10/2025)"
-      final regex = RegExp(r'(\d{1,2}/\d{1,2}/\d{4})');
-      final match = regex.firstMatch(dateString);
-      if (match != null) {
-        final datePart = match.group(1);
-        return DateFormat('dd/MM/yyyy').parse(datePart!);
-      }
-      
-      // Try standard date format
-      return DateTime.parse(dateString);
-    } catch (e) {
-      return null;
-    }
-  }
-
-  bool _isToday(DateTime date) {
-    final now = DateTime.now();
-    return date.year == now.year && 
-           date.month == now.month && 
-           date.day == now.day;
-  }
-
   @override
   Widget build(BuildContext context) {
     final upcoming = _getUpcomingAppointments();
     final past = _getPastAppointments();
-    final cancelled = _getCancelledAppointments();
     
     return Scaffold(
       backgroundColor: const Color(0xFFDDF0F5),
@@ -592,44 +163,27 @@ Future<void> _cancelAppointment(String appointmentId, Map<String, dynamic> appoi
           unselectedLabelColor: Colors.white70,
           tabs: [
             Tab(
-              child: _buildTabWithBadge('Upcoming', upcoming.length),
+              child: _buildTabWithBadge('upcomming', upcoming.length),
             ),
             Tab(
-              child: _buildTabWithBadge('Past', past.length),
-            ),
-            Tab(
-              child: _buildTabWithBadge('Cancelled', cancelled.length),
+              child: _buildTabWithBadge('Completed ', past.length),
             ),
           ],
         ),
       ),
       body: errorMessage.isNotEmpty
           ? _buildErrorState()
-          : _buildTabContent(upcoming, past, cancelled),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Navigate to Book Appointment Screen'),
-              backgroundColor: Color(0xFF18A3B6),
-            ),
-          );
-        },
-        icon: const Icon(Icons.add),
-        label: const Text('Book New'),
-        backgroundColor: const Color(0xFF18A3B6),
-        foregroundColor: Colors.white,
-      ),
+          : _buildTabContent(upcoming, past),
+      
     );
   }
 
-  Widget _buildTabContent(List<Map<String, dynamic>> upcoming, List<Map<String, dynamic>> past, List<Map<String, dynamic>> cancelled) {
+  Widget _buildTabContent(List<Map<String, dynamic>> upcoming, List<Map<String, dynamic>> past) {
     return TabBarView(
       controller: _tabController,
       children: [
         _buildAppointmentsList(upcoming, 'upcoming'),
         _buildAppointmentsList(past, 'past'),
-        _buildAppointmentsList(cancelled, 'cancelled'),
       ],
     );
   }
@@ -769,6 +323,7 @@ Future<void> _cancelAppointment(String appointmentId, Map<String, dynamic> appoi
     final isTomorrow = dateStr.toLowerCase().contains('tomorrow');
     final tokenNumber = appointment['tokenNumber'] ?? 0;
     final queueStatus = appointment['queueStatus'] ?? 'waiting';
+    final feedbackSubmitted = appointment['feedbackSubmitted'] ?? false;
     
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
@@ -984,9 +539,6 @@ Future<void> _cancelAppointment(String appointmentId, Map<String, dynamic> appoi
               const SizedBox(height: 8),
               _buildDetailRow(Icons.payment, 'Payment: ${appointment['paymentStatus']}'),
               
-              // QR Code Info for upcoming appointments
-              if (tokenNumber > 0 && type == 'upcoming' && appointment['qrCodeData'] != null)
-                _buildQRCodeInfo(),
               
               const SizedBox(height: 12),
               
@@ -1003,13 +555,11 @@ Future<void> _cancelAppointment(String appointmentId, Map<String, dynamic> appoi
                   ),
                   const SizedBox(height: 8),
                   
-                  // Action buttons for upcoming appointments
-                  if (type == 'upcoming') 
-                    _buildActionButtons(appointment),
+                 
                   
-                  // View Details button for past appointments
+                  // Feedback button for past appointments
                   if (type == 'past') 
-                    _buildPastAppointmentButton(appointment),
+                    _buildPastAppointmentButtons(appointment, feedbackSubmitted),
                 ],
               ),
             ],
@@ -1075,59 +625,37 @@ Future<void> _cancelAppointment(String appointmentId, Map<String, dynamic> appoi
     );
   }
 
-  // QR Code info row
-  Widget _buildQRCodeInfo() {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 8),
-      padding: const EdgeInsets.all(8),
-      decoration: BoxDecoration(
-        color: const Color(0xFF18A3B6).withOpacity(0.1),
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: const Color(0xFF18A3B6).withOpacity(0.3)),
-      ),
-      child: Row(
-        children: [
-          Icon(Icons.qr_code, size: 16, color: const Color(0xFF18A3B6)),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text(
-              'Show QR code at clinic for token verification',
-              style: TextStyle(
-                fontSize: 12,
-                color: const Color(0xFF18A3B6),
-                fontWeight: FontWeight.w500,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
+  
+  
 
-  Widget _buildActionButtons(Map<String, dynamic> appointment) {
+  
+
+  Widget _buildPastAppointmentButtons(Map<String, dynamic> appointment, bool feedbackSubmitted) {
     return Wrap(
       spacing: 8,
       runSpacing: 8,
       children: [
-        // Cancel Button
+        // View Details Button
         Container(
           constraints: const BoxConstraints(minWidth: 100),
           decoration: BoxDecoration(
-            color: Colors.red.withOpacity(0.1),
+            color: const Color(0xFF85CEDA).withOpacity(0.1),
             borderRadius: BorderRadius.circular(20),
-            border: Border.all(color: Colors.red),
+            border: Border.all(color: const Color(0xFF85CEDA)),
           ),
           child: TextButton.icon(
-            onPressed: () => _cancelAppointment(appointment['id'], appointment),
+            onPressed: () {
+              _showAppointmentDetails(appointment);
+            },
             icon: const Icon(
-              Icons.cancel,
+              Icons.info,
               size: 16,
-              color: Colors.red,
+              color: Color(0xFF85CEDA),
             ),
             label: const Text(
-              'Cancel',
+              'Details',
               style: TextStyle(
-                color: Colors.red,
+                color: Color(0xFF85CEDA),
                 fontSize: 12,
                 fontWeight: FontWeight.w600,
               ),
@@ -1135,27 +663,33 @@ Future<void> _cancelAppointment(String appointmentId, Map<String, dynamic> appoi
           ),
         ),
         
-        // Join/Get Directions Button
+        // Feedback Button - NAVIGATES TO FeedbackFormScreen
         Container(
-          constraints: const BoxConstraints(minWidth: 120),
+          constraints: const BoxConstraints(minWidth: 100),
           decoration: BoxDecoration(
-            color: const Color(0xFF32BACD).withOpacity(0.1),
+            color: feedbackSubmitted 
+                ? Colors.green.withOpacity(0.1)
+                : const Color(0xFF18A3B6).withOpacity(0.1),
             borderRadius: BorderRadius.circular(20),
-            border: Border.all(color: const Color(0xFF32BACD)),
+            border: Border.all(
+              color: feedbackSubmitted ? Colors.green : const Color(0xFF18A3B6)
+            ),
           ),
           child: TextButton.icon(
-            onPressed: () {
-              _handleAppointmentAction(appointment);
-            },
+            onPressed: feedbackSubmitted 
+                ? null // Disable button if feedback already submitted
+                : () {
+                    _navigateToFeedbackScreen(appointment);
+                  },
             icon: Icon(
-              _getActionIcon(appointment['appointmentType']),
+              feedbackSubmitted ? Icons.check : Icons.rate_review,
               size: 16,
-              color: const Color(0xFF32BACD),
+              color: feedbackSubmitted ? Colors.green : const Color(0xFF18A3B6),
             ),
             label: Text(
-              _getActionText(appointment['appointmentType']),
-              style: const TextStyle(
-                color: Color(0xFF32BACD),
+              feedbackSubmitted ? 'Feedback Submitted' : 'Write Feedback',
+              style: TextStyle(
+                color: feedbackSubmitted ? Colors.green : const Color(0xFF18A3B6),
                 fontSize: 12,
                 fontWeight: FontWeight.w600,
               ),
@@ -1166,38 +700,33 @@ Future<void> _cancelAppointment(String appointmentId, Map<String, dynamic> appoi
     );
   }
 
-  Widget _buildPastAppointmentButton(Map<String, dynamic> appointment) {
-    return Container(
-      constraints: const BoxConstraints(minWidth: 100),
-      decoration: BoxDecoration(
-        color: const Color(0xFF85CEDA).withOpacity(0.1),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: const Color(0xFF85CEDA)),
-      ),
-      child: TextButton.icon(
-        onPressed: () {
-          _showAppointmentDetails(appointment);
-        },
-        icon: const Icon(
-          Icons.info,
-          size: 16,
-          color: Color(0xFF85CEDA),
-        ),
-        label: const Text(
-          'Details',
-          style: TextStyle(
-            color: Color(0xFF85CEDA),
-            fontSize: 12,
-            fontWeight: FontWeight.w600,
-          ),
+  // New method to navigate to FeedbackFormScreen
+  void _navigateToFeedbackScreen(Map<String, dynamic> appointment) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => FeedbackFormScreen(
+          patientId: widget.patientId,
+          
+        doctorId: appointment['doctorId'] ?? '',
+        doctorName: appointment['doctorName'] ?? 'Doctor',
+        medicalCenterId: appointment['medicalCenterId'] ?? '',
+        medicalCenterName: appointment['medicalCenterName'] ?? 'Medical Center',
+        appointmentDate: appointment['date'] ?? '',
         ),
       ),
-    );
+    ).then((value) {
+      // Refresh appointments when returning from feedback screen
+      if (value == true) {
+        _loadAppointments();
+      }
+    });
   }
 
   void _showAppointmentDetails(Map<String, dynamic> appointment) {
     final tokenNumber = appointment['tokenNumber'] ?? 0;
     final queueStatus = appointment['queueStatus'] ?? 'waiting';
+    final feedbackSubmitted = appointment['feedbackSubmitted'] ?? false;
     
     showDialog(
       context: context,
@@ -1221,6 +750,8 @@ Future<void> _cancelAppointment(String appointmentId, Map<String, dynamic> appoi
               _buildDetailItem('Fees', 'Rs. ${appointment['fees']}'),
               _buildDetailItem('Payment Status', appointment['paymentStatus']),
               _buildDetailItem('Booked On', _formatDateTime(appointment['createdAt'])),
+              // Feedback info
+              _buildDetailItem('Feedback Submitted', feedbackSubmitted ? 'Yes' : 'No'),
               if (appointment['patientNotes']?.isNotEmpty == true)
                 _buildDetailItem('Your Notes', appointment['patientNotes']),
             ],
@@ -1231,6 +762,14 @@ Future<void> _cancelAppointment(String appointmentId, Map<String, dynamic> appoi
             onPressed: () => Navigator.pop(context),
             child: const Text('Close'),
           ),
+          if (!feedbackSubmitted) 
+            TextButton(
+              onPressed: () {
+                Navigator.pop(context);
+                _navigateToFeedbackScreen(appointment);
+              },
+              child: const Text('Write Feedback'),
+            ),
         ],
       ),
     );
@@ -1284,24 +823,7 @@ Future<void> _cancelAppointment(String appointmentId, Map<String, dynamic> appoi
     );
   }
 
-  void _handleAppointmentAction(Map<String, dynamic> appointment) {
-    final type = appointment['appointmentType'];
-    if (type == 'physical') {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Get directions to ${appointment['medicalCenterName']}'),
-          backgroundColor: const Color(0xFF18A3B6),
-        ),
-      );
-    } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Join consultation feature coming soon!'),
-          backgroundColor: Color(0xFF32BACD),
-        ),
-      );
-    }
-  }
+ 
 
   // Helper methods
   String _formatTime(String time) {
@@ -1343,8 +865,6 @@ Future<void> _cancelAppointment(String appointmentId, Map<String, dynamic> appoi
         return Icons.event_available;
       case 'past':
         return Icons.history;
-      case 'cancelled':
-        return Icons.event_busy;
       default:
         return Icons.event;
     }
@@ -1356,8 +876,6 @@ Future<void> _cancelAppointment(String appointmentId, Map<String, dynamic> appoi
         return 'No upcoming appointments';
       case 'past':
         return 'No past appointments';
-      case 'cancelled':
-        return 'No cancelled appointments';
       default:
         return 'No appointments';
     }
@@ -1369,8 +887,6 @@ Future<void> _cancelAppointment(String appointmentId, Map<String, dynamic> appoi
         return 'Book a new appointment to get started';
       case 'past':
         return 'Your completed appointments will appear here';
-      case 'cancelled':
-        return 'Your cancelled appointments will appear here';
       default:
         return '';
     }

@@ -5,6 +5,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 // Screens
 import 'package:frontend/screens/Sadmin_screens/home_page.dart';
 import 'package:frontend/screens/admin_screens/admin_homePage.dart';
+import 'package:frontend/screens/assistant_screens/assistant_home_page.dart';
 import 'package:frontend/screens/doctor_screens/doctor_homeScreen.dart';
 
 import 'package:frontend/screens/doctor_screens/doctor_pending_approval.dart.dart';
@@ -95,7 +96,7 @@ class _SignInPageState extends State<SignInPage> {
       final isEmailVerified = userData['isEmailVerified'] ?? true;
 
       // 4️⃣ EMAIL VERIFICATION CHECK FOR ALL USERS EXCEPT MEDICAL CENTER
-      if (role != "medical_center" && !isEmailVerified) {
+      if (role != "assistant" && role != "medical_center" && !isEmailVerified) {
         _showSnackBar('Please verify your email before signing in.', isError: true);
         await FirebaseAuth.instance.signOut();
         _safeSetState(() => isLoading = false);
@@ -115,7 +116,9 @@ class _SignInPageState extends State<SignInPage> {
         case 'pharmacy':
           await _handlePharmacyNavigation(uid);
           break;
-        
+        case 'assistant':
+          await _handleAssistantNavigation(uid);
+          break;
         default:
           _showSnackBar('Unknown user role: $role');
           await FirebaseAuth.instance.signOut();
@@ -276,6 +279,32 @@ void _showSnackBar(String message, {bool isError = false}) {
       }
     }
   }
+  Future<void> _handleAssistantNavigation(String uid) async {
+  final assistantDoc = await FirebaseFirestore.instance
+      .collection('assistants')
+      .doc(uid)
+      .get();
+
+  if (assistantDoc.exists) {
+    final assistantData = assistantDoc.data()!;
+    final isActive = assistantData['isActive'] ?? true;
+    
+    if (!isActive) {
+      _showSnackBar('Your assistant account has been deactivated.', isError: true);
+      await FirebaseAuth.instance.signOut();
+      return;
+    }
+    
+    // Navigate to assistant home page
+    Navigator.pushReplacement(
+      context,
+      MaterialPageRoute(builder: (_) => AssistantHomePage()),
+    );
+  } else {
+    _showSnackBar('Assistant profile not found.');
+    await FirebaseAuth.instance.signOut();
+  }
+}
 
   void _handleAuthError(FirebaseAuthException e) {
     String message;

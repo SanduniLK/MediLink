@@ -20,23 +20,35 @@ class AdminScheduleApprovalScreen extends StatefulWidget {
 class _AdminScheduleApprovalScreenState extends State<AdminScheduleApprovalScreen> {
   bool isLoading = false;
   String? errorMessage;
+  bool _isMounted = false;
 
   @override
   void initState() {
     super.initState();
+    _isMounted = true;
     _checkFirebaseConnection();
+  }
+
+  @override
+  void dispose() {
+    _isMounted = false;
+    super.dispose();
   }
 
   Future<void> _checkFirebaseConnection() async {
     try {
       await AdminScheduleService.getSchedulesCount(widget.medicalCenterId);
-      setState(() {
-        errorMessage = null;
-      });
+      if (_isMounted) {
+        setState(() {
+          errorMessage = null;
+        });
+      }
     } catch (e) {
-      setState(() {
-        errorMessage = 'Firebase connection error: $e';
-      });
+      if (_isMounted) {
+        setState(() {
+          errorMessage = 'Firebase connection error: $e';
+        });
+      }
     }
   }
 
@@ -316,7 +328,6 @@ class _AdminScheduleApprovalScreenState extends State<AdminScheduleApprovalScree
   }
 
   Widget _buildScheduleCard(Map<String, dynamic> schedule, String status) {
-    // CORRECTED FIELD EXTRACTION - Match your Firebase structure
     final doctorName = schedule['doctorName']?.toString() ?? 
                      schedule['fullname']?.toString() ?? 
                      'Unknown Doctor';
@@ -330,17 +341,13 @@ class _AdminScheduleApprovalScreenState extends State<AdminScheduleApprovalScree
     final maxAppointments = schedule['maxAppointments']?.toString() ?? '10';
     final availableSlots = schedule['availableSlots']?.toString() ?? maxAppointments;
     
-    // Handle date field - CORRECTED
     final date = _parseDate(schedule['date']);
     
-    // Handle time fields - CORRECTED
     final startTime = schedule['startTime']?.toString() ?? '09:00';
     final endTime = schedule['endTime']?.toString() ?? '17:00';
     
-    // Handle creation time
     final createdAt = _parseDate(schedule['createdAt']) ?? DateTime.now();
     
-    // Handle specialization
     final specialization = schedule['specialization']?.toString() ?? 
                           schedule['specialty']?.toString() ?? 
                           'General';
@@ -353,7 +360,6 @@ class _AdminScheduleApprovalScreenState extends State<AdminScheduleApprovalScree
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Header with doctor info and status
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
@@ -409,7 +415,6 @@ class _AdminScheduleApprovalScreenState extends State<AdminScheduleApprovalScree
             const Divider(),
             const SizedBox(height: 8),
 
-            // Schedule details - CORRECTED FIELD NAMES
             _buildDetailRow('Appointment Type', _capitalize(appointmentType)),
             
             if (date != null)
@@ -421,18 +426,15 @@ class _AdminScheduleApprovalScreenState extends State<AdminScheduleApprovalScree
             _buildDetailRow('Available Slots', availableSlots),
             _buildDetailRow('Submitted', _formatDateTime(createdAt)),
 
-            // Medical Center info
             if (schedule['medicalCenterName'] != null)
               _buildDetailRow('Medical Center', schedule['medicalCenterName'].toString()),
 
             const SizedBox(height: 12),
 
-            // Weekly schedule section - CORRECTED
             _buildWeeklyScheduleSection(schedule),
 
             const SizedBox(height: 12),
 
-            // Action buttons for pending schedules
             if (status == 'pending') ...[
               const Divider(),
               const SizedBox(height: 12),
@@ -465,7 +467,6 @@ class _AdminScheduleApprovalScreenState extends State<AdminScheduleApprovalScree
               ),
             ],
 
-            // Additional info for approved/rejected schedules
             if (status != 'pending') ...[
               const Divider(),
               const SizedBox(height: 8),
@@ -485,7 +486,6 @@ class _AdminScheduleApprovalScreenState extends State<AdminScheduleApprovalScree
     );
   }
 
-  // CORRECTED: Date parsing method
   DateTime? _parseDate(dynamic dateField) {
     if (dateField == null) return null;
     
@@ -503,9 +503,7 @@ class _AdminScheduleApprovalScreenState extends State<AdminScheduleApprovalScree
     return null;
   }
 
-  // CORRECTED: Weekly schedule display
   Widget _buildWeeklyScheduleSection(Map<String, dynamic> schedule) {
-    // Check different possible field names for weekly schedule
     final weeklySchedule = schedule['weeklySchedule'] ?? 
                           schedule['weeklySchedules'] ?? 
                           schedule['recurringSchedule'];
@@ -645,48 +643,64 @@ class _AdminScheduleApprovalScreenState extends State<AdminScheduleApprovalScree
   }
 
   Future<void> _approveSchedule(String scheduleId) async {
+    if (!_isMounted) return;
+    
     setState(() => isLoading = true);
 
     try {
       await AdminScheduleService.approveSchedule(scheduleId);
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Schedule approved! Now available for patients.'),
-          backgroundColor: Colors.green,
-        ),
-      );
+      if (_isMounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Schedule approved! Now available for patients.'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Error approving schedule: $e'),
-          backgroundColor: Colors.red,
-        ),
-      );
+      if (_isMounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error approving schedule: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
     } finally {
-      setState(() => isLoading = false);
+      if (_isMounted) {
+        setState(() => isLoading = false);
+      }
     }
   }
 
   Future<void> _rejectSchedule(String scheduleId) async {
+    if (!_isMounted) return;
+    
     setState(() => isLoading = true);
 
     try {
       await AdminScheduleService.rejectSchedule(scheduleId);
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Schedule rejected.'),
-          backgroundColor: Colors.orange,
-        ),
-      );
+      if (_isMounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Schedule rejected.'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Error rejecting schedule: $e'),
-          backgroundColor: Colors.red,
-        ),
-      );
+      if (_isMounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error rejecting schedule: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
     } finally {
-      setState(() => isLoading = false);
+      if (_isMounted) {
+        setState(() => isLoading = false);
+      }
     }
   }
 }

@@ -779,7 +779,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
                   Text(
                     '• Your payment information is secure\n'
                     '• Token will be assigned immediately after payment\n'
-                    '• Full refund available if cancelled 2 hours before appointment',
+                    '• No refunds after the payments\n',
                     style: TextStyle(fontSize: 12, color: Color(0xFF18A3B6)),
                   ),
                 ],

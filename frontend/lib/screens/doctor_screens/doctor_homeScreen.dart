@@ -24,6 +24,7 @@ import 'package:frontend/screens/doctor_screens/written_prescribe.dart';
 import 'package:frontend/screens/patient_screens/notifications.dart';
 import 'package:frontend/screens/phamecy_screens/prescriptionImageScreen.dart';
 import 'package:frontend/telemedicine/doctor_telemedicine_page.dart';
+import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
 
@@ -45,9 +46,13 @@ class _DoctorHomeScreenState extends State<DoctorHomeScreen> {
   int waitingPatientsCount = 0;
   bool hasActiveQueue = false;
   int unreadMessagesCount = 0;
-
+    int todaySessionsCount = 0;
+  bool hasActiveSession = false;
    String? doctorId;
   String? doctorName;
+
+  double doctorFeedbackScore = 0.0;
+  int totalFeedbackCount = 0;
 
   // Your exact theme colors
   final Color primaryColor = const Color(0xFF18A3B6);
@@ -68,6 +73,8 @@ final Map<String, int> _unreadCounts = {};
      _getDoctorInfo();
      _startMessageListener();
      _loadDoctorProfileImage(); 
+     _loadTodaySessions();
+     _loadDoctorFeedback();
   }
   StreamSubscription? _messageSubscription;
 
@@ -98,6 +105,58 @@ void _getDoctorInfo() {
     }
   }
   Future<void> _loadDoctorData() async {
+    Future<void> _loadDoctorFeedback() async {
+  try {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+
+    // Get all feedback for this doctor
+    final feedbackSnapshot = await FirebaseFirestore.instance
+        .collection('feedback')
+        .where('doctorId', isEqualTo: user.uid)
+        .where('feedbackType', isEqualTo: 'doctor')
+        .get();
+
+    if (feedbackSnapshot.docs.isEmpty) {
+      setState(() {
+        doctorFeedbackScore = 0.0;
+        totalFeedbackCount = 0;
+      });
+      return;
+    }
+
+    double totalRating = 0;
+    int count = 0;
+
+    for (final doc in feedbackSnapshot.docs) {
+      final feedback = doc.data();
+      final rating = feedback['rating'];
+      
+      if (rating != null && rating is int && rating > 0) {
+        totalRating += rating.toDouble();
+        count++;
+      }
+    }
+
+    if (count > 0) {
+      setState(() {
+        doctorFeedbackScore = totalRating / count;
+        totalFeedbackCount = count;
+      });
+    } else {
+      setState(() {
+        doctorFeedbackScore = 0.0;
+        totalFeedbackCount = 0;
+      });
+    }
+  } catch (e) {
+    print('Error loading doctor feedback: $e');
+    setState(() {
+      doctorFeedbackScore = 0.0;
+      totalFeedbackCount = 0;
+    });
+  }
+}
     try {
       final user = FirebaseAuth.instance.currentUser;
       if (user == null) return;
@@ -133,7 +192,58 @@ void _getDoctorInfo() {
 final FirebaseStorage _storage = FirebaseStorage.instance;
 String? _doctorProfileImageUrl;
 
+Future<void> _loadDoctorFeedback() async {
+  try {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
 
+    // Get all feedback for this doctor
+    final feedbackSnapshot = await FirebaseFirestore.instance
+        .collection('feedback')
+        .where('doctorId', isEqualTo: user.uid)
+        .where('feedbackType', isEqualTo: 'doctor')
+        .get();
+
+    if (feedbackSnapshot.docs.isEmpty) {
+      setState(() {
+        doctorFeedbackScore = 0.0;
+        totalFeedbackCount = 0;
+      });
+      return;
+    }
+
+    double totalRating = 0;
+    int count = 0;
+
+    for (final doc in feedbackSnapshot.docs) {
+      final feedback = doc.data();
+      final rating = feedback['rating'];
+      
+      if (rating != null && rating is int && rating > 0) {
+        totalRating += rating.toDouble();
+        count++;
+      }
+    }
+
+    if (count > 0) {
+      setState(() {
+        doctorFeedbackScore = totalRating / count;
+        totalFeedbackCount = count;
+      });
+    } else {
+      setState(() {
+        doctorFeedbackScore = 0.0;
+        totalFeedbackCount = 0;
+      });
+    }
+  } catch (e) {
+    print('Error loading doctor feedback: $e');
+    setState(() {
+      doctorFeedbackScore = 0.0;
+      totalFeedbackCount = 0;
+    });
+  }
+}
 Future<void> _loadDoctorProfileImage() async {
   try {
     final user = FirebaseAuth.instance.currentUser;
@@ -239,35 +349,140 @@ Future<void> _testSpecificImage() async {
     _loadDoctorProfileImage(); // Fall back to other methods
   }
 }
-  Future<void> _loadTodayStats() async {
-    try {
-      final user = FirebaseAuth.instance.currentUser;
-      if (user == null) return;
 
-      final today = DateTime.now().toIso8601String().split('T')[0];
+ Future<void> _loadTodayStats() async {
+  try {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+
+    final now = DateTime.now();
+    final todayFormatted = DateFormat('dd/MM/yyyy').format(now);
+    
+    // Get all appointments for this doctor
+    final appointmentsSnapshot = await FirebaseFirestore.instance
+        .collection('appointments')
+        .where('doctorId', isEqualTo: user.uid)
+        .get();
+
+    int todayCount = 0;
+    int waitingCount = 0;
+
+    for (final doc in appointmentsSnapshot.docs) {
+      final appointment = doc.data();
+      final appointmentDate = appointment['date']?.toString() ?? '';
       
-      final appointmentsSnapshot = await FirebaseFirestore.instance
-          .collection('appointments')
-          .where('doctorId', isEqualTo: user.uid)
-          .where('date', isEqualTo: today)
-          .get();
-
-      final waitingSnapshot = await FirebaseFirestore.instance
-          .collection('appointments')
-          .where('doctorId', isEqualTo: user.uid)
-          .where('date', isEqualTo: today)
-          .where('queueStatus', whereIn: ['waiting', 'checked-in'])
-          .get();
-
-      setState(() {
-        todayAppointmentsCount = appointmentsSnapshot.docs.length;
-        waitingPatientsCount = waitingSnapshot.docs.length;
-        hasActiveQueue = waitingPatientsCount > 0;
-      });
-    } catch (e) {
-      
+      // Check if appointment is for today
+      if (_isDateToday(appointmentDate, now)) {
+        todayCount++;
+        
+        // Check if waiting/checked-in
+        final status = appointment['status']?.toString() ?? '';
+        final queueStatus = appointment['queueStatus']?.toString() ?? '';
+        
+        if (status == 'confirmed' || status == 'pending' || 
+            queueStatus == 'waiting' || queueStatus == 'checked-in') {
+          waitingCount++;
+        }
+      }
     }
+
+    setState(() {
+      todayAppointmentsCount = todayCount;
+      waitingPatientsCount = waitingCount;
+      hasActiveQueue = waitingCount > 0;
+    });
+  } catch (e) {
+    print('Error loading today stats: $e');
   }
+}
+
+
+bool _isDateToday(String dateString, DateTime today) {
+  try {
+    // Try to extract date from formats like "Tomorrow (10/10/2025)"
+    final regex = RegExp(r'(\d{1,2}/\d{1,2}/\d{4})');
+    final match = regex.firstMatch(dateString);
+    if (match != null) {
+      final datePart = match.group(1);
+      final date = DateFormat('dd/MM/yyyy').parse(datePart!);
+      return date.year == today.year && 
+             date.month == today.month && 
+             date.day == today.day;
+    }
+    
+    // Check if it says "Today" or "tomorrow"
+    if (dateString.toLowerCase().contains('today')) {
+      return true;
+    }
+    
+    if (dateString.toLowerCase().contains('tomorrow')) {
+      final tomorrow = today.add(Duration(days: 1));
+      // Extract the date part from "Tomorrow (10/10/2025)"
+      final regex = RegExp(r'\((\d{1,2}/\d{1,2}/\d{4})\)');
+      final match = regex.firstMatch(dateString);
+      if (match != null) {
+        final datePart = match.group(1);
+        final date = DateFormat('dd/MM/yyyy').parse(datePart!);
+        return date.year == tomorrow.year && 
+               date.month == tomorrow.month && 
+               date.day == tomorrow.day;
+      }
+    }
+    
+    // Try other date formats
+    List<String> formats = ['dd/MM/yyyy', 'yyyy-MM-dd', 'MM/dd/yyyy'];
+    for (final format in formats) {
+      try {
+        final date = DateFormat(format).parse(dateString);
+        return date.year == today.year && 
+               date.month == today.month && 
+               date.day == today.day;
+      } catch (e) {
+        continue;
+      }
+    }
+    
+    return false;
+  } catch (e) {
+    print('Error parsing date: $e');
+    return false;
+  }
+}
+Future<void> _loadTodaySessions() async {
+  try {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+
+    final today = DateFormat('yyyy-MM-dd').format(DateTime.now());
+    final now = DateTime.now();
+    
+    // Get today's sessions
+    final sessionsSnapshot = await FirebaseFirestore.instance
+        .collection('doctorSchedules')
+        .where('doctorId', isEqualTo: user.uid)
+        .where('availableDate', isEqualTo: today)
+        .get();
+
+    int activeSessions = 0;
+    
+    for (final doc in sessionsSnapshot.docs) {
+      final session = doc.data();
+      
+      // Check if session is active (not ended)
+      final sessionEnded = session['sessionEnded'] ?? true;
+      if (!sessionEnded) {
+        activeSessions++;
+      }
+    }
+
+    setState(() {
+      todaySessionsCount = sessionsSnapshot.docs.length;
+      hasActiveSession = activeSessions > 0;
+    });
+  } catch (e) {
+    print('Error loading today sessions: $e');
+  }
+}
 
  // Get unread message counts for each chat room
 Future<void> _loadUnreadMessagesCount() async {
@@ -275,9 +490,12 @@ Future<void> _loadUnreadMessagesCount() async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
 
-    // Reset unread counts
+    print('📥 Loading unread messages count...');
+
+    // Reset count
     setState(() {
       unreadMessagesCount = 0;
+      _unreadCounts.clear();
     });
 
     // Get all chat rooms for this doctor
@@ -287,37 +505,59 @@ Future<void> _loadUnreadMessagesCount() async {
         .get();
 
     int totalUnread = 0;
+    
+    print('Found ${chatRoomsSnapshot.docs.length} chat rooms');
 
     // Check each chat room for unread messages
     for (final chatRoom in chatRoomsSnapshot.docs) {
-      final unreadSnapshot = await FirebaseFirestore.instance
-          .collection('chat_rooms')
-          .doc(chatRoom.id)
-          .collection('messages')
-          .where('read', isEqualTo: false)
-          .where('senderId', isNotEqualTo: user.uid)
-          .get();
+      final chatRoomId = chatRoom.id;
+      final chatData = chatRoom.data();
+      
+      print('Checking chat room: ${chatRoomId}');
+      
+      try {
+        // Query for unread messages where:
+        // 1. The message is not read (read == false)
+        // 2. The sender is NOT the doctor (patient sent it)
+        final unreadSnapshot = await FirebaseFirestore.instance
+            .collection('chat_rooms')
+            .doc(chatRoomId)
+            .collection('messages')
+            .where('read', isEqualTo: false)
+            .where('senderId', isNotEqualTo: user.uid)
+            .get();
 
-      final roomUnread = unreadSnapshot.docs.length;
-      totalUnread += roomUnread;
+        final roomUnread = unreadSnapshot.docs.length;
+        totalUnread += roomUnread;
 
-      // Store individual patient unread counts if needed
-      final patientId = chatRoom.data()['patientId'];
-      if (patientId != null) {
-        setState(() {
-          _unreadCounts[patientId] = roomUnread;
-        });
+        if (roomUnread > 0) {
+          print(' Found ${roomUnread} unread messages in room ${chatRoomId}');
+        }
+
+        // Store individual patient unread counts if needed
+        final patientId = chatData['patientId'];
+        if (patientId != null) {
+          setState(() {
+            _unreadCounts[patientId] = roomUnread;
+          });
+        }
+      } catch (e) {
+        print('❌ Error checking chat room ${chatRoomId}: $e');
       }
     }
+
+    print('🎯 Total unread messages: ${totalUnread}');
 
     setState(() {
       unreadMessagesCount = totalUnread;
     });
   } catch (e) {
-    print('Error loading unread messages: $e');
+    print('❌ Error loading unread messages count: $e');
+    setState(() {
+      unreadMessagesCount = 0;
+    });
   }
 }
-
  void _onItemTapped(int index) {
   if (index == 1) { 
     
@@ -367,18 +607,9 @@ Future<void> _loadUnreadMessagesCount() async {
 
   
 
-  void _navigateToLiveQueue() {
-    final doctorProvider = Provider.of<DoctorProvider>(context, listen: false);
   
-    
-  }
 
-  void _navigateToQRScanner() {
-    Navigator.push(
-      context,
-      MaterialPageRoute(builder: (context) => const DoctorQRScannerScreen()),
-    );
-  }
+  
 
   void _navigateToNotifications() {
     Navigator.push(
@@ -700,6 +931,8 @@ Widget _buildCurrentScreen() {
         await _loadTodayStats();
         await _loadUnreadMessagesCount();
          await _loadDoctorProfileImage();
+         await _loadTodaySessions();
+         await _loadDoctorFeedback();
       },
       child: SingleChildScrollView(
         physics: const AlwaysScrollableScrollPhysics(),
@@ -874,49 +1107,47 @@ Widget _buildDefaultAvatar() {
     return 'Evening';
   }
 
-  Widget _buildStatsSection() {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 20),
-      child: Row(
-        children: [
-          Expanded(
-            child: _buildStatCard(
-              title: 'Today\'s Appointments',
-              value: todayAppointmentsCount.toString(),
-              icon: Icons.calendar_today_outlined,
-              color: primaryColor,
-            ),
+  
+Widget _buildStatsSection() {
+  return Padding(
+    padding: const EdgeInsets.symmetric(horizontal: 20),
+    child: Row(
+      children: [
+        Expanded(
+          child: _buildStatCard(
+            title: 'Today\'s Appointments',
+            value: todayAppointmentsCount.toString(),
+            icon: Icons.calendar_today_outlined,
+            color: primaryColor, // Use your primary theme color
+            onTap: _navigateToTodayAppointments,
           ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: _buildStatCard(
-              title: 'Waiting Patients',
-              value: waitingPatientsCount.toString(),
-              icon: Icons.people_outline,
-              color: secondaryColor,
-            ),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: _buildFeedbackCard(),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: _buildStatCard(
+            title: 'Today\'s Sessions',
+            value: todaySessionsCount.toString(),
+            icon: hasActiveSession ? Icons.play_circle_fill : Icons.schedule,
+            color: hasActiveSession ? Colors.green : Colors.orange, // Keep these as they're status indicators
+            //onTap: _navigateToTodaySessions,
           ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: _buildStatCard(
-              title: 'Queue Status',
-              value: hasActiveQueue ? 'Active' : 'Inactive',
-              icon: hasActiveQueue ? Icons.play_circle_fill : Icons.pause_circle_filled,
-              color: hasActiveQueue ? const Color(0xFF4CAF50) : Colors.grey,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
+        ),
+      ],
+    ),
+  );
+}
 
-  Widget _buildStatCard({
-    required String title,
-    required String value,
-    required IconData icon,
-    required Color color,
-  }) {
-    return Container(
+
+Widget _buildFeedbackCard() {
+  final feedbackColor = _getFeedbackColor(doctorFeedbackScore);
+  
+  return GestureDetector(
+    
+    child: Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: Colors.white,
@@ -934,6 +1165,106 @@ Widget _buildDefaultAvatar() {
         ),
       ),
       child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: feedbackColor.withOpacity(0.1),
+              shape: BoxShape.circle,
+            ),
+            child: Icon(
+              Icons.star_rate,
+              color: feedbackColor,
+              size: 20,
+            ),
+          ),
+          const SizedBox(height: 8),
+          // Display stars for rating
+          if (doctorFeedbackScore > 0)
+            Column(
+              children: [
+                Text(
+                  doctorFeedbackScore.toStringAsFixed(1),
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: feedbackColor,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  '/5',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: primaryColor.withOpacity(0.7),
+                  ),
+                ),
+              ],
+            )
+          else
+            Text(
+              'No Rating',
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.bold,
+                color: Colors.grey,
+              ),
+            ),
+          const SizedBox(height: 4),
+          Text(
+            totalFeedbackCount > 0 
+                ? '$totalFeedbackCount ${totalFeedbackCount == 1 ? 'review' : 'reviews'}'
+                : 'Be the first',
+            style: TextStyle(
+              fontSize: 11,
+              color: primaryColor.withOpacity(0.7),
+              fontWeight: FontWeight.w500,
+            ),
+            textAlign: TextAlign.center,
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
+Color _getFeedbackColor(double score) {
+  if (score == 0) return Colors.grey;
+  if (score < 2.5) return Colors.redAccent;
+  if (score < 3.5) return Colors.orange;
+  if (score < 4.0) return secondaryColor; // Use your secondary color for medium ratings
+  return Colors.green; // Keep green for excellent ratings
+}
+
+  Widget _buildStatCard({
+  required String title,
+  required String value,
+  required IconData icon,
+  required Color color,
+  VoidCallback? onTap,
+}) {
+  return GestureDetector(
+    onTap: onTap,
+    child: Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: primaryColor.withOpacity(0.05),
+            blurRadius: 8,
+            offset: const Offset(0, 3),
+          ),
+        ],
+        border: Border.all(
+          color: backgroundColor,
+          width: 1,
+        ),
+      ),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
         children: [
           Container(
             padding: const EdgeInsets.all(8),
@@ -944,28 +1275,32 @@ Widget _buildDefaultAvatar() {
             child: Icon(icon, color: color, size: 20),
           ),
           const SizedBox(height: 8),
+          // Title (now used for rating)
           Text(
-            value,
+            title,
             style: TextStyle(
-              fontSize: 18,
+              fontSize: title.contains('/5') ? 14 : 11,
               fontWeight: FontWeight.bold,
               color: color,
             ),
+            textAlign: TextAlign.center,
           ),
           const SizedBox(height: 4),
+          // Value (now used for review count)
           Text(
-            title,
-            textAlign: TextAlign.center,
+            value,
             style: TextStyle(
               fontSize: 11,
               color: primaryColor.withOpacity(0.7),
               fontWeight: FontWeight.w500,
             ),
+            textAlign: TextAlign.center,
           ),
         ],
       ),
-    );
-  }
+    ),
+  );
+}
 
   Widget _buildQuickActionsSection() {
   
@@ -1007,19 +1342,8 @@ Widget _buildDefaultAvatar() {
             ),
             
             
-            _buildQuickActionButton(
-              icon: Icons.queue_play_next,
-              label: 'Live Queue',
-              color: primaryDark,
-              onTap: _navigateToLiveQueue,
-              badgeCount: hasActiveQueue ? waitingPatientsCount : 0,
-            ),
-            _buildQuickActionButton(
-              icon: Icons.emergency,
-              label: 'Emergency patient',
-              color: primaryDark,
-              onTap: _navigateToQRScanner,
-            ),
+           
+           
             _buildQuickActionButton(
               icon: Icons.chat_outlined,
               label: 'Messages',
@@ -1220,13 +1544,7 @@ Widget _buildDefaultAvatar() {
                   onTap: _navigateToTodayAppointments,
                 ),
                 const Divider(height: 24, color: Color(0xFFDDF0F5)),
-                _buildActivityItem(
-                  icon: Icons.people,
-                  title: 'Patients Waiting',
-                  subtitle: '$waitingPatientsCount in queue',
-                  color: secondaryColor,
-                  onTap: _navigateToLiveQueue,
-                ),
+                
                 const Divider(height: 24, color: Color(0xFFDDF0F5)),
                 _buildActivityItem(
                   icon: Icons.chat,
@@ -1236,13 +1554,7 @@ Widget _buildDefaultAvatar() {
                   onTap: _navigateToChatList,
                 ),
                 const Divider(height: 24, color: Color(0xFFDDF0F5)),
-                _buildActivityItem(
-                  icon: Icons.access_time,
-                  title: 'Queue Status',
-                  subtitle: hasActiveQueue ? 'Active - Manage now' : 'No active queue',
-                  color: hasActiveQueue ? const Color(0xFF4CAF50) : Colors.grey,
-                  onTap: hasActiveQueue ? _navigateToLiveQueue : null,
-                ),
+               
               ],
             ),
           ),

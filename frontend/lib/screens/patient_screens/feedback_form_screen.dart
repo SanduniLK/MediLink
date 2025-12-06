@@ -6,10 +6,20 @@ import 'package:frontend/services/feedback_service.dart';
 
 class FeedbackFormScreen extends StatefulWidget {
   final String patientId;
+  final String doctorId; // Added: Doctor ID from appointment
+  final String doctorName; // Added: Doctor name from appointment
+  final String medicalCenterId; // Added: Medical center ID from appointment
+  final String medicalCenterName; // Added: Medical center name from appointment
+  final String appointmentDate; // Optional: For display
 
   const FeedbackFormScreen({
     Key? key,
     required this.patientId,
+    required this.doctorId,
+    required this.doctorName,
+    required this.medicalCenterId,
+    required this.medicalCenterName,
+    this.appointmentDate = '',
   }) : super(key: key);
 
   @override
@@ -20,19 +30,14 @@ class _FeedbackFormScreenState extends State<FeedbackFormScreen> {
   int _rating = 0;
   bool _wouldRecommend = true;
   bool _anonymous = false;
-  String? _selectedDoctorId;
-  String? _selectedMedicalCenterId;
-  String _feedbackType = 'doctor';
+  String _feedbackType = 'doctor'; // Default to doctor feedback
   
   final TextEditingController _commentController = TextEditingController();
   
-  List<Map<String, dynamic>> _doctors = [];
-  List<Map<String, dynamic>> _medicalCenters = [];
+  Map<String, dynamic>? _doctorData;
+  Map<String, dynamic>? _medicalCenterData;
   bool _isLoading = true;
   bool _isSubmitting = false;
-
-  List<Map<String, dynamic>> _filteredMedicalCenters = [];
-   
 
   // Professional color scheme
   final Color _primaryColor = const Color(0xFF18A3B6);
@@ -49,177 +54,132 @@ class _FeedbackFormScreenState extends State<FeedbackFormScreen> {
   @override
   void initState() {
     super.initState();
-    _loadData();
+    _loadAppointmentData();
   }
 
-  Future<void> _loadData() async {
+  Future<void> _loadAppointmentData() async {
     try {
       setState(() {
         _isLoading = true;
       });
 
-      // Simulate loading delay for better UX
-      await Future.delayed(Duration(milliseconds: 800));
-
-      // Load doctors
-      final doctorsSnapshot = await FirebaseFirestore.instance
-          .collection('doctors')
-          .where('role', isEqualTo: 'doctor')
-          .get();
-
-      _doctors = doctorsSnapshot.docs.map((doc) {
-        final data = doc.data();
-        return {
-          'id': doc.id,
-          'uid': data['uid'] ?? doc.id,
-          'name': data['fullname'] ?? 'Unknown Doctor',
-          'specialization': data['specialization'] ?? 'General Practitioner',
-          'medicalCenters': data['medicalCenters'] ?? [],
-          'profileImage': data['profileImage'] ?? '',
-          'experience': data['experience'] ?? 0,
+      // Load doctor data
+      try {
+        final doctorDoc = await FirebaseFirestore.instance
+            .collection('doctors')
+            .doc(widget.doctorId)
+            .get();
+        
+        if (doctorDoc.exists) {
+          final data = doctorDoc.data()!;
+          _doctorData = {
+            'id': doctorDoc.id,
+            'uid': data['uid'] ?? doctorDoc.id,
+            'name': data['fullname'] ?? widget.doctorName,
+            'specialization': data['specialization'] ?? 'General Practitioner',
+            'profileImage': data['profileImage'] ?? '',
+            'experience': data['experience'] ?? 0,
+          };
+        } else {
+          _doctorData = {
+            'id': widget.doctorId,
+            'uid': widget.doctorId,
+            'name': widget.doctorName,
+            'specialization': 'Healthcare Provider',
+            'profileImage': '',
+            'experience': 0,
+          };
+        }
+      } catch (e) {
+        print('Error loading doctor data: $e');
+        _doctorData = {
+          'id': widget.doctorId,
+          'uid': widget.doctorId,
+          'name': widget.doctorName,
+          'specialization': 'Healthcare Provider',
+          'profileImage': '',
+          'experience': 0,
         };
-      }).toList();
-      _medicalCenters = [];
-    for (final doctor in _doctors) {
-      final medicalCenters = doctor['medicalCenters'] as List<dynamic>?;
-      if (medicalCenters != null && medicalCenters.isNotEmpty) {
-        for (final center in medicalCenters) {
-          if (center is Map<String, dynamic>) {
-            final centerId = center['id']?.toString();
-            final centerName = center['name']?.toString();
-            
-            if (centerId != null && centerName != null) {
-              // Check if this medical center is already added
-              if (!_medicalCenters.any((mc) => mc['id'] == centerId)) {
-                _medicalCenters.add({
-                  'id': centerId,
-                  'uid': centerId,
-                  'name': centerName,
-                  'address': center['address']?.toString() ?? '',
-                  'email': center['email']?.toString() ?? '',
-                  'phone': center['phone']?.toString() ?? '',
-                });
-                print('✅ Added medical center from doctor data: $centerName');
-              }
-            }
+      }
+
+      // Load medical center data
+      try {
+        QuerySnapshot<Map<String, dynamic>>? medicalCenterSnapshot;
+        
+        // Try different collections
+        try {
+          medicalCenterSnapshot = await FirebaseFirestore.instance
+              .collection('medicalCenters')
+              .where('uid', isEqualTo: widget.medicalCenterId)
+              .get();
+        } catch (e) {
+          print('Not found in medicalCenters: $e');
+        }
+        
+        if (medicalCenterSnapshot == null || medicalCenterSnapshot.docs.isEmpty) {
+          try {
+            medicalCenterSnapshot = await FirebaseFirestore.instance
+                .collection('medical_centers')
+                .where('uid', isEqualTo: widget.medicalCenterId)
+                .get();
+          } catch (e) {
+            print('Not found in medical_centers: $e');
           }
         }
-      }
-    }
-
-      // Load medical centers
-      List<QuerySnapshot<Map<String, dynamic>>> centerSnapshots = [];
-      
-      try {
-        final snapshot1 = await FirebaseFirestore.instance
-            .collection('medicalCenters')
-            .get();
-        centerSnapshots.add(snapshot1);
-      } catch (e) {
-        print('No medical centers in "medicalCenters": $e');
-      }
-
-      try {
-        final snapshot2 = await FirebaseFirestore.instance
-            .collection('medical_centers')
-            .get();
-        centerSnapshots.add(snapshot2);
-      } catch (e) {
-        print('No medical centers in "medical_centers": $e');
-      }
-
-      _medicalCenters = [];
-      for (final snapshot in centerSnapshots) {
-        for (final doc in snapshot.docs) {
-          final data = doc.data();
-          final name = data['name'] ?? data['fullname'] ?? data['hospital'] ?? 'Medical Center';
-          
-          
-          _medicalCenters.add({
-            'id': doc.id,
-            'uid': data['uid'] ?? doc.id,
-            'name': name,
-            
-          });
+        
+        if (medicalCenterSnapshot != null && medicalCenterSnapshot.docs.isNotEmpty) {
+          final data = medicalCenterSnapshot.docs.first.data();
+          _medicalCenterData = {
+            'id': medicalCenterSnapshot.docs.first.id,
+            'uid': data['uid'] ?? medicalCenterSnapshot.docs.first.id,
+            'name': data['name'] ?? data['fullname'] ?? data['hospital'] ?? widget.medicalCenterName,
+            'address': data['address']?.toString() ?? '',
+            'email': data['email']?.toString() ?? '',
+            'phone': data['phone']?.toString() ?? '',
+          };
+        } else {
+          _medicalCenterData = {
+            'id': widget.medicalCenterId,
+            'uid': widget.medicalCenterId,
+            'name': widget.medicalCenterName,
+            'address': '',
+            'email': '',
+            'phone': '',
+          };
         }
-      }
-
-      // Add sample data for demo
-      if (_medicalCenters.isEmpty) {
-        _medicalCenters.addAll([
-          {
-            'id': 'center_1',
-            'uid': 'center_1',
-            'name': 'City General Hospital',
-            'address': '123 Healthcare Avenue, Medical District',
-            'email': 'info@citygeneral.com',
-            'phone': '+1 (555) 123-4567',
-          },
-          {
-            'id': 'center_2',
-            'uid': 'center_2',
-            'name': 'Community Health Center',
-            'address': '456 Wellness Street, Downtown',
-            'email': 'contact@communityhealth.org',
-            'phone': '+1 (555) 987-6543',
-          }
-        ]);
-      }
-
-      // Add sample doctors if none found
-      if (_doctors.isEmpty) {
-        _doctors.addAll([
-          {
-            'id': 'doc_1',
-            'name': 'Dr. Sarah Johnson',
-            'specialization': 'Cardiology',
-            'hospital': 'City General Hospital',
-            'profileImage': '',
-            'experience': 12,
-          },
-          {
-            'id': 'doc_2',
-            'name': 'Dr. Michael Chen',
-            'specialization': 'Pediatrics',
-            'hospital': 'Community Health Center',
-            'profileImage': '',
-            'experience': 8,
-          }
-        ]);
+      } catch (e) {
+        print('Error loading medical center data: $e');
+        _medicalCenterData = {
+          'id': widget.medicalCenterId,
+          'uid': widget.medicalCenterId,
+          'name': widget.medicalCenterName,
+          'address': '',
+          'email': '',
+          'phone': '',
+        };
       }
 
     } catch (error) {
-      print('Error loading data: $error');
+      print('Error loading appointment data: $error');
       
-      // Demo data for testing
-      _doctors = [
-        {
-          'id': 'demo_doctor_1',
-          'name': 'Dr. Emily Wilson',
-          'specialization': 'General Medicine',
-          'hospital': 'City Medical Center',
-          'profileImage': '',
-          'experience': 10,
-        },
-        {
-          'id': 'demo_doctor_2',
-          'name': 'Dr. James Rodriguez',
-          'specialization': 'Dermatology',
-          'hospital': 'Skin Care Clinic',
-          'profileImage': '',
-          'experience': 15,
-        }
-      ];
+      // Fallback data
+      _doctorData = {
+        'id': widget.doctorId,
+        'uid': widget.doctorId,
+        'name': widget.doctorName,
+        'specialization': 'Healthcare Provider',
+        'profileImage': '',
+        'experience': 0,
+      };
       
-      _medicalCenters = [
-        {
-          'id': 'demo_center_1',
-          'name': 'Metropolitan Hospital',
-          'address': '789 Health Boulevard, Metro City',
-          'email': 'info@metropolitan.org',
-          'phone': '+1 (555) 246-8135',
-        }
-      ];
+      _medicalCenterData = {
+        'id': widget.medicalCenterId,
+        'uid': widget.medicalCenterId,
+        'name': widget.medicalCenterName,
+        'address': '',
+        'email': '',
+        'phone': '',
+      };
       
     } finally {
       if (mounted) {
@@ -229,175 +189,64 @@ class _FeedbackFormScreenState extends State<FeedbackFormScreen> {
       }
     }
   }
-  // ADD THIS AS A SEPARATE METHOD IN YOUR CLASS (after _loadData):
-void _filterMedicalCentersForDoctor(String doctorId) {
-  print('🔄 Filtering medical centers for doctor: $doctorId');
-  
-  final selectedDoctor = _doctors.firstWhere(
-    (doctor) => doctor['id'] == doctorId,
-    orElse: () => _createDefaultDoctor(),
-  );
-
-  final doctorMedicalCenters = selectedDoctor['medicalCenters'] as List<dynamic>?;
-  
-  print('📋 Doctor medical centers data: $doctorMedicalCenters');
-  
-  if (doctorMedicalCenters != null && doctorMedicalCenters.isNotEmpty) {
-    _filteredMedicalCenters = [];
-    
-    for (final centerData in doctorMedicalCenters) {
-      if (centerData is Map<String, dynamic>) {
-        final centerId = centerData['id']?.toString();
-        final centerName = centerData['name']?.toString();
-        
-        print('🏥 Processing medical center: $centerName (ID: $centerId)');
-        
-        if (centerId != null && centerName != null) {
-          // Find the full medical center data from _medicalCenters
-          final fullCenterData = _medicalCenters.firstWhere(
-            (center) => center['id'] == centerId,
-            orElse: () => {
-              'id': centerId,
-              'name': centerName,
-              'address': '',
-              'email': '',
-              'phone': '',
-            },
-          );
-          
-          _filteredMedicalCenters.add(fullCenterData);
-        }
-      }
-    }
-    
-    // Auto-select the first medical center if only one exists
-    if (_filteredMedicalCenters.length == 1) {
-      _selectedMedicalCenterId = _filteredMedicalCenters.first['id'];
-    } else {
-      _selectedMedicalCenterId = null;
-    }
-    
-    print('✅ Filtered ${_filteredMedicalCenters.length} medical centers for doctor');
-  } else {
-    _filteredMedicalCenters = [];
-    _selectedMedicalCenterId = null;
-    print('⚠️ No medical centers found for selected doctor');
-  }
-  
-  setState(() {}); // Trigger UI update
-}
 
   Future<void> _submitFeedback() async {
-  if (_rating == 0) {
-    _showSnackBar('Please provide a rating before submitting');
-    return;
-  }
-
-  if (_feedbackType == 'doctor' && _selectedDoctorId == null) {
-    _showSnackBar('Please select a doctor to provide feedback');
-    return;
-  }
-
-  if (_feedbackType == 'doctor' && _selectedMedicalCenterId == null) {
-    _showSnackBar('Please select a medical center for the doctor');
-    return;
-  }
-
-  if (_feedbackType == 'medical_center' && _selectedMedicalCenterId == null) {
-    _showSnackBar('Please select a medical center to provide feedback');
-    return;
-  }
-
-  setState(() {
-    _isSubmitting = true;
-  });
-
-  try {
-    final user = FirebaseAuth.instance.currentUser;
-    if (user == null) throw Exception('Please login to submit feedback');
-
-    // Get selected entities
-    final selectedDoctor = _selectedDoctorId != null 
-        ? _doctors.firstWhere(
-            (doctor) => doctor['id'] == _selectedDoctorId,
-            orElse: () => _createDefaultDoctor(),
-          )
-        : _createDefaultDoctor();
-
-    final selectedMedicalCenter = _selectedMedicalCenterId != null
-        ? (_feedbackType == 'doctor' 
-            ? _filteredMedicalCenters.firstWhere(
-                (center) => center['id'] == _selectedMedicalCenterId,
-                orElse: () => _createDefaultMedicalCenter(),
-              )
-            : _medicalCenters.firstWhere(
-                (center) => center['id'] == _selectedMedicalCenterId,
-                orElse: () => _createDefaultMedicalCenter(),
-              ))
-        : _createDefaultMedicalCenter();
-
-    // Get patient data
-    final patientData = await _getPatientData();
-    final finalPatientName = _anonymous ? 'Anonymous' : patientData['name'];
-    final finalPatientEmail = _anonymous ? '' : patientData['email'];
-
-    // Submit feedback
-   
-final result = await FeedbackService.submitFeedback(
-  patientId: widget.patientId,
-  patientName: finalPatientName ?? 'Patient',
-  patientEmail: finalPatientEmail ?? '',
-  medicalCenterId: selectedMedicalCenter['uid']?.toString() ?? selectedMedicalCenter['id']?.toString() ?? 'unknown',
-  medicalCenterName: selectedMedicalCenter['name']?.toString() ?? 'Medical Center',
-  // FIX: For medical center feedback, set doctor fields to null/empty instead of "none"/"None"
-  doctorId: _feedbackType == 'doctor' 
-      ? (selectedDoctor['uid']?.toString() ?? selectedDoctor['id']?.toString() ?? 'unknown')
-      : '', // Use empty string instead of 'none'
-  doctorName: _feedbackType == 'doctor' 
-      ? (selectedDoctor['name']?.toString() ?? 'Healthcare Provider')
-      : '', // Use empty string instead of 'None'
-  rating: _rating,
-  comment: _commentController.text,
-  wouldRecommend: _wouldRecommend,
-  categories: [],
-  anonymous: _anonymous,
-  feedbackType: _feedbackType,
-);
-
-    if (result['success'] == true) {
-      _showSnackBar('Thank you for your valuable feedback!', isSuccess: true);
-      await Future.delayed(Duration(milliseconds: 1500));
-      Navigator.pop(context, true);
-    } else {
-      throw Exception(result['error']?.toString() ?? 'Submission failed. Please try again.');
+    if (_rating == 0) {
+      _showSnackBar('Please provide a rating before submitting');
+      return;
     }
-  } catch (e) {
-    print('Error submitting feedback: $e');
-    _showSnackBar('Unable to submit feedback. Please check your connection and try again.');
-  } finally {
-    if (mounted) {
-      setState(() {
-        _isSubmitting = false;
-      });
+
+    setState(() {
+      _isSubmitting = true;
+    });
+
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) throw Exception('Please login to submit feedback');
+
+      // Get patient data
+      final patientData = await _getPatientData();
+      final finalPatientName = _anonymous ? 'Anonymous' : patientData['name'];
+      final finalPatientEmail = _anonymous ? '' : patientData['email'];
+
+      // Submit feedback
+      final result = await FeedbackService.submitFeedback(
+        patientId: widget.patientId,
+        patientName: finalPatientName ?? 'Patient',
+        patientEmail: finalPatientEmail ?? '',
+        medicalCenterId: _medicalCenterData?['uid']?.toString() ?? widget.medicalCenterId,
+        medicalCenterName: _medicalCenterData?['name']?.toString() ?? widget.medicalCenterName,
+        doctorId: _feedbackType == 'doctor' 
+            ? (_doctorData?['uid']?.toString() ?? widget.doctorId)
+            : '', 
+        doctorName: _feedbackType == 'doctor' 
+            ? (_doctorData?['name']?.toString() ?? widget.doctorName)
+            : '', 
+        rating: _rating,
+        comment: _commentController.text,
+        wouldRecommend: _wouldRecommend,
+        categories: [],
+        anonymous: _anonymous,
+        feedbackType: _feedbackType,
+      );
+
+      if (result['success'] == true) {
+        _showSnackBar('Thank you for your valuable feedback!', isSuccess: true);
+        await Future.delayed(Duration(milliseconds: 1500));
+        Navigator.pop(context, true);
+      } else {
+        throw Exception(result['error']?.toString() ?? 'Submission failed. Please try again.');
+      }
+    } catch (e) {
+      print('Error submitting feedback: $e');
+      _showSnackBar('Unable to submit feedback. Please check your connection and try again.');
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isSubmitting = false;
+        });
+      }
     }
-  }
-}
-
-  Map<String, dynamic> _createDefaultDoctor() {
-    return {
-      'name': 'Healthcare Provider',
-      'hospital': 'Medical Facility',
-      'uid': 'unknown',
-      'id': 'unknown'
-    };
-  }
-
-  Map<String, dynamic> _createDefaultMedicalCenter() {
-    return {
-      'name': 'Medical Facility',
-      'uid': 'unknown',
-      'id': 'unknown'
-    };
   }
 
   Future<Map<String, String>> _getPatientData() async {
@@ -449,42 +298,24 @@ final result = await FeedbackService.submitFeedback(
     );
   }
 
-  Widget _buildDoctorItem(Map<String, dynamic> doctor, bool isSelected) {
-     final medicalCenters = doctor['medicalCenters'] as List<dynamic>?;
-      final centersCount = medicalCenters?.length ?? 0;
-    return AnimatedContainer(
-      duration: Duration(milliseconds: 300),
-      margin: EdgeInsets.only(bottom: 12),
-      decoration: BoxDecoration(
-        color: isSelected ? _accentColor : _cardColor,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: isSelected ? _primaryColor : Colors.grey.shade200,
-          width: isSelected ? 2 : 1,
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 8,
-            offset: Offset(0, 2),
-          ),
-        ],
-      ),
+  Widget _buildDoctorInfo() {
+    return _buildSectionCard(
+      title: 'Doctor Information',
       child: ListTile(
         leading: CircleAvatar(
           radius: 28,
-          backgroundImage: doctor['profileImage'] != null && 
-                          doctor['profileImage'].toString().isNotEmpty
-              ? CachedNetworkImageProvider(doctor['profileImage'].toString())
+          backgroundImage: _doctorData?['profileImage'] != null && 
+                          _doctorData!['profileImage'].toString().isNotEmpty
+              ? CachedNetworkImageProvider(_doctorData!['profileImage'].toString())
               : null,
           backgroundColor: _primaryColor,
-          child: doctor['profileImage'] == null || 
-                 doctor['profileImage'].toString().isEmpty
+          child: _doctorData?['profileImage'] == null || 
+                 _doctorData!['profileImage'].toString().isEmpty
               ? Icon(Icons.medical_services, color: Colors.white, size: 20)
               : null,
         ),
         title: Text(
-         'Dr. ${doctor['name']?.toString() ?? 'Healthcare Provider'}',
+          'Dr. ${_doctorData?['name']?.toString() ?? widget.doctorName}',
           style: TextStyle(
             fontWeight: FontWeight.w600,
             color: _textPrimary,
@@ -496,26 +327,18 @@ final result = await FeedbackService.submitFeedback(
           children: [
             SizedBox(height: 4),
             Text(
-              doctor['specialization']?.toString() ?? 'Medical Specialist',
+              _doctorData?['specialization']?.toString() ?? 'General Practitioner',
               style: TextStyle(
                 color: _primaryColor,
                 fontWeight: FontWeight.w500,
                 fontSize: 14,
               ),
             ),
-            SizedBox(height: 2),
-            Text(
-            'Works at ${centersCount} medical center${centersCount != 1 ? 's' : ''}',
-            style: TextStyle(
-              color: _textSecondary,
-              fontSize: 12,
-            ),
-          ),
-            if ((doctor['experience'] ?? 0) > 0)
+            if ((_doctorData?['experience'] ?? 0) > 0)
               Padding(
                 padding: EdgeInsets.only(top: 4),
                 child: Text(
-                  '${doctor['experience']} years experience',
+                  '${_doctorData?['experience']} years experience',
                   style: TextStyle(
                     color: _textSecondary,
                     fontSize: 12,
@@ -524,46 +347,13 @@ final result = await FeedbackService.submitFeedback(
               ),
           ],
         ),
-        trailing: isSelected 
-            ? Container(
-                padding: EdgeInsets.all(4),
-                decoration: BoxDecoration(
-                  color: _primaryColor,
-                  shape: BoxShape.circle,
-                ),
-                child: Icon(Icons.check, color: Colors.white, size: 16),
-              )
-            : Container(
-                width: 24,
-                height: 24,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  border: Border.all(color: Colors.grey.shade400),
-                ),
-              ),
       ),
     );
   }
 
-  Widget _buildMedicalCenterItem(Map<String, dynamic> center, bool isSelected) {
-    return AnimatedContainer(
-      duration: Duration(milliseconds: 300),
-      margin: EdgeInsets.only(bottom: 12),
-      decoration: BoxDecoration(
-        color: isSelected ? _accentColor : _cardColor,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: isSelected ? _primaryColor : Colors.grey.shade200,
-          width: isSelected ? 2 : 1,
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 8,
-            offset: Offset(0, 2),
-          ),
-        ],
-      ),
+  Widget _buildMedicalCenterInfo() {
+    return _buildSectionCard(
+      title: 'Medical Center Information',
       child: ListTile(
         leading: CircleAvatar(
           radius: 28,
@@ -571,7 +361,7 @@ final result = await FeedbackService.submitFeedback(
           child: Icon(Icons.local_hospital, color: Colors.white, size: 24),
         ),
         title: Text(
-          center['name']?.toString() ?? 'Medical Center',
+          _medicalCenterData?['name']?.toString() ?? widget.medicalCenterName,
           style: TextStyle(
             fontWeight: FontWeight.w600,
             color: _textPrimary,
@@ -582,14 +372,14 @@ final result = await FeedbackService.submitFeedback(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             SizedBox(height: 4),
-            if (center['address'] != null && center['address'].toString().isNotEmpty)
+            if (_medicalCenterData?['address'] != null && _medicalCenterData!['address'].toString().isNotEmpty)
               Row(
                 children: [
                   Icon(Icons.location_on, size: 14, color: _textSecondary),
                   SizedBox(width: 4),
                   Expanded(
                     child: Text(
-                      center['address'].toString(),
+                      _medicalCenterData!['address'].toString(),
                       style: TextStyle(
                         color: _textSecondary,
                         fontSize: 13,
@@ -598,7 +388,7 @@ final result = await FeedbackService.submitFeedback(
                   ),
                 ],
               ),
-            if (center['phone'] != null && center['phone'].toString().isNotEmpty)
+            if (_medicalCenterData?['phone'] != null && _medicalCenterData!['phone'].toString().isNotEmpty)
               Padding(
                 padding: EdgeInsets.only(top: 2),
                 child: Row(
@@ -606,7 +396,7 @@ final result = await FeedbackService.submitFeedback(
                     Icon(Icons.phone, size: 12, color: _textSecondary),
                     SizedBox(width: 4),
                     Text(
-                      center['phone'].toString(),
+                      _medicalCenterData!['phone'].toString(),
                       style: TextStyle(
                         color: _textSecondary,
                         fontSize: 12,
@@ -617,23 +407,6 @@ final result = await FeedbackService.submitFeedback(
               ),
           ],
         ),
-        trailing: isSelected 
-            ? Container(
-                padding: EdgeInsets.all(4),
-                decoration: BoxDecoration(
-                  color: _primaryColor,
-                  shape: BoxShape.circle,
-                ),
-                child: Icon(Icons.check, color: Colors.white, size: 16),
-              )
-            : Container(
-                width: 24,
-                height: 24,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  border: Border.all(color: Colors.grey.shade400),
-                ),
-              ),
       ),
     );
   }
@@ -733,7 +506,7 @@ final result = await FeedbackService.submitFeedback(
           ),
           SizedBox(height: 20),
           Text(
-            'Loading healthcare providers...',
+            'Loading appointment details...',
             style: TextStyle(
               color: _textSecondary,
               fontSize: 16,
@@ -756,7 +529,7 @@ final result = await FeedbackService.submitFeedback(
     return SingleChildScrollView(
       child: Column(
         children: [
-          // Header Section - Now scrolls with content
+          // Header Section
           Container(
             width: double.infinity,
             padding: EdgeInsets.all(20),
@@ -776,7 +549,7 @@ final result = await FeedbackService.submitFeedback(
                 ),
                 SizedBox(height: 12),
                 Text(
-                  'Help Us Improve',
+                  'Share Your Experience',
                   style: TextStyle(
                     color: Colors.white,
                     fontSize: 20,
@@ -785,13 +558,30 @@ final result = await FeedbackService.submitFeedback(
                 ),
                 SizedBox(height: 8),
                 Text(
-                  'Your feedback helps us provide better healthcare services',
+                  'Help us improve healthcare services',
                   textAlign: TextAlign.center,
                   style: TextStyle(
                     color: Colors.white.withOpacity(0.9),
                     fontSize: 14,
                   ),
                 ),
+                if (widget.appointmentDate.isNotEmpty) ...[
+                  SizedBox(height: 8),
+                  Container(
+                    padding: EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(0.2),
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Text(
+                      'Appointment: ${widget.appointmentDate}',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ),
+                ],
               ],
             ),
           ),
@@ -802,6 +592,14 @@ final result = await FeedbackService.submitFeedback(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                // Appointment Info - Doctor
+                _buildDoctorInfo(),
+                SizedBox(height: 16),
+                
+                // Appointment Info - Medical Center
+                _buildMedicalCenterInfo(),
+                SizedBox(height: 24),
+
                 // Feedback Type Selection
                 _buildSectionCard(
                   title: 'I want to provide feedback for:',
@@ -819,14 +617,10 @@ final result = await FeedbackService.submitFeedback(
                 ),
                 SizedBox(height: 24),
 
-                // Entity Selection
-                if (_feedbackType == 'doctor') _buildDoctorSelection(),
-                if (_feedbackType == 'medical_center') _buildMedicalCenterSelection(),
-
                 // Rating Section
                 _buildSectionCard(
                   title: 'Overall Rating',
-                  subtitle: 'How would you rate your experience?',
+                  subtitle: 'How would you rate your experience with this ${_feedbackType == 'doctor' ? 'doctor' : 'medical center'}?',
                   child: _buildRatingStars(),
                 ),
                 SizedBox(height: 24),
@@ -979,53 +773,50 @@ final result = await FeedbackService.submitFeedback(
     );
   }
 
- Widget _buildTypeChip(String label, String value, IconData icon) {
-  final isSelected = _feedbackType == value;
-  return GestureDetector(
-    onTap: () {
-      setState(() {
-        _feedbackType = value;
-        _selectedDoctorId = null;
-        _selectedMedicalCenterId = null;
-        _filteredMedicalCenters = [];
-      });
-    },
-    child: AnimatedContainer(
-      duration: Duration(milliseconds: 300),
-      padding: EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: isSelected ? _primaryColor : _cardColor,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-          color: isSelected ? _primaryColor : Colors.grey.shade300,
-          width: 2,
-        ),
-        boxShadow: [
-          if (isSelected)
-            BoxShadow(
-              color: _primaryColor.withOpacity(0.3),
-              blurRadius: 8,
-              offset: Offset(0, 2),
-            ),
-        ],
-      ),
-      child: Column(
-        children: [
-          Icon(icon, color: isSelected ? Colors.white : _primaryColor, size: 32),
-          SizedBox(height: 8),
-          Text(
-            label,
-            style: TextStyle(
-              color: isSelected ? Colors.white : _textPrimary,
-              fontWeight: FontWeight.w600,
-              fontSize: 14,
-            ),
+  Widget _buildTypeChip(String label, String value, IconData icon) {
+    final isSelected = _feedbackType == value;
+    return GestureDetector(
+      onTap: () {
+        setState(() {
+          _feedbackType = value;
+        });
+      },
+      child: AnimatedContainer(
+        duration: Duration(milliseconds: 300),
+        padding: EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: isSelected ? _primaryColor : _cardColor,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: isSelected ? _primaryColor : Colors.grey.shade300,
+            width: 2,
           ),
-        ],
+          boxShadow: [
+            if (isSelected)
+              BoxShadow(
+                color: _primaryColor.withOpacity(0.3),
+                blurRadius: 8,
+                offset: Offset(0, 2),
+              ),
+          ],
+        ),
+        child: Column(
+          children: [
+            Icon(icon, color: isSelected ? Colors.white : _primaryColor, size: 32),
+            SizedBox(height: 8),
+            Text(
+              label,
+              style: TextStyle(
+                color: isSelected ? Colors.white : _textPrimary,
+                fontWeight: FontWeight.w600,
+                fontSize: 14,
+              ),
+            ),
+          ],
+        ),
       ),
-    ),
-  );
-}
+    );
+  }
 
   Widget _buildRecommendationChip(String label, bool value, IconData icon) {
     final isSelected = _wouldRecommend == value;
@@ -1072,183 +863,52 @@ final result = await FeedbackService.submitFeedback(
     );
   }
 
-  Widget _buildDoctorSelection() {
-    return Column(
-      children: [
-        _buildSectionCard(
-          title: 'Select Doctor',
-          subtitle: 'Choose the doctor you want to provide feedback for',
-          child: _doctors.isEmpty
-              ? _buildEmptyState(
-                  'No doctors available',
-                  'Doctors will appear here once they are registered in the system',
-                  Icons.medical_services,
-                )
-              : Column(
-                  children: _doctors.map((doctor) {
-                    final isSelected = _selectedDoctorId == doctor['id'];
-                    return GestureDetector(
-                      onTap: () {
-                        setState(() {
-                          _selectedDoctorId = doctor['id'];
-                          _filterMedicalCentersForDoctor(doctor['id']!);
-                        });
-                      },
-                      child: _buildDoctorItem(doctor, isSelected),
-                    );
-                  }).toList(),
+  Widget _buildSubmitButton() {
+    final isEnabled = !_isSubmitting && _rating > 0;
+
+    return SizedBox(
+      width: double.infinity,
+      child: Material(
+        borderRadius: BorderRadius.circular(12),
+        color: isEnabled ? _primaryColor : Colors.grey.shade400,
+        child: InkWell(
+          onTap: isEnabled ? _submitFeedback : null,
+          borderRadius: BorderRadius.circular(12),
+          child: Container(
+            padding: EdgeInsets.symmetric(vertical: 16),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                if (_isSubmitting) ...[
+                  SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                    ),
+                  ),
+                  SizedBox(width: 12),
+                ],
+                Icon(
+                  _isSubmitting ? Icons.hourglass_top : Icons.send,
+                  color: Colors.white,
+                  size: 20,
                 ),
-        ),
-        SizedBox(height: 24),
-        if (_selectedDoctorId != null && _filteredMedicalCenters.isNotEmpty) ...[
-        SizedBox(height: 16),
-        _buildSectionCard(
-          title: 'Select Medical Center',
-          subtitle: 'Choose the medical center where you visited this doctor',
-          child: Column(
-            children: _filteredMedicalCenters.map((center) {
-              final isSelected = _selectedMedicalCenterId == center['id'];
-              return GestureDetector(
-                onTap: () {
-                  setState(() {
-                    _selectedMedicalCenterId = center['id'];
-                  });
-                },
-                child: _buildMedicalCenterItem(center, isSelected),
-              );
-            }).toList(),
-          ),
-        ),
-      ],
-      
-      if (_selectedDoctorId != null && _filteredMedicalCenters.isEmpty) ...[
-        SizedBox(height: 16),
-        _buildSectionCard(
-          title: 'Medical Centers',
-          child: _buildEmptyState(
-            'No medical centers',
-            'This doctor is not registered with any medical centers yet',
-            Icons.local_hospital,
-          ),
-        ),
-      ],
-    ],
-  );
-
-      
-    
-  }
-
-  Widget _buildMedicalCenterSelection() {
-  return Column(
-    children: [
-      _buildSectionCard(
-        title: 'Select Medical Center',
-        subtitle: 'Choose the medical center you want to provide feedback for',
-        child: _medicalCenters.isEmpty
-            ? _buildEmptyState(
-                'No medical centers available',
-                'Medical centers will appear here once they are registered in the system',
-                Icons.local_hospital,
-              )
-            : Column(
-                children: _medicalCenters.map((center) {
-                  final isSelected = _selectedMedicalCenterId == center['id'];
-                  return GestureDetector(
-                    onTap: () {
-                      setState(() {
-                        _selectedMedicalCenterId = center['id'];
-                        _selectedDoctorId = null; // Clear doctor selection
-                        _filteredMedicalCenters = []; // Clear filtered centers
-                      });
-                    },
-                    child: _buildMedicalCenterItem(center, isSelected),
-                  );
-                }).toList(),
-              ),
-      ),
-    ],
-  );
-}
-
-  Widget _buildEmptyState(String title, String subtitle, IconData icon) {
-    return Padding(
-      padding: EdgeInsets.symmetric(vertical: 40),
-      child: Column(
-        children: [
-          Icon(icon, size: 48, color: Colors.grey.shade400),
-          SizedBox(height: 16),
-          Text(
-            title,
-            style: TextStyle(
-              color: _textSecondary,
-              fontSize: 16,
-              fontWeight: FontWeight.w500,
+                SizedBox(width: 8),
+                Text(
+                  _isSubmitting ? 'Submitting...' : 'Submit Feedback',
+                  style: TextStyle(
+                    fontSize: 16,
+                    color: Colors.white,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
             ),
           ),
-          SizedBox(height: 8),
-          Text(
-            subtitle,
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              color: _textSecondary,
-              fontSize: 14,
-            ),
-          ),
-        ],
+        ),
       ),
     );
   }
-
- Widget _buildSubmitButton() {
-  final isEnabled = !_isSubmitting &&
-      _rating > 0 &&
-      ((_feedbackType == 'doctor' && _selectedDoctorId != null && _selectedMedicalCenterId != null) ||
-       (_feedbackType == 'medical_center' && _selectedMedicalCenterId != null));
-
-  return SizedBox(
-    width: double.infinity,
-    child: Material(
-      borderRadius: BorderRadius.circular(12),
-      color: isEnabled ? _primaryColor : Colors.grey.shade400,
-      child: InkWell(
-        onTap: isEnabled ? _submitFeedback : null,
-        borderRadius: BorderRadius.circular(12),
-        child: Container(
-          padding: EdgeInsets.symmetric(vertical: 16),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              if (_isSubmitting) ...[
-                SizedBox(
-                  width: 20,
-                  height: 20,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 2,
-                    valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                  ),
-                ),
-                SizedBox(width: 12),
-              ],
-              Icon(
-                _isSubmitting ? Icons.hourglass_top : Icons.send,
-                color: Colors.white,
-                size: 20,
-              ),
-              SizedBox(width: 8),
-              Text(
-                _isSubmitting ? 'Submitting...' : 'Submit Feedback',
-                style: TextStyle(
-                  fontSize: 16,
-                  color: Colors.white,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    ),
-  );
-}
 }
