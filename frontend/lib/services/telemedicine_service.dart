@@ -1,3 +1,4 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:frontend/config/environment.dart';
 import 'package:socket_io_client/socket_io_client.dart' as io;
@@ -322,7 +323,32 @@ void endCall(String endedBy) {
       debugPrint('❌ Error sending call ended: $e');
     }
   }
-
+// Add this method to FirestoreService class
+static Future<void> completeAppointment(String appointmentId) async {
+  try {
+    debugPrint('📝 Completing appointment: $appointmentId');
+    
+    final snapshot = await FirebaseFirestore.instance
+        .collection('telemedicine_sessions')
+        .where('appointmentId', isEqualTo: appointmentId)
+        .get();
+    
+    if (snapshot.docs.isNotEmpty) {
+      final documentId = snapshot.docs.first.id;
+      await FirebaseFirestore.instance
+          .collection('telemedicine_sessions')
+          .doc(documentId)
+          .update({
+            'status': 'Completed',
+            'endedAt': FieldValue.serverTimestamp(),
+          });
+      debugPrint('✅ Appointment completed successfully');
+    }
+  } catch (e) {
+    debugPrint('❌ Error completing appointment: $e');
+    rethrow;
+  }
+}
   // Initialize WebRTC
  Future<void> initializeWebRTC(bool isVideo) async {
   try {

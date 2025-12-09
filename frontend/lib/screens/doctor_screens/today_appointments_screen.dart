@@ -25,193 +25,216 @@ class _TodayAppointmentsScreenState extends State<TodayAppointmentsScreen> {
   }
 
   Future<void> _loadTodayAppointments() async {
-  setState(() {
-    _isLoading = true;
-    _appointments = [];
-  });
+    setState(() {
+      _isLoading = true;
+      _appointments = [];
+    });
 
-  try {
-    final user = _auth.currentUser;
-    if (user == null) return;
+    try {
+      final user = _auth.currentUser;
+      if (user == null) return;
 
-    print('🔍 Loading appointments for doctor: ${user.uid}');
-    
-    // Get ALL appointments for this doctor first
-    final appointmentsSnapshot = await _firestore
-        .collection('appointments')
-        .where('doctorId', isEqualTo: user.uid)
-        .get();
+      // Get TODAY's date in the format stored in appointments
+      // Based on your payment_screen, dates are stored as "5/12/2025" (d/M/yyyy)
+      final now = DateTime.now();
+      final todayFormatted = '${now.day}/${now.month}/${now.year}';
+      
+      print('📅 TODAY IS: $todayFormatted');
+      print('🔍 Looking for appointments with date: $todayFormatted');
 
-    print('📊 Found ${appointmentsSnapshot.docs.length} total appointments');
+      // Get appointments for this doctor WITH today's date
+      // We need to check both possible date field names and formats
+      final appointmentsSnapshot = await _firestore
+          .collection('appointments')
+          .where('doctorId', isEqualTo: user.uid)
+          .get();
 
-    final appointments = <Map<String, dynamic>>[];
-    final now = DateTime.now();
-    
-    for (final doc in appointmentsSnapshot.docs) {
-      final appointment = doc.data();
-      appointment['id'] = doc.id;
+      print('📊 Found ${appointmentsSnapshot.docs.length} total appointments');
+
+      final appointments = <Map<String, dynamic>>[];
       
-      // Extract date from appointment
-      final appointmentDate = appointment['date']?.toString() ?? '';
-      final appointmentStatus = appointment['status']?.toString() ?? '';
-      
-      print('📅 Checking appointment: ${appointment['patientName']} | Date: $appointmentDate | Status: $appointmentStatus');
-      
-      // Check if appointment is for today
-      bool isToday = false;
-      
-      // Method 1: Check with helper function
-      isToday = _isDateToday(appointmentDate, now);
-      
-      // Method 2: Check for "Today" keyword
-      if (!isToday && appointmentDate.toLowerCase().contains('today')) {
-        isToday = true;
-        print('✅ Matched via "Today" keyword');
-      }
-      
-      // Method 3: Check date formats directly
-      if (!isToday) {
-        // Try to match date directly
-        final todayFormatted = DateFormat('dd/MM/yyyy').format(now);
-        if (appointmentDate.contains(todayFormatted)) {
-          isToday = true;
-          print('✅ Matched via date format');
+      for (final doc in appointmentsSnapshot.docs) {
+        final appointment = doc.data();
+        appointment['id'] = doc.id;
+        
+        // Check multiple possible date fields
+        final dateString = appointment['appointmentDate']?.toString() ??
+                          appointment['date']?.toString() ??
+                          appointment['selectedDate']?.toString() ??
+                          '';
+        
+        print('🔍 Checking appointment for: ${appointment['patientName']}');
+        print('   Date string from DB: "$dateString"');
+        
+        if (dateString.isEmpty) {
+          print('❌ No date found, skipping');
+          continue;
         }
-      }
-      
-      // Skip if not today
-      if (!isToday) {
-        print('❌ Not today: $appointmentDate');
-        continue;
-      }
-      
-      print('✅✅✅ TODAY\'S APPOINTMENT FOUND!');
-      
-      // Get patient details
-      final patientId = appointment['patientId'];
-      if (patientId != null) {
-        try {
-          final patientDoc = await _firestore.collection('patients').doc(patientId).get();
-          if (patientDoc.exists) {
-            appointment['patientName'] = patientDoc.data()?['fullname'] ?? appointment['patientName'] ?? 'Unknown Patient';
-            appointment['patientPhone'] = patientDoc.data()?['phone'] ?? '';
-            appointment['patientEmail'] = patientDoc.data()?['email'] ?? '';
-          } else {
-            appointment['patientName'] = appointment['patientName'] ?? 'Unknown Patient';
+        
+        // Extract date from various formats
+        final extractedDate = _extractDateOnly(dateString);
+        print('   Extracted date: "$extractedDate"');
+        print('   Today date: "$todayFormatted"');
+        
+        if (extractedDate == todayFormatted) {
+          print('✅✅✅ MATCH! This appointment is for TODAY');
+          
+          // Get patient details
+          final patientId = appointment['patientId'];
+          if (patientId != null) {
+            try {
+              final patientDoc = await _firestore.collection('patients').doc(patientId).get();
+              if (patientDoc.exists) {
+                appointment['patientName'] = patientDoc.data()?['fullname'] ?? appointment['patientName'] ?? 'Unknown Patient';
+                appointment['patientPhone'] = patientDoc.data()?['phone'] ?? '';
+                appointment['patientEmail'] = patientDoc.data()?['email'] ?? '';
+              }
+            } catch (e) {
+              print('⚠️ Error loading patient: $e');
+            }
           }
-        } catch (e) {
-          print('❌ Error loading patient data: $e');
-          appointment['patientName'] = appointment['patientName'] ?? 'Unknown Patient';
+          
+          appointments.add(appointment);
+        } else {
+          print('❌ Not for today');
         }
-      } else {
-        appointment['patientName'] = appointment['patientName'] ?? 'Unknown Patient';
       }
+
+      // Sort by token number or time
+      appointments.sort((a, b) {
+        // Try token number first
+        final tokenA = a['tokenNumber'] ?? 999;
+        final tokenB = b['tokenNumber'] ?? 999;
+        if (tokenA != 999 || tokenB != 999) {
+          return tokenA.compareTo(tokenB);
+        }
+        
+        // Fallback to time
+        final timeA = a['time'] ?? a['selectedTime'] ?? '';
+        final timeB = b['time'] ?? b['selectedTime'] ?? '';
+        return timeA.compareTo(timeB);
+      });
+
+      print('🎯 TODAY\'S APPOINTMENTS: ${appointments.length} found');
+      for (var apt in appointments) {
+        print('   👤 ${apt['patientName']} | 🕐 ${apt['time'] ?? apt['selectedTime']} | 🔢 Token: ${apt['tokenNumber']}');
+      }
+
+      setState(() {
+        _appointments = appointments;
+        _isLoading = false;
+      });
+    } catch (e) {
+      print('❌ Error loading appointments: $e');
+      setState(() {
+        _isLoading = false;
+      });
+    }
+  }
+
+  // Helper method to extract date only from various formats
+  String _extractDateOnly(String dateString) {
+    if (dateString.isEmpty) return '';
+    
+    // Remove any whitespace
+    dateString = dateString.trim();
+    
+    // Case 1: Already in format "5/12/2025"
+    if (RegExp(r'^\d{1,2}/\d{1,2}/\d{4}$').hasMatch(dateString)) {
+      return dateString;
+    }
+    
+    // Case 2: Has parentheses like "Today (5/12/2025)" or "Tomorrow (8/12/2025)"
+    if (dateString.contains('(') && dateString.contains(')')) {
+      final start = dateString.indexOf('(') + 1;
+      final end = dateString.indexOf(')');
+      if (start < end) {
+        final extracted = dateString.substring(start, end).trim();
+        // Validate it's a date
+        if (RegExp(r'^\d{1,2}/\d{1,2}/\d{4}$').hasMatch(extracted)) {
+          return extracted;
+        }
+      }
+    }
+    
+    // Case 3: Try to parse other formats
+    try {
+      // Try parsing as ISO string
+      final parsed = DateTime.parse(dateString);
+      return '${parsed.day}/${parsed.month}/${parsed.year}';
+    } catch (e) {
+      // Try other date formats
+      try {
+        final parsed = DateFormat('yyyy-MM-dd').parse(dateString);
+        return '${parsed.day}/${parsed.month}/${parsed.year}';
+      } catch (e) {
+        // Return empty if can't parse
+        return '';
+      }
+    }
+  }
+
+  // Alternative: Query directly by date (if you know the exact format)
+  Future<void> _loadTodayAppointmentsDirectQuery() async {
+    setState(() {
+      _isLoading = true;
+    });
+
+    try {
+      final user = _auth.currentUser;
+      if (user == null) return;
+
+      // Get today's date in multiple possible formats
+      final now = DateTime.now();
+      final todayFormatted1 = '${now.day}/${now.month}/${now.year}'; // 5/12/2025
+      final todayFormatted2 = '${now.day.toString().padLeft(2, '0')}/${now.month.toString().padLeft(2, '0')}/${now.year}'; // 05/12/2025
+      final todayFormatted3 = '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}'; // 2025-12-05
       
-      appointments.add(appointment);
-    }
+      print('🔍 Querying for appointments with date: $todayFormatted1');
 
-    // Sort appointments by time
-    appointments.sort((a, b) {
-      final timeA = a['time']?.toString() ?? '';
-      final timeB = b['time']?.toString() ?? '';
-      return timeA.compareTo(timeB);
-    });
+      // Query using 'appointmentDate' field (from payment_screen)
+      final snapshot = await _firestore
+          .collection('appointments')
+          .where('doctorId', isEqualTo: user.uid)
+          .where('appointmentDate', isEqualTo: todayFormatted1)
+          .get();
 
-    print('🎯 Total today appointments: ${appointments.length}');
-    for (var apt in appointments) {
-      print('   - ${apt['patientName']} at ${apt['time']} (${apt['date']})');
-    }
+      print('📊 Found ${snapshot.docs.length} appointments for today');
 
-    setState(() {
-      _appointments = appointments;
-      _isLoading = false;
-    });
-  } catch (e) {
-    print('❌ Error loading appointments: $e');
-    setState(() {
-      _isLoading = false;
-    });
-  }
-}
-
-bool _isDateToday(String dateString, DateTime today) {
-  if (dateString.isEmpty) return false;
-  
-  print('🔍 Checking if date is today: $dateString');
-  
-  try {
-    // Try to extract date from formats like "Tomorrow (10/10/2025)"
-    final regex = RegExp(r'(\d{1,2}/\d{1,2}/\d{4})');
-    final match = regex.firstMatch(dateString);
-    if (match != null) {
-      final datePart = match.group(1);
-      print('📆 Extracted date part: $datePart');
-      try {
-        final date = DateFormat('dd/MM/yyyy').parse(datePart!);
-        final isToday = date.year == today.year && 
-                       date.month == today.month && 
-                       date.day == today.day;
-        print('📅 Parsed date: $date | Today: $today | IsToday: $isToday');
-        return isToday;
-      } catch (e) {
-        print('❌ Error parsing date part: $e');
-      }
-    }
-    
-    // Try to match "Today" explicitly
-    if (dateString.toLowerCase().contains('today')) {
-      print('✅ Matched "Today" keyword');
-      return true;
-    }
-    
-    // Try common date formats
-    List<String> formats = [
-      'dd/MM/yyyy', 
-      'dd-MM-yyyy',
-      'dd.MM.yyyy',
-      'yyyy-MM-dd',
-      'MM/dd/yyyy',
-      'MMMM dd, yyyy',
-      'EEEE, MMMM dd, yyyy'
-    ];
-    
-    for (final format in formats) {
-      try {
-        final date = DateFormat(format).parse(dateString);
-        final isToday = date.year == today.year && 
-                       date.month == today.month && 
-                       date.day == today.day;
-        if (isToday) {
-          print('✅ Matched format $format');
+      final appointments = <Map<String, dynamic>>[];
+      for (final doc in snapshot.docs) {
+        final appointment = doc.data();
+        appointment['id'] = doc.id;
+        
+        // Get patient details
+        final patientId = appointment['patientId'];
+        if (patientId != null) {
+          try {
+            final patientDoc = await _firestore.collection('patients').doc(patientId).get();
+            if (patientDoc.exists) {
+              appointment['patientName'] = patientDoc.data()?['fullname'] ?? appointment['patientName'] ?? 'Unknown Patient';
+              appointment['patientPhone'] = patientDoc.data()?['phone'] ?? '';
+              appointment['patientEmail'] = patientDoc.data()?['email'] ?? '';
+            }
+          } catch (e) {
+            print('⚠️ Error loading patient: $e');
+          }
         }
-        return isToday;
-      } catch (e) {
-        // Continue to next format
+        
+        appointments.add(appointment);
       }
+
+      setState(() {
+        _appointments = appointments;
+        _isLoading = false;
+      });
+    } catch (e) {
+      print('❌ Error loading appointments: $e');
+      setState(() {
+        _isLoading = false;
+      });
     }
-    
-    // Check if date string contains today's date in different formats
-    final todayFormats = [
-      DateFormat('dd/MM/yyyy').format(today),
-      DateFormat('dd-MM-yyyy').format(today),
-      DateFormat('yyyy-MM-dd').format(today),
-      DateFormat('MM/dd/yyyy').format(today),
-    ];
-    
-    for (final todayFormatted in todayFormats) {
-      if (dateString.contains(todayFormatted)) {
-        print('✅ Matched via today formatted string: $todayFormatted');
-        return true;
-      }
-    }
-    
-    print('❌ No match found for: $dateString');
-    return false;
-  } catch (e) {
-    print('💥 Error in _isDateToday: $e');
-    return false;
   }
-}
 
   Color _getStatusColor(String status) {
     switch (status.toLowerCase()) {
@@ -233,48 +256,44 @@ bool _isDateToday(String dateString, DateTime today) {
   }
 
   String _formatTimeSlot(String timeSlot) {
-  // Handle different time formats
-  if (timeSlot.contains(' - ')) {
-    try {
-      final times = timeSlot.split(' - ');
-      if (times.length == 2) {
-        final startTime = _parseTime(times[0]);
-        final endTime = _parseTime(times[1]);
-        
-        final startFormatted = DateFormat('h:mm a').format(startTime);
-        final endFormatted = DateFormat('h:mm a').format(endTime);
-        return '$startFormatted - $endFormatted';
+    if (timeSlot.contains(' - ')) {
+      try {
+        final times = timeSlot.split(' - ');
+        if (times.length == 2) {
+          final startTime = _parseTime(times[0]);
+          final endTime = _parseTime(times[1]);
+          
+          final startFormatted = DateFormat('h:mm a').format(startTime);
+          final endFormatted = DateFormat('h:mm a').format(endTime);
+          return '$startFormatted - $endFormatted';
+        }
+      } catch (e) {
+        print('Error formatting time: $e');
       }
-    } catch (e) {
-      print('Error formatting time: $e');
     }
-  }
-  
-  // Try to parse as a single time
-  try {
-    final time = _parseTime(timeSlot);
-    return DateFormat('h:mm a').format(time);
-  } catch (e) {
-    return timeSlot;
-  }
-}
-
-DateTime _parseTime(String timeString) {
-  // Handle different time formats
-  timeString = timeString.trim();
-  
-  // Try 24-hour format
-  try {
-    return DateFormat('HH:mm').parse(timeString);
-  } catch (e) {
-    // Try 12-hour format
+    
     try {
-      return DateFormat('h:mm a').parse(timeString);
+      final time = _parseTime(timeSlot);
+      return DateFormat('h:mm a').format(time);
     } catch (e) {
-      return DateTime.now(); // Fallback
+      return timeSlot;
     }
   }
-}
+
+  DateTime _parseTime(String timeString) {
+    timeString = timeString.trim();
+    
+    try {
+      return DateFormat('HH:mm').parse(timeString);
+    } catch (e) {
+      try {
+        return DateFormat('h:mm a').parse(timeString);
+      } catch (e) {
+        return DateTime.now();
+      }
+    }
+  }
+
   void _updateAppointmentStatus(String appointmentId, String newStatus) async {
     try {
       await _firestore
@@ -282,7 +301,6 @@ DateTime _parseTime(String timeString) {
           .doc(appointmentId)
           .update({'status': newStatus});
 
-      // Reload the appointments
       _loadTodayAppointments();
       
       ScaffoldMessenger.of(context).showSnackBar(
@@ -312,14 +330,14 @@ DateTime _parseTime(String timeString) {
             mainAxisSize: MainAxisSize.min,
             children: [
               _buildDetailRow('Patient', appointment['patientName'] ?? 'Unknown'),
+              _buildDetailRow('Date', appointment['appointmentDate'] ?? 'No date'),
               _buildDetailRow('Time', _formatTimeSlot(appointment['timeSlot'] ?? '')),
               _buildDetailRow('Status', appointment['status'] ?? 'Unknown'),
+              _buildDetailRow('Token', appointment['tokenNumber']?.toString() ?? 'N/A'),
               _buildDetailRow('Phone', appointment['patientPhone'] ?? 'Not provided'),
               _buildDetailRow('Email', appointment['patientEmail'] ?? 'Not provided'),
-              if (appointment['notes'] != null && appointment['notes'].isNotEmpty)
-                _buildDetailRow('Notes', appointment['notes']),
-              if (appointment['symptoms'] != null && appointment['symptoms'].isNotEmpty)
-                _buildDetailRow('Symptoms', appointment['symptoms']),
+              if (appointment['patientNotes'] != null && appointment['patientNotes'].toString().isNotEmpty)
+                _buildDetailRow('Patient Notes', appointment['patientNotes'].toString()),
             ],
           ),
         ),
@@ -360,6 +378,12 @@ DateTime _parseTime(String timeString) {
         foregroundColor: Colors.white,
         actions: [
           IconButton(
+            icon: Icon(Icons.bug_report),
+            onPressed: () {
+              _debugCurrentDate();
+            },
+          ),
+          IconButton(
             icon: Icon(Icons.refresh),
             onPressed: _loadTodayAppointments,
           ),
@@ -371,6 +395,15 @@ DateTime _parseTime(String timeString) {
               ? _buildEmptyState()
               : _buildAppointmentsList(),
     );
+  }
+
+  void _debugCurrentDate() {
+    final now = DateTime.now();
+    final todayFormatted = '${now.day}/${now.month}/${now.year}';
+    print('🔍 DEBUG CURRENT DATE:');
+    print('   Today: $todayFormatted');
+    print('   Full DateTime: ${now.toString()}');
+    print('   Appointments count: ${_appointments.length}');
   }
 
   Widget _buildLoadingState() {
@@ -387,6 +420,10 @@ DateTime _parseTime(String timeString) {
   }
 
   Widget _buildEmptyState() {
+    final now = DateTime.now();
+    final todayFormatted = '${now.day}/${now.month}/${now.year}';
+    final formattedDate = DateFormat('EEEE, MMMM d, yyyy').format(now);
+    
     return Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
@@ -394,14 +431,23 @@ DateTime _parseTime(String timeString) {
           Icon(Icons.calendar_today, size: 64, color: Colors.grey),
           SizedBox(height: 16),
           Text(
-            'No Appointments Today',
+            'No Appointments for Today',
             style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
           ),
           SizedBox(height: 8),
           Text(
-            'You have no appointments scheduled for today.',
-            textAlign: TextAlign.center,
-            style: TextStyle(color: Colors.grey),
+            formattedDate,
+            style: TextStyle(color: Colors.grey, fontSize: 14),
+          ),
+          SizedBox(height: 8),
+          Text(
+            'Looking for date: $todayFormatted',
+            style: TextStyle(fontSize: 12, color: Colors.blue),
+          ),
+          SizedBox(height: 16),
+          ElevatedButton(
+            onPressed: _loadTodayAppointments,
+            child: Text('Refresh'),
           ),
         ],
       ),
@@ -409,6 +455,9 @@ DateTime _parseTime(String timeString) {
   }
 
   Widget _buildAppointmentsList() {
+    final now = DateTime.now();
+    final todayFormatted = '${now.day}/${now.month}/${now.year}';
+    
     return Column(
       children: [
         // Header with date and count
@@ -418,9 +467,18 @@ DateTime _parseTime(String timeString) {
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text(
-                DateFormat('EEEE, MMMM d').format(DateTime.now()),
-                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    DateFormat('EEEE, MMMM d').format(DateTime.now()),
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                  ),
+                  Text(
+                    'Date: $todayFormatted',
+                    style: TextStyle(fontSize: 12, color: Colors.grey),
+                  ),
+                ],
               ),
               Chip(
                 label: Text('${_appointments.length} appointments'),
@@ -446,126 +504,158 @@ DateTime _parseTime(String timeString) {
   }
 
   Widget _buildAppointmentCard(Map<String, dynamic> appointment) {
-  final patientName = appointment['patientName'] ?? 'Unknown Patient';
-  final timeSlot = appointment['time'] ?? appointment['timeSlot'] ?? ''; // Check both fields
-  final status = appointment['status'] ?? 'pending';
-  final symptoms = appointment['symptoms'] ?? appointment['patientNotes'] ?? '';
-  final notes = appointment['notes'] ?? appointment['patientNotes'] ?? '';
+    final patientName = appointment['patientName'] ?? 'Unknown Patient';
+    final timeSlot = appointment['selectedTime'] ?? appointment['time'] ?? '';
+    final status = appointment['status'] ?? 'pending';
+    final tokenNumber = appointment['tokenNumber'];
+    final date = appointment['appointmentDate'] ?? 'No date';
 
-  return Card(
-    margin: EdgeInsets.only(bottom: 12),
-    elevation: 2,
-    child: Padding(
-      padding: EdgeInsets.all(16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Header row
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Expanded(
-                child: Text(
-                  patientName,
-                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-              Container(
-                padding: EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                decoration: BoxDecoration(
-                  color: _getStatusColor(status).withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: _getStatusColor(status)),
-                ),
-                child: Text(
-                  status.toUpperCase(),
-                  style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.bold,
-                    color: _getStatusColor(status),
+    return Card(
+      margin: EdgeInsets.only(bottom: 12),
+      elevation: 2,
+      child: Padding(
+        padding: EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Header row with token
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Expanded(
+                  child: Row(
+                    children: [
+                      if (tokenNumber != null)
+                        Container(
+                          padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: Color(0xFF18A3B6),
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: Text(
+                            'Token #$tokenNumber',
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.white,
+                            ),
+                          ),
+                        ),
+                      SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          patientName,
+                          style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
-              ),
-            ],
-          ),
-          SizedBox(height: 8),
-          // Time slot
-          Row(
-            children: [
-              Icon(Icons.access_time, size: 16, color: Colors.grey),
-              SizedBox(width: 8),
-              Text(
-                _formatTimeSlot(timeSlot),
-                style: TextStyle(color: Colors.grey[600]),
-              ),
-            ],
-          ),
-          // Date
-          SizedBox(height: 4),
-          Row(
-            children: [
-              Icon(Icons.calendar_today, size: 16, color: Colors.grey),
-              SizedBox(width: 8),
-              Text(
-                appointment['date']?.toString() ?? 'No date',
-                style: TextStyle(color: Colors.grey[600]),
-              ),
-            ],
-          ),
-          // Symptoms/Notes (if available)
-          if (symptoms.isNotEmpty) ...[
+                Container(
+                  padding: EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: _getStatusColor(status).withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: _getStatusColor(status)),
+                  ),
+                  child: Text(
+                    status.toUpperCase(),
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                      color: _getStatusColor(status),
+                    ),
+                  ),
+                ),
+              ],
+            ),
             SizedBox(height: 8),
-            Text(
-              'Notes: $symptoms',
-              style: TextStyle(fontSize: 14, color: Colors.grey[700]),
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
+            // Time slot
+            Row(
+              children: [
+                Icon(Icons.access_time, size: 16, color: Colors.grey),
+                SizedBox(width: 8),
+                Text(
+                  _formatTimeSlot(timeSlot),
+                  style: TextStyle(color: Colors.grey[600]),
+                ),
+              ],
+            ),
+            // Date
+            SizedBox(height: 4),
+            Row(
+              children: [
+                Icon(Icons.calendar_today, size: 16, color: Colors.grey),
+                SizedBox(width: 8),
+                Text(
+                  date,
+                  style: TextStyle(color: Colors.grey[600]),
+                ),
+              ],
+            ),
+            // Appointment type
+            if (appointment['consultationType'] != null) ...[
+              SizedBox(height: 4),
+              Row(
+                children: [
+                  Icon(Icons.video_call, size: 16, color: Colors.grey),
+                  SizedBox(width: 8),
+                  Text(
+                    'Type: ${appointment['consultationType']}',
+                    style: TextStyle(color: Colors.grey[600]),
+                  ),
+                ],
+              ),
+            ],
+            SizedBox(height: 12),
+            // Action buttons
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: () => _showAppointmentDetails(appointment),
+                    child: Text('View Details'),
+                  ),
+                ),
+                SizedBox(width: 8),
+                if (status != 'completed' && status != 'cancelled')
+                  PopupMenuButton<String>(
+                    onSelected: (newStatus) => 
+                        _updateAppointmentStatus(appointment['id'], newStatus),
+                    itemBuilder: (context) => [
+                      PopupMenuItem(
+                        value: 'confirmed',
+                        child: Text('Mark as Confirmed'),
+                      ),
+                      PopupMenuItem(
+                        value: 'completed',
+                        child: Text('Mark as Completed'),
+                      ),
+                      PopupMenuItem(
+                        value: 'cancelled',
+                        child: Text('Cancel Appointment'),
+                      ),
+                      if (status == 'waiting')
+                        PopupMenuItem(
+                          value: 'checked-in',
+                          child: Text('Mark as Checked-in'),
+                        ),
+                    ],
+                    child: Container(
+                      padding: EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: Color(0xFF18A3B6),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Icon(Icons.more_vert, color: Colors.white, size: 20),
+                    ),
+                  ),
+              ],
             ),
           ],
-          SizedBox(height: 12),
-          // Action buttons
-          Row(
-            children: [
-              Expanded(
-                child: OutlinedButton(
-                  onPressed: () => _showAppointmentDetails(appointment),
-                  child: Text('View Details'),
-                ),
-              ),
-              SizedBox(width: 8),
-              if (status != 'completed' && status != 'cancelled')
-                PopupMenuButton<String>(
-                  onSelected: (newStatus) => 
-                      _updateAppointmentStatus(appointment['id'], newStatus),
-                  itemBuilder: (context) => [
-                    PopupMenuItem(
-                      value: 'confirmed',
-                      child: Text('Mark as Confirmed'),
-                    ),
-                    PopupMenuItem(
-                      value: 'completed',
-                      child: Text('Mark as Completed'),
-                    ),
-                    PopupMenuItem(
-                      value: 'cancelled',
-                      child: Text('Cancel Appointment'),
-                    ),
-                  ],
-                  child: Container(
-                    padding: EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      color: Color(0xFF18A3B6),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Icon(Icons.more_vert, color: Colors.white, size: 20),
-                  ),
-                ),
-            ],
-          ),
-        ],
+        ),
       ),
-    ),
-  );
-}
+    );
+  }
 }

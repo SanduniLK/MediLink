@@ -76,59 +76,189 @@ class _DoctorManagementScreenState extends State<DoctorManagementScreen> with Si
             child: Text("Error: ${snapshot.error}", style: const TextStyle(color: Colors.red)),
           );
         }
+
+        // First get doctor_requests
+        final doctorRequestsDocs = snapshot.data?.docs ?? [];
         
-        if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+        // Now also check doctors collection for pending status in medicalCenters
+        return StreamBuilder<QuerySnapshot>(
+          stream: FirebaseFirestore.instance
+              .collection("doctors")
+              .snapshots(),
+          builder: (context, doctorsSnapshot) {
+            if (doctorsSnapshot.connectionState == ConnectionState.waiting) {
+              return const Center(child: CircularProgressIndicator());
+            }
+            
+            if (doctorsSnapshot.hasError) {
+              return Center(
+                child: Text("Error: ${doctorsSnapshot.error}", style: const TextStyle(color: Colors.red)),
+              );
+            }
+
+            final allDoctors = doctorsSnapshot.data?.docs ?? [];
+            
+            // Find doctors with pending status for THIS medical center
+            final doctorsWithPending = allDoctors.where((doctorDoc) {
+              final doctorData = doctorDoc.data() as Map<String, dynamic>;
+              final medicalCenters = doctorData['medicalCenters'] ?? [];
+              
+              // Check if this doctor has this medical center with pending status
+              for (var center in medicalCenters) {
+                if (center is Map) {
+                  final centerName = center['name']?.toString().trim().toLowerCase() ?? '';
+                  final centerStatus = center['status']?.toString() ?? '';
+                  final targetName = widget.medicalCenterName.trim().toLowerCase();
+                  
+                  if ((centerName == targetName || 
+                       centerName.contains(targetName) || 
+                       targetName.contains(centerName)) && 
+                      centerStatus == 'pending') {
+                    return true;
+                  }
+                }
+              }
+              return false;
+            }).toList();
+
+            // Combine both sources
+            final allPendingDoctors = [...doctorRequestsDocs, ...doctorsWithPending];
+            
+            if (allPendingDoctors.isEmpty) {
+              return const Center(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(Icons.pending_actions, size: 64, color: Colors.grey),
+                    SizedBox(height: 16),
+                    Text(
+                      "No Pending Doctor Requests",
+                      style: TextStyle(fontSize: 18, color: Colors.grey),
+                    ),
+                  ],
+                ),
+              );
+            }
+
+            // Filter for this medical center
+            final filteredDoctors = allPendingDoctors.where((doc) {
+              final doctorData = doc.data() as Map<String, dynamic>;
+              final medicalCenters = doctorData['medicalCenters'] ?? [];
+              
+              // Check if this medical center is in the doctor's centers
+              for (var center in medicalCenters) {
+                if (center is Map) {
+                  final centerName = center['name']?.toString().trim().toLowerCase() ?? '';
+                  final targetName = widget.medicalCenterName.trim().toLowerCase();
+                  
+                  if (centerName == targetName || 
+                      centerName.contains(targetName) || 
+                      targetName.contains(centerName)) {
+                    return true;
+                  }
+                } else {
+                  final centerName = center.toString().trim().toLowerCase();
+                  final targetName = widget.medicalCenterName.trim().toLowerCase();
+                  
+                  if (centerName == targetName || 
+                      centerName.contains(targetName) || 
+                      targetName.contains(centerName)) {
+                    return true;
+                  }
+                }
+              }
+              return false;
+            }).toList();
+
+            if (filteredDoctors.isEmpty) {
+              return Center(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const Icon(Icons.pending_actions, size: 64, color: Colors.grey),
+                    const SizedBox(height: 16),
+                    Text(
+                      "No requests for '${widget.medicalCenterName}'",
+                      style: const TextStyle(fontSize: 18, color: Colors.grey),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      "Found ${allPendingDoctors.length} total pending requests",
+                      style: const TextStyle(fontSize: 14, color: Colors.grey),
+                    ),
+                  ],
+                ),
+              );
+            }
+
+            return ListView.builder(
+              itemCount: filteredDoctors.length,
+              itemBuilder: (context, index) {
+                return _buildPendingDoctorCard(filteredDoctors[index]);
+              },
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Widget _buildRegisteredDoctorsTab() {
+    return StreamBuilder<QuerySnapshot>(
+      stream: FirebaseFirestore.instance
+          .collection("doctors")
+          .snapshots(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        
+        if (snapshot.hasError) {
+          return Center(
+            child: Text("Error: ${snapshot.error}", style: const TextStyle(color: Colors.red)),
+          );
+        }
+        
+        final allDoctors = snapshot.data?.docs ?? [];
+        
+        // Filter doctors with APPROVED status for THIS medical center
+        final registeredDoctors = allDoctors.where((doc) {
+          final doctorData = doc.data() as Map<String, dynamic>;
+          final medicalCenters = doctorData['medicalCenters'] ?? [];
+          
+          for (var center in medicalCenters) {
+            if (center is Map) {
+              final centerName = center['name']?.toString().trim().toLowerCase() ?? '';
+              final centerStatus = center['status']?.toString() ?? 'approved'; // Default to approved if no status
+              final targetName = widget.medicalCenterName.trim().toLowerCase();
+              
+              // Check if name matches AND status is approved (or no status which means approved)
+              if ((centerName == targetName || 
+                   centerName.contains(targetName) || 
+                   targetName.contains(centerName)) && 
+                  (centerStatus == 'approved' || centerStatus.isEmpty)) {
+                return true;
+              }
+            }
+          }
+          return false;
+        }).toList();
+
+        if (registeredDoctors.isEmpty) {
           return const Center(
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Icon(Icons.pending_actions, size: 64, color: Colors.grey),
+                Icon(Icons.medical_services, size: 64, color: Colors.grey),
                 SizedBox(height: 16),
                 Text(
-                  "No Pending Doctor Requests",
+                  "No Registered Doctors",
                   style: TextStyle(fontSize: 18, color: Colors.grey),
                 ),
-              ],
-            ),
-          );
-        }
-
-        final docs = snapshot.data!.docs;
-        
-        // Filter doctors who applied to THIS medical center
-        final filteredDoctors = docs.where((doc) {
-          final doctorData = doc.data() as Map<String, dynamic>;
-          final medicalCenters = doctorData['medicalCenters'] ?? [];
-          
-          // Check if this medical center is in the doctor's applied centers
-          bool appliesHere = medicalCenters.any((center) {
-            if (center is Map) {
-              final centerName = center['name']?.toString() ?? '';
-              return centerName == widget.medicalCenterName;
-            } else {
-              final centerName = center.toString();
-              return centerName == widget.medicalCenterName;
-            }
-          });
-          
-          return appliesHere;
-        }).toList();
-
-        if (filteredDoctors.isEmpty) {
-          return Center(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                const Icon(Icons.pending_actions, size: 64, color: Colors.grey),
-                const SizedBox(height: 16),
+                SizedBox(height: 8),
                 Text(
-                  "No requests for '${widget.medicalCenterName}'",
-                  style: const TextStyle(fontSize: 18, color: Colors.grey),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  "Found ${docs.length} total pending requests",
-                  style: const TextStyle(fontSize: 14, color: Colors.grey),
+                  "Doctors will appear here once approved",
+                  style: TextStyle(fontSize: 14, color: Colors.grey),
                 ),
               ],
             ),
@@ -136,191 +266,14 @@ class _DoctorManagementScreenState extends State<DoctorManagementScreen> with Si
         }
 
         return ListView.builder(
-          itemCount: filteredDoctors.length,
+          itemCount: registeredDoctors.length,
           itemBuilder: (context, index) {
-            return _buildPendingDoctorCard(filteredDoctors[index]);
+            return _buildRegisteredDoctorCard(registeredDoctors[index]);
           },
         );
       },
     );
   }
-
- Widget _buildRegisteredDoctorsTab() {
-  return StreamBuilder<QuerySnapshot>(
-    stream: FirebaseFirestore.instance
-        .collection("doctors")
-        .snapshots(),
-    builder: (context, snapshot) {
-      if (snapshot.connectionState == ConnectionState.waiting) {
-        return const Center(child: CircularProgressIndicator());
-      }
-      
-      if (snapshot.hasError) {
-        return Center(
-          child: Text("Error: ${snapshot.error}", style: const TextStyle(color: Colors.red)),
-        );
-      }
-      
-      if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
-        return const Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(Icons.medical_services, size: 64, color: Colors.grey),
-              SizedBox(height: 16),
-              Text(
-                "No Registered Doctors",
-                style: TextStyle(fontSize: 18, color: Colors.grey),
-              ),
-              SizedBox(height: 8),
-              Text(
-                "Doctors will appear here once approved",
-                style: TextStyle(fontSize: 14, color: Colors.grey),
-              ),
-            ],
-          ),
-        );
-      }
-
-      final allDoctors = snapshot.data!.docs;
-      
-      // Debug: Print all doctors and their medical centers
-      print("=== ALL DOCTORS FOUND: ${allDoctors.length} ===");
-      for (var doc in allDoctors) {
-        final doctorData = doc.data() as Map<String, dynamic>;
-        final medicalCenters = doctorData['medicalCenters'] ?? [];
-        print("Doctor: ${doctorData['fullname']}");
-        print("Medical Centers: $medicalCenters");
-        print("---");
-      }
-      
-      // Filter doctors registered with THIS medical center
-      final registeredDoctors = allDoctors.where((doc) {
-        final doctorData = doc.data() as Map<String, dynamic>;
-        final medicalCenters = doctorData['medicalCenters'] ?? [];
-        
-        print("🔍 Checking doctor: ${doctorData['fullname']}");
-        print("Looking for medical center: '${widget.medicalCenterName}'");
-        
-        // Check if this medical center is in the doctor's registered centers
-       // Replace the filtering logic with this more flexible version:
-bool registeredHere = false;
-
-for (var center in medicalCenters) {
-  if (center is Map) {
-    final centerName = center['name']?.toString().trim().toLowerCase() ?? '';
-    final targetName = widget.medicalCenterName.trim().toLowerCase();
-    
-    print("  - Comparing: '$centerName' with '$targetName'");
-    
-    // Flexible matching - check for partial matches or contains
-    if (centerName == targetName || 
-        centerName.contains(targetName) || 
-        targetName.contains(centerName)) {
-      registeredHere = true;
-      print("  ✅ MATCH FOUND!");
-      break;
-    }
-  } else {
-    final centerName = center.toString().trim().toLowerCase();
-    final targetName = widget.medicalCenterName.trim().toLowerCase();
-    
-    print("  - Comparing: '$centerName' with '$targetName'");
-    
-    if (centerName == targetName || 
-        centerName.contains(targetName) || 
-        targetName.contains(centerName)) {
-      registeredHere = true;
-      print("  ✅ MATCH FOUND!");
-      break;
-    }
-  }
-}
-        print("✅ Registered here: $registeredHere");
-        return registeredHere;
-      }).toList();
-
-      print("=== FILTERED REGISTERED DOCTORS: ${registeredDoctors.length} ===");
-
-      if (registeredDoctors.isEmpty) {
-        return Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              const Icon(Icons.medical_services, size: 64, color: Colors.grey),
-              const SizedBox(height: 16),
-              Text(
-                "No doctors registered with '${widget.medicalCenterName}'",
-                style: const TextStyle(fontSize: 18, color: Colors.grey),
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 8),
-              Text(
-                "Found ${allDoctors.length} total registered doctors in system",
-                style: const TextStyle(fontSize: 14, color: Colors.grey),
-              ),
-              const SizedBox(height: 16),
-              ElevatedButton(
-                onPressed: () {
-                  // Show all doctors for debugging
-                  showDialog(
-                    context: context,
-                    builder: (context) => AlertDialog(
-                      title: const Text("All Doctors (Debug)"),
-                      content: SizedBox(
-                        width: double.maxFinite,
-                        child: ListView.builder(
-                          shrinkWrap: true,
-                          itemCount: allDoctors.length,
-                          itemBuilder: (context, index) {
-                            final doctor = allDoctors[index];
-                            final data = doctor.data() as Map<String, dynamic>;
-                            final centers = data['medicalCenters'] ?? [];
-                            return Card(
-                              margin: const EdgeInsets.symmetric(vertical: 4),
-                              child: Padding(
-                                padding: const EdgeInsets.all(8.0),
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      data['fullname'] ?? 'No Name',
-                                      style: const TextStyle(fontWeight: FontWeight.bold),
-                                    ),
-                                    Text("Email: ${data['email'] ?? '-'}"),
-                                    Text("Medical Centers: ${centers.map((c) => c is Map ? c['name'] : c.toString()).join(', ')}"),
-                                  ],
-                                ),
-                              ),
-                            );
-                          },
-                        ),
-                      ),
-                      actions: [
-                        TextButton(
-                          onPressed: () => Navigator.pop(context),
-                          child: const Text("Close"),
-                        ),
-                      ],
-                    ),
-                  );
-                },
-                child: const Text("Show All Doctors (Debug)"),
-              ),
-            ],
-          ),
-        );
-      }
-
-      return ListView.builder(
-        itemCount: registeredDoctors.length,
-        itemBuilder: (context, index) {
-          return _buildRegisteredDoctorCard(registeredDoctors[index]);
-        },
-      );
-    },
-  );
-}
 
   Widget _buildPendingDoctorCard(DocumentSnapshot doctor) {
     final doctorData = doctor.data() as Map<String, dynamic>;
@@ -328,8 +281,11 @@ for (var center in medicalCenters) {
     final specialization = doctorData['specialization'] ?? "-";
     final email = doctorData['email'] ?? "-";
     final regNumber = doctorData['regNumber'] ?? "-";
-    final mobile = doctorData['mobile'] ?? "-";
+    final mobile = doctorData['mobile'] ?? doctorData['phone'] ?? "-";
     final medicalCenters = doctorData['medicalCenters'] ?? [];
+    
+    // Check if this is from doctor_requests or doctors collection
+    final isFromDoctorRequests = doctor.reference.parent.id == 'doctor_requests';
 
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
@@ -367,6 +323,24 @@ for (var center in medicalCenters) {
                           color: Colors.grey[600],
                         ),
                       ),
+                      if (isFromDoctorRequests)
+                        Text(
+                          "From: New Application",
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.blue[600],
+                            fontStyle: FontStyle.italic,
+                          ),
+                        )
+                      else
+                        Text(
+                          "From: Existing Doctor",
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.green[600],
+                            fontStyle: FontStyle.italic,
+                          ),
+                        ),
                     ],
                   ),
                 ),
@@ -390,9 +364,7 @@ for (var center in medicalCenters) {
             _buildInfoRow("Mobile", mobile, Icons.phone),
             _buildInfoRow("Registration No", regNumber, Icons.badge),
             const SizedBox(height: 8),
-            _buildInfoRow("Applied Centers", 
-                medicalCenters.map((center) => center is Map ? center['name'] : center.toString()).join(', '), 
-                Icons.medical_services),
+            
             const SizedBox(height: 12),
             const Divider(height: 1),
             const SizedBox(height: 12),
@@ -400,7 +372,7 @@ for (var center in medicalCenters) {
               mainAxisAlignment: MainAxisAlignment.end,
               children: [
                 ElevatedButton.icon(
-                  onPressed: () => _rejectDoctor(doctor),
+                  onPressed: () => _rejectDoctor(doctor, isFromDoctorRequests),
                   icon: const Icon(Icons.close, size: 18),
                   label: const Text("Reject"),
                   style: ElevatedButton.styleFrom(
@@ -410,7 +382,7 @@ for (var center in medicalCenters) {
                 ),
                 const SizedBox(width: 8),
                 ElevatedButton.icon(
-                  onPressed: () => _approveDoctor(doctor),
+                  onPressed: () => _approveDoctor(doctor, isFromDoctorRequests),
                   icon: const Icon(Icons.check, size: 18),
                   label: const Text("Approve"),
                   style: ElevatedButton.styleFrom(
@@ -432,7 +404,7 @@ for (var center in medicalCenters) {
     final specialization = doctorData['specialization'] ?? "-";
     final email = doctorData['email'] ?? "-";
     final regNumber = doctorData['regNumber'] ?? "-";
-    final mobile = doctorData['mobile'] ?? "-";
+    final mobile = doctorData['mobile'] ?? doctorData['phone'] ?? "-";
     final medicalCenters = doctorData['medicalCenters'] ?? [];
     final createdAt = doctorData['createdAt'] as Timestamp?;
     final joinDate = createdAt != null 
@@ -500,7 +472,15 @@ for (var center in medicalCenters) {
             _buildInfoRow("Joined Date", joinDate, Icons.calendar_today),
             const SizedBox(height: 8),
             _buildInfoRow("Registered Centers", 
-                medicalCenters.map((center) => center is Map ? center['name'] : center.toString()).join(', '), 
+                medicalCenters.map((center) {
+                  if (center is Map) {
+                    final name = center['name']?.toString() ?? 'Unknown';
+                    final status = center['status']?.toString() ?? '';
+                    return status.isNotEmpty ? "$name ($status)" : name;
+                  } else {
+                    return center.toString();
+                  }
+                }).join(', '), 
                 Icons.medical_services),
             const SizedBox(height: 12),
             const Divider(height: 1),
@@ -549,55 +529,216 @@ for (var center in medicalCenters) {
     );
   }
 
-  Future<void> _approveDoctor(DocumentSnapshot doctorDoc) async {
-    final doctorData = doctorDoc.data() as Map<String, dynamic>;
-    
-    try {
-      // Add to doctors collection
-      await FirebaseFirestore.instance.collection("doctors").doc(doctorDoc.id).set({
-        'uid': doctorDoc.id,
-        'fullname': doctorData['fullname'] ?? '',
-        'email': doctorData['email'] ?? '',
-        'specialization': doctorData['specialization'] ?? '',
-        'regNumber': doctorData['regNumber'] ?? '',
-        'mobile': doctorData['mobile'] ?? '',
-        'dob': doctorData['dob'] ?? '',
-        'address': doctorData['address'] ?? '',
-        'medicalCenters': doctorData['medicalCenters'] ?? [],
-        'role': 'doctor',
-        'createdAt': FieldValue.serverTimestamp(),
-        'isEmailVerified': doctorData['isEmailVerified'] ?? false,
-      });
-
-      // Update status in doctor_requests
+  Future<void> _approveDoctor(DocumentSnapshot doctorDoc, bool isFromDoctorRequests) async {
+  final doctorData = doctorDoc.data() as Map<String, dynamic>;
+  final doctorId = doctorDoc.id;
+  final fullname = doctorData['fullname'] ?? doctorData['doctorName'] ?? 'Unknown Doctor';
+  
+  try {
+    if (isFromDoctorRequests) {
+      // Coming from doctor_requests collection (NEW doctor application)
+      
+      // 1. Get medical center info from the request
+      final medicalCenterId = doctorData['medicalCenterId'] ?? '';
+      final medicalCenterName = doctorData['medicalCenterName'] ?? widget.medicalCenterName;
+      
+      // 2. Update status in doctor_requests collection
       await FirebaseFirestore.instance
           .collection("doctor_requests")
-          .doc(doctorDoc.id)
+          .doc(doctorId)
           .update({"status": "approved"});
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("${doctorData['fullname']} approved successfully!")),
-      );
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("Error approving doctor: $e")),
-      );
+      
+      // 3. Check if doctor already exists in doctors collection
+      final doctorRef = FirebaseFirestore.instance.collection("doctors").doc(doctorId);
+      final doctorSnapshot = await doctorRef.get();
+      
+      if (doctorSnapshot.exists) {
+        // Doctor already exists - update their medicalCenters array
+        final currentData = doctorSnapshot.data() as Map<String, dynamic>;
+        final medicalCenters = List.from(currentData['medicalCenters'] ?? []);
+        
+        bool centerFound = false;
+        for (int i = 0; i < medicalCenters.length; i++) {
+          if (medicalCenters[i] is Map) {
+            final center = Map<String, dynamic>.from(medicalCenters[i]);
+            final centerId = center['id']?.toString() ?? '';
+            final centerName = center['name']?.toString().trim().toLowerCase() ?? '';
+            final targetName = widget.medicalCenterName.trim().toLowerCase();
+            
+            // Check if this is the same medical center
+            if (centerId == medicalCenterId || 
+                centerName == targetName || 
+                centerName.contains(targetName) || 
+                targetName.contains(centerName)) {
+              // Update status to 'approved'
+              center['status'] = 'approved';
+              medicalCenters[i] = center;
+              centerFound = true;
+              break;
+            }
+          }
+        }
+        
+        // If center not found in array, add it with approved status
+        if (!centerFound) {
+          medicalCenters.add({
+            'id': medicalCenterId,
+            'name': medicalCenterName,
+            'address': doctorData['medicalCenterAddress'] ?? '',
+            'phone': doctorData['medicalCenterPhone'] ?? '',
+            'city': '',
+            'joinedAt': Timestamp.now(),
+            'status': 'approved',
+          });
+        }
+        
+        await doctorRef.update({
+          "medicalCenters": medicalCenters,
+          "updatedAt": FieldValue.serverTimestamp(),
+        });
+        
+        print('✅ Updated existing doctor with approved medical center');
+        
+      } else {
+        // Doctor doesn't exist - CREATE NEW DOCTOR in doctors collection
+        // COPY ALL DATA from doctor_requests document
+        final newDoctorData = {
+          'uid': doctorId,
+          'fullname': doctorData['fullname'] ?? doctorData['doctorName'] ?? 'Dr. Unknown',
+          'email': doctorData['email'] ?? doctorData['doctorEmail'] ?? '',
+          'phone': doctorData['mobile'] ?? doctorData['doctorPhone'] ?? '',
+          'mobile': doctorData['mobile'] ?? doctorData['doctorPhone'] ?? '',
+          'specialization': doctorData['specialization'] ?? doctorData['doctorSpecialization'] ?? '',
+          'regNumber': doctorData['regNumber'] ?? '',
+          'dob': doctorData['dob'] ?? '',
+          'address': doctorData['address'] ?? '',
+          'hospital': doctorData['hospital'] ?? '',
+          'experience': doctorData['experience'] ?? 0,
+          'fees': doctorData['fees'] ?? 0,
+          'license': doctorData['license'] ?? '',
+          'qualification': doctorData['qualification'] ?? '',
+          'profileImage': doctorData['profileImage'] ?? '',
+          'medicalCenters': [{
+            'id': medicalCenterId,
+            'name': medicalCenterName,
+            'address': doctorData['medicalCenterAddress'] ?? '',
+            'phone': doctorData['medicalCenterPhone'] ?? '',
+            'city': '',
+            'joinedAt': Timestamp.now(),
+            'status': 'approved',
+          }],
+          'role': 'doctor',
+          'status': 'approved',
+          'isEmailVerified': doctorData['isEmailVerified'] ?? false,
+          'isProfileComplete': doctorData['isProfileComplete'] ?? true, // If they're applying, profile should be complete
+          'createdAt': FieldValue.serverTimestamp(),
+          'updatedAt': FieldValue.serverTimestamp(),
+        };
+        
+        // Remove any null or empty values that might cause issues
+        final cleanedDoctorData = Map<String, dynamic>.from(newDoctorData)
+          ..removeWhere((key, value) => value == null || (value is String && value.isEmpty && key != 'email'));
+        
+        await doctorRef.set(cleanedDoctorData);
+        
+        print('✅ Created NEW doctor in doctors collection with complete data from doctor_requests');
+        print('📋 Doctor data copied:');
+        print('  - Fullname: ${cleanedDoctorData['fullname']}');
+        print('  - Email: ${cleanedDoctorData['email']}');
+        print('  - Specialization: ${cleanedDoctorData['specialization']}');
+        print('  - Reg Number: ${cleanedDoctorData['regNumber']}');
+      }
+      
+    } else {
+      // Coming from doctors collection (existing doctor with pending status)
+      final doctorRef = FirebaseFirestore.instance.collection("doctors").doc(doctorId);
+      final doctorSnapshot = await doctorRef.get();
+      
+      if (doctorSnapshot.exists) {
+        final currentData = doctorSnapshot.data() as Map<String, dynamic>;
+        final medicalCenters = List.from(currentData['medicalCenters'] ?? []);
+        
+        // Update status to 'approved' for this medical center
+        for (int i = 0; i < medicalCenters.length; i++) {
+          if (medicalCenters[i] is Map) {
+            final center = Map<String, dynamic>.from(medicalCenters[i]);
+            final centerName = center['name']?.toString().trim().toLowerCase() ?? '';
+            final targetName = widget.medicalCenterName.trim().toLowerCase();
+            
+            if (centerName == targetName || 
+                centerName.contains(targetName) || 
+                targetName.contains(centerName)) {
+              center['status'] = 'approved';
+              medicalCenters[i] = center;
+              break;
+            }
+          }
+        }
+        
+        await doctorRef.update({
+          "medicalCenters": medicalCenters,
+          "updatedAt": FieldValue.serverTimestamp(),
+        });
+        
+        print('✅ Updated existing doctor medical center status to approved');
+      }
     }
-  }
 
-  Future<void> _rejectDoctor(DocumentSnapshot doctorDoc) async {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text("$fullname approved successfully!")),
+    );
+    
+    setState(() {}); // Refresh the UI
+  } catch (e) {
+    print('❌ Error approving doctor: $e');
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text("Error approving doctor: $e")),
+    );
+  }
+}
+
+  Future<void> _rejectDoctor(DocumentSnapshot doctorDoc, bool isFromDoctorRequests) async {
     final doctorData = doctorDoc.data() as Map<String, dynamic>;
+    final doctorId = doctorDoc.id;
     final fullname = doctorData['fullname'] ?? 'Unknown Doctor';
     
     try {
-      await FirebaseFirestore.instance
-          .collection("doctor_requests")
-          .doc(doctorDoc.id)
-          .update({"status": "rejected"});
+      if (isFromDoctorRequests) {
+        // Coming from doctor_requests - update status
+        await FirebaseFirestore.instance
+            .collection("doctor_requests")
+            .doc(doctorId)
+            .update({"status": "rejected"});
+      } else {
+        // Coming from doctors collection - remove this medical center
+        final doctorRef = FirebaseFirestore.instance.collection("doctors").doc(doctorId);
+        final doctorSnapshot = await doctorRef.get();
+        final currentData = doctorSnapshot.data() as Map<String, dynamic>;
+        final medicalCenters = List.from(currentData['medicalCenters'] ?? []);
+        
+        // Remove this medical center
+        final updatedCenters = medicalCenters.where((center) {
+          if (center is Map) {
+            final centerName = center['name']?.toString().trim().toLowerCase() ?? '';
+            final targetName = widget.medicalCenterName.trim().toLowerCase();
+            return !(centerName == targetName || 
+                    centerName.contains(targetName) || 
+                    targetName.contains(centerName));
+          }
+          return true;
+        }).toList();
+        
+        await doctorRef.update({
+          "medicalCenters": updatedCenters,
+          "updatedAt": FieldValue.serverTimestamp(),
+        });
+      }
 
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text("$fullname rejected.")),
       );
+      
+      setState(() {}); // Refresh the UI
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text("Error rejecting doctor: $e")),
@@ -606,21 +747,20 @@ for (var center in medicalCenters) {
   }
 
   void _viewDoctorProfile(DocumentSnapshot doctorDoc) {
-  final doctorData = doctorDoc.data() as Map<String, dynamic>;
-  final doctorId = doctorDoc.id;
-  
-  Navigator.push(
-    context,
-    MaterialPageRoute(
-      builder: (context) => DoctorProfileScreeen(doctorId: doctorId, doctorData: doctorData),
-    ),
-  );
-}
-
- 
+    final doctorData = doctorDoc.data() as Map<String, dynamic>;
+    final doctorId = doctorDoc.id;
+    
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => DoctorProfileScreeen(doctorId: doctorId, doctorData: doctorData),
+      ),
+    );
+  }
 
   Future<void> _removeDoctor(DocumentSnapshot doctorDoc) async {
     final doctorData = doctorDoc.data() as Map<String, dynamic>;
+    final doctorId = doctorDoc.id;
     final fullname = doctorData['fullname'] ?? 'Unknown Doctor';
     
     bool confirm = await showDialog(
@@ -644,25 +784,32 @@ for (var center in medicalCenters) {
     if (confirm) {
       try {
         // Remove this medical center from the doctor's medicalCenters array
-        final currentCenters = List.from(doctorData['medicalCenters'] ?? []);
-        final updatedCenters = currentCenters.where((center) {
+        final doctorRef = FirebaseFirestore.instance.collection("doctors").doc(doctorId);
+        final doctorSnapshot = await doctorRef.get();
+        final currentData = doctorSnapshot.data() as Map<String, dynamic>;
+        final medicalCenters = List.from(currentData['medicalCenters'] ?? []);
+        
+        final updatedCenters = medicalCenters.where((center) {
           if (center is Map) {
-            return center['name'] != widget.medicalCenterName;
-          } else {
-            return center.toString() != widget.medicalCenterName;
+            final centerName = center['name']?.toString().trim().toLowerCase() ?? '';
+            final targetName = widget.medicalCenterName.trim().toLowerCase();
+            return !(centerName == targetName || 
+                    centerName.contains(targetName) || 
+                    targetName.contains(centerName));
           }
+          return true;
         }).toList();
 
-        await FirebaseFirestore.instance
-            .collection("doctors")
-            .doc(doctorDoc.id)
-            .update({
-          "medicalCenters": updatedCenters
+        await doctorRef.update({
+          "medicalCenters": updatedCenters,
+          "updatedAt": FieldValue.serverTimestamp(),
         });
 
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text("Dr. $fullname removed from your medical center")),
         );
+        
+        setState(() {}); // Refresh the UI
       } catch (e) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text("Error removing doctor: $e")),

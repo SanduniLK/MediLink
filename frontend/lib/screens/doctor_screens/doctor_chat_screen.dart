@@ -39,11 +39,19 @@ class _DoctorChatScreenState extends State<DoctorChatScreen> {
     
     // Debug to see what's in the database
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      _chatService.debugChatRoom(widget.chatRoomId);
-      _chatService.debugAllMessages(widget.chatRoomId);
+     _markMessagesAsRead();
     });
+    
+    
   }
-
+Future<void> _markMessagesAsRead() async {
+  try {
+    await _chatService.markMessagesAsRead(widget.chatRoomId, widget.doctorId);
+    debugPrint('✅ Messages marked as read');
+  } catch (e) {
+    debugPrint('❌ Error marking messages as read: $e');
+  }
+}
   void _setupMessageListener() {
     _chatService.getMessages(widget.chatRoomId).listen((messages) {
       if (mounted) {

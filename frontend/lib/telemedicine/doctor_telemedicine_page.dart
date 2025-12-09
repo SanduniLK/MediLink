@@ -2,9 +2,12 @@
 import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_database/firebase_database.dart';
 import 'package:flutter/material.dart';
 import 'package:frontend/model/telemedicine_session.dart';
+import 'package:frontend/screens/doctor_screens/doctor_chat_screen.dart';
 import 'package:frontend/screens/doctor_screens/prescription_screen.dart';
+import 'package:frontend/services/chat_service.dart';
 import 'package:frontend/telemedicine/consultation_screen.dart';
 import '../../services/firestore_service.dart';
 
@@ -34,46 +37,100 @@ class _DoctorTelemedicinePageState extends State<DoctorTelemedicinePage> {
   StreamSubscription? _sessionsSubscription;
   String _selectedFilter = 'all';
 
+final ChatService _chatService = ChatService();
+final Map<String, bool> _hasUnreadMessages = {};
+final Map<String, StreamSubscription> _unreadSubscriptions = {};
+StreamSubscription? sessionSubscription;
   final Color _primaryColor = const Color(0xFF18A3B6);
   final Color _secondaryColor = const Color(0xFF32BACD);
   final Color _accentColor = const Color(0xFF85CEDA);
   final Color _lightColor = const Color(0xFFB2DEE6);
   final Color _veryLightColor = const Color(0xFFDDF0F5);
+StreamSubscription<DatabaseEvent>? _sessionSubscription;
 
   @override
-  void initState() {
-    super.initState();
-    _loadDoctorSessions();
-    _setupPatientLeftListener();
-  }
-
-  @override
-  void dispose() {
-    _sessionsSubscription?.cancel();
-    super.dispose();
-  }
-
-  void _applyFilter() {
-    switch (_selectedFilter) {
-      case 'scheduled':
-        _filteredSessions = _sessions
-            .where((session) => session.status == 'Scheduled')
-            .toList();
-        break;
-      case 'in-progress':
-        _filteredSessions = _sessions
-            .where((session) => session.status == 'In-Progress')
-            .toList();
-        break;
-      case 'completed':
-        _filteredSessions = _sessions
-            .where((session) => session.status == 'Completed')
-            .toList();
-        break;
-      default:
-        _filteredSessions = List.from(_sessions);
+void initState() {
+  super.initState();
+   
+  
+  debugPrint('🔄 DoctorTelemedicinePage init for doctor: ${widget.doctorId}');
+  debugPrint('Doctor name: ${widget.doctorName}');
+  debugPrint('Schedule ID: ${widget.scheduleId}');
+  
+  // Add a small delay to ensure widget is fully mounted
+  Future.delayed(Duration.zero, () {
+    if (mounted) {
+      _loadDoctorSessions();
     }
+  });
+  
+  _setupPatientLeftListener();
+  _listenTelemedicineSessions();
+}
+  @override
+void dispose() {
+  
+  // Properly dispose ALL subscriptions
+  for (final subscription in _unreadSubscriptions.values) {
+    subscription.cancel();
   }
+  _unreadSubscriptions.clear();
+  
+  _sessionsSubscription?.cancel();
+  _sessionsSubscription = null;
+  
+  // Clear all data
+  _sessions.clear();
+  _filteredSessions.clear();
+  _hasUnreadMessages.clear();
+  
+  sessionSubscription?.cancel(); 
+   _sessionSubscription?.cancel();
+  super.dispose();
+}
+void _listenTelemedicineSessions() {
+  // Cancel old listener if exists
+  _sessionSubscription?.cancel();
+
+  _sessionSubscription = FirebaseDatabase.instance
+      .ref('telemedicine_sessions')
+      .onValue
+      .listen((event) {
+    final data = event.snapshot.value;
+    print("Telemedicine data: $data");
+    // Add your code to update UI here
+  });
+}
+  void _applyFilter() {
+  debugPrint('🎯 Applying filter: $_selectedFilter');
+  debugPrint('📊 Total sessions: ${_sessions.length}');
+  
+  switch (_selectedFilter) {
+    case 'scheduled':
+      _filteredSessions = _sessions
+          .where((session) => session.status.toLowerCase() == 'scheduled')
+          .toList();
+      break;
+    case 'in-progress':
+      _filteredSessions = _sessions
+          .where((session) => session.status.toLowerCase() == 'in-progress')
+          .toList();
+      break;
+    case 'completed':
+      _filteredSessions = _sessions
+          .where((session) => session.status.toLowerCase() == 'completed')
+          .toList();
+      break;
+    default:
+      _filteredSessions = List.from(_sessions);
+  }
+  
+  debugPrint('✅ Filtered to: ${_filteredSessions.length} sessions');
+  debugPrint('📋 Status counts:');
+  debugPrint('  - Scheduled: ${_sessions.where((s) => s.status.toLowerCase() == 'scheduled').length}');
+  debugPrint('  - In-Progress: ${_sessions.where((s) => s.status.toLowerCase() == 'in-progress').length}');
+  debugPrint('  - Completed: ${_sessions.where((s) => s.status.toLowerCase() == 'completed').length}');
+}
 
   void _setFilter(String filter) {
     setState(() {
@@ -83,44 +140,94 @@ class _DoctorTelemedicinePageState extends State<DoctorTelemedicinePage> {
   }
 
   Future<void> _loadDoctorSessions() async {
-    try {
-      if (mounted) {
-        setState(() {
-          _isLoading = true;
-          _hasError = false;
-          _errorMessage = '';
-        });
-      }
+  try {
+    if (mounted) {
+      setState(() {
+        _isLoading = true;
+        _hasError = false;
+        _errorMessage = '';
+      });
+    }
 
-      debugPrint(
-        '🔄 Loading REAL sessions from Firestore for doctor: ${widget.doctorId}, schedule: ${widget.scheduleId}',
-      );
+    debugPrint('=== DEBUG: _loadDoctorSessions START ===');
+    debugPrint('🔄 Loading REAL sessions from Firestore for doctor: ${widget.doctorId}, schedule: ${widget.scheduleId}');
 
-      _sessionsSubscription?.cancel();
-
-      _sessionsSubscription =
-          FirestoreService.getDoctorSessionsStream(
-            widget.doctorId,
-            scheduleId: widget.scheduleId,
-          ).listen(
-            (sessionsData) {
-              _handleSessionsData(sessionsData);
-            },
-            onError: (error) {
-              _handleSessionsError(error);
-            },
-          );
-    } catch (e) {
-      debugPrint('❌ Error setting up Firestore listener: $e');
+    // First, check if doctor exists
+    final doctorDoc = await FirebaseFirestore.instance
+        .collection('users')
+        .doc(widget.doctorId)
+        .get();
+    
+    debugPrint('Doctor exists: ${doctorDoc.exists}');
+    debugPrint('Doctor data: ${doctorDoc.data()}');
+    
+    if (!doctorDoc.exists) {
       if (mounted) {
         setState(() {
           _hasError = true;
           _isLoading = false;
-          _errorMessage = 'Failed to connect to database: ${e.toString()}';
+          _errorMessage = 'Doctor profile not found';
         });
       }
+      return;
+    }
+
+    // Cancel existing subscription
+    _sessionsSubscription?.cancel();
+
+    // Get sessions stream
+    final sessionsStream = FirestoreService.getDoctorSessionsStream(
+      widget.doctorId,
+      scheduleId: widget.scheduleId,
+    );
+    
+    debugPrint('Session stream created');
+
+    _sessionsSubscription = sessionsStream.listen(
+      (sessionsData) {
+        debugPrint('📊 Stream event: Received ${sessionsData.length} sessions');
+        _debugSessionsData(sessionsData);
+        _handleSessionsData(sessionsData);
+      },
+      onError: (error) {
+        debugPrint('❌ Stream error: $error');
+        _handleSessionsError(error);
+      },
+      onDone: () {
+        debugPrint('✅ Stream completed');
+      },
+    );
+
+    debugPrint('=== DEBUG: _loadDoctorSessions END ===');
+  } catch (e, stackTrace) {
+    debugPrint('❌ Error setting up Firestore listener: $e');
+    debugPrint('Stack trace: $stackTrace');
+    if (mounted) {
+      setState(() {
+        _hasError = true;
+        _isLoading = false;
+        _errorMessage = 'Failed to connect to database: ${e.toString()}';
+      });
     }
   }
+}
+
+// Add this debug method
+void _debugSessionsData(List<Map<String, dynamic>> sessionsData) {
+  debugPrint('=== SESSIONS DATA DEBUG ===');
+  debugPrint('Total sessions: ${sessionsData.length}');
+  
+  for (int i = 0; i < sessionsData.length; i++) {
+    final session = sessionsData[i];
+    debugPrint('Session $i:');
+    debugPrint('  - ID: ${session['appointmentId']}');
+    debugPrint('  - Patient: ${session['patientName']}');
+    debugPrint('  - Doctor ID: ${session['doctorId']}');
+    debugPrint('  - Status: ${session['status']}');
+    debugPrint('  - Type: ${session['consultationType']}');
+  }
+  debugPrint('=== END DEBUG ===');
+}
 
   // In DoctorTelemedicinePage - enhanced debug method
   void _debugSessionStatus(TelemedicineSession session) async {
@@ -157,54 +264,45 @@ class _DoctorTelemedicinePageState extends State<DoctorTelemedicinePage> {
       debugPrint('❌ Debug error: $e');
     }
   }
+bool _canDoctorJoin(TelemedicineSession session) {
+  return session.status == 'In-Progress' || 
+         session.status == 'Scheduled' ||
+         session.status == 'confirmed';
+}
 
-  void _handleSessionsData(List<Map<String, dynamic>> sessionsData) {
-    if (!mounted) return;
-
-    debugPrint(
-      '📋 _handleSessionsData → rawCount=${sessionsData.length} '
-      '(doctorId=${widget.doctorId}, scheduleId=${widget.scheduleId ?? 'NONE'})',
-    );
-
-    final sessions = sessionsData
-        .map((data) {
-          try {
-            debugPrint(
-              '🧾 Mapping session data: appointmentId=${data['appointmentId']}, '
-              'scheduleId=${data['scheduleId']}',
-            );
-            return TelemedicineSession.fromMap(data);
-          } catch (e) {
-            debugPrint('❌ Error parsing session data: $e');
-            return null;
-          }
-        })
-        .where((session) => session != null)
-        .cast<TelemedicineSession>()
-        .toList();
-
-    sessions.sort((a, b) {
-      if (a.canStart && !b.canStart) return -1;
-      if (!a.canStart && b.canStart) return 1;
-      return b.createdAt.compareTo(a.createdAt);
-    });
-
-    if (mounted) {
-      setState(() {
-        _sessions = sessions;
-        _isLoading = false;
-        _applyFilter();
-        _usingRealData = true;
-        _hasError = false;
-      });
+void _handleSessionsData(List<Map<String, dynamic>> sessionsData) {
+  if (!mounted) return;
+  
+  final sessions = sessionsData.map((data) {
+    try {
+      return TelemedicineSession.fromMap(data);
+    } catch (e) {
+      debugPrint('❌ Error parsing session: $e');
+      return null;
     }
+  }).where((session) => session != null).cast<TelemedicineSession>().toList();
 
-    debugPrint(
-      '✅ _handleSessionsData → mappedSessions=${sessions.length}, '
-      'filteredSessionsAfterApply=${_filteredSessions.length}',
-    );
+  sessions.sort((a, b) {
+    if (a.canStart && !b.canStart) return -1;
+    if (!a.canStart && b.canStart) return 1;
+    return b.createdAt.compareTo(a.createdAt);
+  });
+
+  if (mounted) {
+    setState(() {
+      _sessions = sessions;
+      _applyFilter();
+      _isLoading = false;
+      _usingRealData = true;
+      _hasError = false;
+    });
+    
+    // UNCOMMENT THIS:
+    if (_sessions.isNotEmpty) {
+      _setupUnreadListeners();
+    }
   }
-
+}
   void _handleSessionsError(error) {
     debugPrint('❌ Firestore stream error: $error');
     if (mounted) {
@@ -504,277 +602,558 @@ class _DoctorTelemedicinePageState extends State<DoctorTelemedicinePage> {
     }
   }
 
-  // In DoctorTelemedicinePage - update _buildSessionCard method
-  Widget _buildSessionCard(TelemedicineSession session) {
-    return Card(
-      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      elevation: 3,
-      color: Colors.white,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-        side: BorderSide(color: _lightColor, width: 1),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Header row
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        session.patientName,
-                        style: TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                          color: _primaryColor,
+Widget _buildSessionCard(TelemedicineSession session) {
+  final hasUnread = _hasUnreadMessages.containsKey(session.appointmentId) && 
+                    _hasUnreadMessages[session.appointmentId] == true;
+  
+  return Card(
+    margin: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+    elevation: 3,
+    color: Colors.white,
+    shape: RoundedRectangleBorder(
+      borderRadius: BorderRadius.circular(12),
+      side: BorderSide(color: _lightColor, width: 1),
+    ),
+    child: Padding(
+      padding: EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Header row
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              // Patient name with token number
+              Flexible(
+                child: Row(
+                  children: [
+                    Container(
+                      width: 28,
+                      height: 28,
+                      decoration: BoxDecoration(
+                        color: _primaryColor,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Center(
+                        child: Text(
+                          '${session.tokenNumber ?? 0}',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                          ),
                         ),
                       ),
-                      const SizedBox(height: 4),
-                      Text(
-                        'Token #${session.tokenNumber ?? session.appointmentId.substring(session.appointmentId.length - 4)}',
-                        style: TextStyle(color: _secondaryColor, fontSize: 14),
+                    ),
+                    SizedBox(width: 10),
+                    Flexible(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            session.patientName,
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                              color: _primaryColor,
+                            ),
+                            overflow: TextOverflow.ellipsis,
+                            maxLines: 1,
+                          ),
+                          SizedBox(height: 2),
+                          Text(
+                            'Token #${session.tokenNumber ?? 0}',
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: Colors.grey[600],
+                            ),
+                          ),
+                        ],
                       ),
-                    ],
+                    ),
+                  ],
+                ),
+              ),
+              // Status badge
+              Container(
+                padding: EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                decoration: BoxDecoration(
+                  color: _getStatusColor(session.status),
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Text(
+                  session.status.toUpperCase(),
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 10,
+                    fontWeight: FontWeight.bold,
                   ),
                 ),
-                // REAL-TIME STATUS BADGE
-                StreamBuilder<Map<String, dynamic>>(
-                  stream: FirestoreService.getSessionJoinStatusStream(
-                    session.appointmentId,
+              ),
+            ],
+          ),
+          
+          SizedBox(height: 12),
+          
+          // Medical Center
+          if (session.medicalCenterName != null && session.medicalCenterName!.isNotEmpty)
+            Row(
+              children: [
+                Icon(Icons.medical_services, color: _accentColor, size: 16),
+                SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    session.medicalCenterName!,
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: Colors.grey[700],
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                    maxLines: 1,
                   ),
-                  builder: (context, snapshot) {
-                    final joinStatus =
-                        snapshot.data ??
-                        {'patientJoined': false, 'doctorJoined': false};
-                    final patientJoined = joinStatus['patientJoined'] ?? false;
-                    final doctorJoined = joinStatus['doctorJoined'] ?? false;
-
-                    String statusText = session.status;
-                    Color statusColor = _getStatusColor(session.status);
-
-                    // Override status based on real-time join status
-                    if (session.status == 'Completed') {
-                      statusText = 'Completed';
-                      statusColor = Colors.grey;
-                    } else if (patientJoined && doctorJoined) {
-                      statusText = 'Connected';
-                      statusColor = Colors.green;
-                    } else if (patientJoined && !doctorJoined) {
-                      statusText = 'Patient Joined';
-                      statusColor = Colors.green;
-                    } else if (session.status == 'In-Progress' &&
-                        !patientJoined) {
-                      statusText = 'Waiting Patient';
-                      statusColor = Colors.orange;
-                    } else if (session.status == 'Scheduled') {
-                      statusText = 'Scheduled';
-                      statusColor = _secondaryColor;
-                    }
-
-                    return Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 6,
-                      ),
-                      decoration: BoxDecoration(
-                        color: statusColor,
-                        borderRadius: BorderRadius.circular(20),
-                      ),
-                      child: Text(
-                        statusText.toUpperCase(),
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 12,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    );
-                  },
                 ),
               ],
             ),
-
-            const SizedBox(height: 12),
-
-            // Session details
-            _buildDetailRow(
-              icon: Icons.videocam,
-              text: session.isVideoCall
-                  ? 'Video Consultation'
-                  : 'Audio Consultation',
-            ),
-
-            const SizedBox(height: 8),
-
-            _buildDetailRow(
-              icon: Icons.calendar_today,
-              text: _formatDate(session.createdAt),
-            ),
-
-            // REAL-TIME JOIN STATUS WITH PROPER FLOW
-            StreamBuilder<Map<String, dynamic>>(
-              stream: FirestoreService.getSessionJoinStatusStream(
-                session.appointmentId,
+          
+          if (session.medicalCenterName != null && session.medicalCenterName!.isNotEmpty)
+            SizedBox(height: 8),
+          
+          // Consultation type and time slot
+          Row(
+            children: [
+              // Consultation type
+              Row(
+                children: [
+                  Icon(
+                    session.isVideoCall ? Icons.videocam : Icons.phone,
+                    color: _accentColor,
+                    size: 16,
+                  ),
+                  SizedBox(width: 4),
+                  Text(
+                    session.isVideoCall ? 'Video' : 'Audio',
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: Colors.grey[700],
+                    ),
+                  ),
+                ],
               ),
-              builder: (context, snapshot) {
-                final joinStatus =
-                    snapshot.data ??
-                    {'patientJoined': false, 'doctorJoined': false};
-                final patientJoined = joinStatus['patientJoined'] ?? false;
-                final doctorJoined = joinStatus['doctorJoined'] ?? false;
-
-                // Also check session status from Firestore
-                return StreamBuilder<Map<String, dynamic>?>(
-                  stream: _getSessionStatusStream(session.appointmentId),
-                  builder: (context, sessionSnapshot) {
-                    final sessionData = sessionSnapshot.data;
-                    final consultationStarted =
-                        sessionData?['status'] == 'In-Progress' ||
-                        session.status == 'In-Progress';
-                    final sessionCompleted =
-                        sessionData?['status'] == 'Completed' ||
-                        session.status == 'Completed';
-                    return Column(
-                      children: [
-                        const SizedBox(height: 8),
-
-                        // DYNAMIC STATUS BASED ON REAL-TIME DATA
-                        if (!consultationStarted && !sessionCompleted) ...[
-                          _buildStatusDetailRow(
-                            icon: Icons.schedule,
-                            text: 'Ready to start consultation',
-                            statusColor: _primaryColor,
-                          ),
-                        ] else if (consultationStarted &&
-                            !patientJoined &&
-                            !sessionCompleted) ...[
-                          _buildStatusDetailRow(
-                            icon: Icons.notifications_active,
-                            text:
-                                'Consultation started - Waiting for patient...',
-                            statusColor: Colors.orange,
-                          ),
-                        ] else if (patientJoined &&
-                            !doctorJoined &&
-                            !sessionCompleted) ...[
-                          _buildStatusDetailRow(
-                            icon: Icons.check_circle,
-                            text: 'Patient Joined 👤 - Ready for you!',
-                            statusColor: Colors.green,
-                          ),
-
-                          const SizedBox(height: 8),
-                          Container(
-                            padding: const EdgeInsets.all(8),
-                            decoration: BoxDecoration(
-                              color: Colors.orange[50],
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                            child: Row(
-                              children: [
-                                Icon(
-                                  Icons.info,
-                                  color: Colors.orange,
-                                  size: 16,
-                                ),
-                                const SizedBox(width: 8),
-                                Expanded(
-                                  child: Text(
-                                    'Patient notified - join when they arrive',
-                                    style: TextStyle(
-                                      color: Colors.orange[800],
-                                      fontSize: 12,
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ] else if (sessionCompleted) ...[
-                          _buildStatusDetailRow(
-                            icon: Icons.done_all,
-                            text: 'Consultation Completed',
-                            statusColor: Colors.green,
-                          ),
-                        ],
-                      ],
-                    );
-                  },
-                );
-              },
-            ),
-
-            const SizedBox(height: 16),
-
-            // ACTION BUTTONS BASED ON REAL-TIME STATUS
-            if (session.canStart && session.status != 'Completed')
-              StreamBuilder<Map<String, dynamic>>(
-                stream: FirestoreService.getSessionJoinStatusStream(
-                  session.appointmentId,
+              
+              SizedBox(width: 16),
+              
+              // Time slot
+              if (session.timeSlot != null && session.timeSlot!.isNotEmpty)
+                Row(
+                  children: [
+                    Icon(Icons.access_time, color: _accentColor, size: 16),
+                    SizedBox(width: 4),
+                    Text(
+                      session.timeSlot!,
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: Colors.grey[700],
+                      ),
+                    ),
+                  ],
                 ),
-                builder: (context, snapshot) {
-                  final joinStatus =
-                      snapshot.data ??
-                      {'patientJoined': false, 'doctorJoined': false};
-                  final patientJoined = joinStatus['patientJoined'] ?? false;
+            ],
+          ),
+          
+          SizedBox(height: 8),
+          
+          // Appointment date and time
+          Row(
+            children: [
+              Icon(Icons.calendar_today, color: _accentColor, size: 16),
+              SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  '${_formatDate(session.createdAt)}',
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: Colors.grey[700],
+                  ),
+                ),
+              ),
+            ],
+          ),
+          
+          SizedBox(height: 16),
+          
+          // Action buttons row
+          Row(
+            children: [
+              // Primary action button
+              Expanded(
+                child: _buildPrimaryActionButton(session),
+              ),
+              
+              SizedBox(width: 8),
+              
+              // SMALL Chat button
+              Container(
+                width: 50, // Fixed small width
+                child: Stack(
+                  children: [
+                    ElevatedButton(
+                      onPressed: () => _navigateToChatScreen(session),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: hasUnread ? Colors.red : Colors.green,
+                        padding: EdgeInsets.symmetric(horizontal: 0, vertical: 12),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        minimumSize: Size(50, 48),
+                      ),
+                      child: Icon(
+                        Icons.chat,
+                        color: Colors.white,
+                        size: 18,
+                      ),
+                    ),
+                    // Red dot for unread messages
+                    if (hasUnread)
+                      Positioned(
+                        right: 5,
+                        top: 5,
+                        child: Container(
+                          width: 8,
+                          height: 8,
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            shape: BoxShape.circle,
+                            border: Border.all(color: Colors.red, width: 1.5),
+                          ),
+                          child: Container(
+                            width: 4,
+                            height: 4,
+                            decoration: BoxDecoration(
+                              color: Colors.red,
+                              shape: BoxShape.circle,
+                            ),
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    ),
+  );
+}
 
-                  return StreamBuilder<Map<String, dynamic>?>(
-                    stream: _getSessionStatusStream(session.appointmentId),
-                    builder: (context, sessionSnapshot) {
-                      final sessionData = sessionSnapshot.data;
-                      final consultationStarted =
-                          sessionData?['status'] == 'In-Progress' ||
-                          session.status == 'In-Progress';
-                      final sessionCompleted =
-                          sessionData?['status'] == 'Completed' ||
-                          session.status == 'Completed';
+// Add this method if not exists
+String _formatDate(DateTime date) {
+  return '${date.day}/${date.month}/${date.year}';
+}
 
-                      debugPrint('🔍 Session: ${session.appointmentId}');
-                      debugPrint(
-                        '   Consultation Started: $consultationStarted',
-                      );
-                      debugPrint('   Patient Joined: $patientJoined');
-                      debugPrint(
-                        '   Doctor Joined: ${joinStatus['doctorJoined']}',
-                      );
-                      debugPrint('   Session Completed: $sessionCompleted');
 
-                      // Show START button only if consultation hasn't started AND patient hasn't joined
-                      if (!consultationStarted && !sessionCompleted) {
-                        return _buildStartButton(session);
-                      }
-
-                      // Show connected state if both in call
-                      if (consultationStarted &&
-                          !joinStatus['doctorJoined'] &&
-                          !sessionCompleted) {
-                        return _buildJoinButton(session);
-                      }
-
-                      if (consultationStarted &&
-                          joinStatus['doctorJoined'] &&
-                          !sessionCompleted) {
-                        return _buildConnectedState();
-                      }
-
-                      return const SizedBox.shrink();
-                    },
-                  );
-                },
-              )
-            else if (session.status == 'Completed')
-              _buildViewDetailsButton(session),
-          ],
+Widget _buildPrimaryActionButton(TelemedicineSession session) {
+  if (session.status == 'Scheduled') {
+    return ElevatedButton(
+      onPressed: () => _startConsultation(session),
+      style: ElevatedButton.styleFrom(
+        backgroundColor: _primaryColor,
+        padding: EdgeInsets.symmetric(vertical: 12),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(8),
         ),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(
+            session.isVideoCall ? Icons.videocam : Icons.phone,
+            color: Colors.white,
+            size: 16,
+          ),
+          SizedBox(width: 6),
+          Flexible(
+            child: Text(
+              session.isVideoCall ? 'START' : 'START',
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 13,
+                fontWeight: FontWeight.bold,
+              ),
+              overflow: TextOverflow.ellipsis,
+              maxLines: 1,
+            ),
+          ),
+        ],
+      ),
+    );
+  } else if (session.status == 'In-Progress') {
+    return StreamBuilder<Map<String, dynamic>?>(
+      stream: _getSessionStatusStream(session.appointmentId),
+      builder: (context, snapshot) {
+        final patientJoined = snapshot.data?['patientJoined'] ?? false;
+        
+        if (patientJoined) {
+          return ElevatedButton(
+            onPressed: () => _joinConsultationAsDoctor(session),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.green,
+              padding: EdgeInsets.symmetric(vertical: 12),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(8),
+              ),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.video_call, color: Colors.white, size: 16),
+                SizedBox(width: 6),
+                Flexible(
+                  child: Text(
+                    'JOIN',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 13,
+                      fontWeight: FontWeight.bold,
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                    maxLines: 1,
+                  ),
+                ),
+              ],
+            ),
+          );
+        } else {
+          return Container(
+            padding: EdgeInsets.symmetric(vertical: 12),
+            decoration: BoxDecoration(
+              color: Colors.orange[50],
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: Colors.orange),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.schedule, color: Colors.orange, size: 14),
+                SizedBox(width: 6),
+                Flexible(
+                  child: Text(
+                    'WAITING',
+                    style: TextStyle(
+                      color: Colors.orange,
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                    maxLines: 1,
+                  ),
+                ),
+              ],
+            ),
+          );
+        }
+      },
+    );
+  } else {
+    // For Completed, Cancelled, etc.
+    return OutlinedButton(
+      onPressed: () => _showSessionDetails(session),
+      style: OutlinedButton.styleFrom(
+        foregroundColor: _primaryColor,
+        side: BorderSide(color: _primaryColor),
+        padding: EdgeInsets.symmetric(vertical: 12),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(8),
+        ),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(Icons.info_outline, color: _primaryColor, size: 16),
+          SizedBox(width: 6),
+          Flexible(
+            child: Text(
+              'DETAILS',
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+              ),
+              overflow: TextOverflow.ellipsis,
+              maxLines: 1,
+            ),
+          ),
+        ],
       ),
     );
   }
+}
+
+Widget _buildChatButton(TelemedicineSession session, bool hasUnread) {
+  return Container(
+    constraints: BoxConstraints(
+      minWidth: 60,
+      maxWidth: 80,
+    ),
+    child: Stack(
+      children: [
+        ElevatedButton(
+          onPressed: () => _navigateToChatScreen(session),
+          style: ElevatedButton.styleFrom(
+            backgroundColor: Colors.green,
+            padding: EdgeInsets.symmetric(vertical: 12, horizontal: 8),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(8),
+            ),
+            minimumSize: Size(60, 48), // Minimum button size
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(Icons.chat, color: Colors.white, size: 18),
+              SizedBox(height: 2),
+              Text(
+                'Chat',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 10,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ],
+          ),
+        ),
+        // RED DOT for unread messages
+        if (hasUnread)
+          Positioned(
+            right: 4,
+            top: 4,
+            child: Container(
+              width: 10,
+              height: 10,
+              decoration: BoxDecoration(
+                color: Colors.red,
+                shape: BoxShape.circle,
+                border: Border.all(color: Colors.white, width: 1.5),
+              ),
+            ),
+          ),
+      ],
+    ),
+  );
+}
+void _navigateToChatScreen(TelemedicineSession session) async {
+  try {
+    final chatRoomId = _chatService.generateChatRoomId(session.patientId, widget.doctorId);
+    
+    // Ensure chat room exists
+    await _chatService.ensureChatRoomExists(
+      chatRoomId: chatRoomId,
+      patientId: session.patientId,
+      patientName: session.patientName,
+      doctorId: widget.doctorId,
+      doctorName: widget.doctorName,
+      appointmentId: session.appointmentId,
+    );
+
+    // Mark messages as read before opening
+    await _chatService.markMessagesAsRead(chatRoomId, widget.doctorId);
+    
+    // Clear unread status immediately
+    if (mounted) {
+      setState(() {
+        _hasUnreadMessages[session.appointmentId] = false;
+      });
+    }
+    
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => DoctorChatScreen(
+          chatRoomId: chatRoomId,
+          patientName: session.patientName,
+          patientId: session.patientId,
+          doctorId: widget.doctorId,
+          doctorName: widget.doctorName,
+        ),
+      ),
+    );
+  } catch (e) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Error opening chat: $e'),
+        backgroundColor: Colors.red,
+      ),
+    );
+  }
+}
+void _setupUnreadListeners() {
+  try {
+    // Cancel existing subscriptions
+    for (final sub in _unreadSubscriptions.values) {
+      sub.cancel();
+    }
+    _unreadSubscriptions.clear();
+    
+    // Only setup listeners if sessions exist
+    if (_sessions.isEmpty) return;
+    
+    debugPrint('🔄 Setting up chat listeners for ${_sessions.length} sessions');
+    
+    for (final session in _sessions) {
+      try {
+        final chatRoomId = _chatService.generateChatRoomId(
+          session.patientId, 
+          widget.doctorId
+        );
+        
+        // Skip if already listening
+        if (_unreadSubscriptions.containsKey(session.appointmentId)) {
+          continue;
+        }
+        
+        // Create listener with timeout
+        final subscription = _chatService.getUnreadStatusStream(
+          chatRoomId, 
+          widget.doctorId
+        ).timeout(
+          Duration(seconds: 5), // Shorter timeout
+          onTimeout: (sink) {
+            sink.add(false);
+            debugPrint('⏰ Unread stream timeout for $chatRoomId');
+          },
+        ).listen(
+          (hasUnread) {
+            if (mounted) {
+              setState(() {
+                _hasUnreadMessages[session.appointmentId] = hasUnread;
+              });
+            }
+          },
+          onError: (error) {
+            debugPrint('❌ Error in unread stream: $error');
+            // Don't crash, just set to false
+            if (mounted) {
+              setState(() {
+                _hasUnreadMessages[session.appointmentId] = false;
+              });
+            }
+          },
+        );
+        
+        _unreadSubscriptions[session.appointmentId] = subscription;
+        
+      } catch (e) {
+        debugPrint('❌ Error setting up listener for ${session.appointmentId}: $e');
+      }
+    }
+    
+    debugPrint('✅ Chat listeners setup complete');
+    
+  } catch (e) {
+    debugPrint('❌ Error in _setupUnreadListeners: $e');
+  }
+}
 
   // ADD THIS METHOD FOR REAL-TIME SESSION STATUS
   Stream<Map<String, dynamic>?> _getSessionStatusStream(String appointmentId) {
@@ -1049,9 +1428,7 @@ class _DoctorTelemedicinePageState extends State<DoctorTelemedicinePage> {
     }
   }
 
-  String _formatDate(DateTime date) {
-    return '${date.day}/${date.month}/${date.year}';
-  }
+  
 
   String _formatDateTime(DateTime date) {
     return '${_formatDate(date)} ${date.hour}:${date.minute.toString().padLeft(2, '0')}';
@@ -1240,152 +1617,218 @@ class _DoctorTelemedicinePageState extends State<DoctorTelemedicinePage> {
     );
   }
 
-  Widget _buildSessionList() {
-    return Column(
-      children: [
-        if (_usingRealData)
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(12),
-            color: Colors.green[50],
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                const Icon(Icons.cloud_done, color: Colors.green, size: 16),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    'Live Data - Connected to Firestore. Updates in real-time.',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      color: Colors.green[800],
-                      fontSize: 12,
-                      fontWeight: FontWeight.w500,
-                    ),
+Color _getFilterColor(String filter) {
+  switch (filter) {
+    case 'all':
+      return _primaryColor;
+    case 'scheduled':
+      return Colors.blue;
+    case 'in-progress':
+      return Colors.orange;
+    case 'completed':
+      return Colors.green;
+    default:
+      return _primaryColor;
+  }
+}
+Widget _buildSessionList() {
+  return Column(
+    children: [
+      if (_usingRealData)
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(12),
+          color: Colors.green[50],
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Icon(Icons.cloud_done, color: Colors.green, size: 16),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'Live Data - Connected to Firestore. Updates in real-time.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: Colors.green[800],
+                    fontSize: 12,
+                    fontWeight: FontWeight.w500,
                   ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      
+      // Statistics card - NOW CLICKABLE
+      Padding(
+        padding: const EdgeInsets.all(16),
+        child: Card(
+          color: _lightColor,
+          elevation: 2,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceAround,
+              children: [
+                // ALL - Clickable
+                _buildClickableStatCard(
+                  'All',
+                  _sessions.length,
+                  _selectedFilter == 'all' ? _primaryColor : Colors.grey[600]!,
+                  'all',
+                  _selectedFilter == 'all',
+                ),
+                
+                // SCHEDULED - Clickable
+                _buildClickableStatCard(
+                  'Scheduled',
+                  _sessions.where((s) => s.status == 'Scheduled').length,
+                  _selectedFilter == 'scheduled' ? Colors.blue : Colors.grey[600]!,
+                  'scheduled',
+                  _selectedFilter == 'scheduled',
+                ),
+                
+                // IN PROGRESS - Clickable  
+                _buildClickableStatCard(
+                  'In Progress',
+                  _sessions.where((s) => s.status == 'In-Progress').length,
+                  _selectedFilter == 'in-progress' ? Colors.orange : Colors.grey[600]!,
+                  'in-progress',
+                  _selectedFilter == 'in-progress',
+                ),
+                
+                // COMPLETED - Clickable
+                _buildClickableStatCard(
+                  'Completed',
+                  _sessions.where((s) => s.status == 'Completed').length,
+                  _selectedFilter == 'completed' ? Colors.green : Colors.grey[600]!,
+                  'completed',
+                  _selectedFilter == 'completed',
                 ),
               ],
             ),
           ),
-        // Statistics card - NOW CLICKABLE
+        ),
+      ),
+      
+      // Active filter indicator
+      if (_selectedFilter != 'all')
         Padding(
-          padding: const EdgeInsets.all(16),
-          child: Card(
-            color: _lightColor,
-            elevation: 2,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceAround,
-                children: [
-                  _buildClickableStatCard(
-                    'All',
-                    _sessions.length,
-                    const Color.fromARGB(255, 173, 158, 17),
-                    'all',
-                    _selectedFilter == 'all',
-                  ),
-                  _buildClickableStatCard(
-                    'Scheduled',
-                    _sessions.where((s) => s.status == 'Scheduled').length,
-                    _primaryColor,
-                    'scheduled',
-                    _selectedFilter == 'scheduled',
-                  ),
-                  _buildClickableStatCard(
-                    'In Progress',
-                    _sessions.where((s) => s.status == 'In-Progress').length,
-                    Colors.orange,
-                    'in-progress',
-                    _selectedFilter == 'in-progress',
-                  ),
-                  _buildClickableStatCard(
-                    'Completed',
-                    _sessions.where((s) => s.status == 'Completed').length,
-                    Colors.green,
-                    'completed',
-                    _selectedFilter == 'completed',
-                  ),
-                ],
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                Icons.filter_alt,
+                color: _getFilterColor(_selectedFilter),
+                size: 16,
               ),
-            ),
-          ),
-        ),
-        Expanded(
-          child: RefreshIndicator(
-            onRefresh: _loadDoctorSessions,
-            backgroundColor: _veryLightColor,
-            color: _primaryColor,
-            child: ListView.builder(
-              padding: const EdgeInsets.only(bottom: 16),
-              itemCount: _filteredSessions.length, // CHANGE THIS
-              itemBuilder: (context, index) {
-                return _buildSessionCard(
-                  _filteredSessions[index],
-                ); // CHANGE THIS
-              },
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildClickableStatCard(
-    String title,
-    int count,
-    Color color,
-    String filter,
-    bool isSelected,
-  ) {
-    return GestureDetector(
-      onTap: () => _setFilter(filter),
-      child: Column(
-        children: [
-          Container(
-            width: 50,
-            height: 50,
-            decoration: BoxDecoration(
-              color: isSelected ? color.withOpacity(0.2) : _veryLightColor,
-              shape: BoxShape.circle,
-              border: Border.all(color: color, width: isSelected ? 3 : 2),
-              boxShadow: isSelected
-                  ? [
-                      BoxShadow(
-                        color: color.withOpacity(0.3),
-                        blurRadius: 8,
-                        offset: Offset(0, 2),
-                      ),
-                    ]
-                  : [],
-            ),
-            child: Center(
-              child: Text(
-                count.toString(),
+              SizedBox(width: 8),
+              Text(
+                'Showing: ${_selectedFilter.replaceAll('-', ' ').toUpperCase()}',
                 style: TextStyle(
-                  fontSize: 18,
+                  color: _getFilterColor(_selectedFilter),
                   fontWeight: FontWeight.bold,
-                  color: color,
+                  fontSize: 14,
                 ),
               ),
+              SizedBox(width: 16),
+              GestureDetector(
+                onTap: () => _setFilter('all'),
+                child: Text(
+                  'Clear filter',
+                  style: TextStyle(
+                    color: _primaryColor,
+                    fontSize: 13,
+                    decoration: TextDecoration.underline,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      
+      // Sessions list
+      Expanded(
+        child: RefreshIndicator(
+          onRefresh: _loadDoctorSessions,
+          backgroundColor: _veryLightColor,
+          color: _primaryColor,
+          child: ListView.builder(
+            padding: const EdgeInsets.only(bottom: 16),
+            itemCount: _filteredSessions.length,
+            itemBuilder: (context, index) {
+              return _buildSessionCard(_filteredSessions[index]);
+            },
+          ),
+        ),
+      ),
+    ],
+  );
+}
+
+
+  Widget _buildClickableStatCard(
+  String title,
+  int count,
+  Color color,
+  String filter,
+  bool isSelected,
+) {
+  return GestureDetector(
+    onTap: () => _setFilter(filter),
+    child: Column(
+      children: [
+        Container(
+          width: 50,
+          height: 50,
+          decoration: BoxDecoration(
+            color: isSelected ? color.withOpacity(0.2) : _veryLightColor,
+            shape: BoxShape.circle,
+            border: Border.all(color: color, width: isSelected ? 3 : 2),
+            boxShadow: isSelected
+                ? [
+                    BoxShadow(
+                      color: color.withOpacity(0.3),
+                      blurRadius: 8,
+                      offset: Offset(0, 2),
+                    ),
+                  ]
+                : [],
+          ),
+          child: Center(
+            child: Text(
+              count.toString(),
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+                color: color,
+              ),
             ),
           ),
-          const SizedBox(height: 8),
-          Text(
+        ),
+        const SizedBox(height: 8),
+        Container(
+          constraints: BoxConstraints(maxWidth: 80),
+          child: Text(
             title,
             style: TextStyle(
               fontSize: 12,
               color: isSelected ? color : _primaryColor,
               fontWeight: isSelected ? FontWeight.bold : FontWeight.w600,
             ),
+            overflow: TextOverflow.ellipsis,
+            maxLines: 1,
+            textAlign: TextAlign.center,
           ),
-        ],
-      ),
-    );
-  }
+        ),
+      ],
+    ),
+  );
+}
 
   Widget _buildStatCard(String title, int count, Color color) {
     return Column(

@@ -1,3 +1,6 @@
+// Replace the entire DoctorChatListScreen with this simplified version:
+
+import 'dart:async';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -17,7 +20,10 @@ class _DoctorChatListScreenState extends State<DoctorChatListScreen> {
   final ChatService _chatService = ChatService();
   List<Map<String, dynamic>> _realPatients = [];
   bool _isLoading = true;
-  final Map<String, int> _unreadCounts = {};
+  final Map<String, bool> _hasUnreadMessages = {};
+  final Map<String, StreamSubscription> _unreadSubscriptions = {};
+  final FirebaseStorage _storage = FirebaseStorage.instance;
+  final Map<String, String> _profileImageUrls = {};
 
   @override
   void initState() {
@@ -25,32 +31,39 @@ class _DoctorChatListScreenState extends State<DoctorChatListScreen> {
     _loadRealPatients();
   }
 
-Future<void> _loadRealPatients() async {
-  setState(() {
-    _isLoading = true;
-  });
-  
-  final user = _auth.currentUser;
-  if (user != null) {
-    final patients = await _chatService.getRealPatientsForDoctor(user.uid);
-    final uniquePatients = _removeDuplicatePatients(patients);
+  Future<void> _loadRealPatients() async {
     setState(() {
-      _realPatients = uniquePatients;
-      _isLoading = false;
+      _isLoading = true;
     });
     
-    // Load profile images for all patients
-    _loadProfileImages(uniquePatients);
-    // Load unread counts
-    _loadUnreadCounts(user.uid);
-  } else {
-    setState(() {
-      _isLoading = false;
-    });
+    final user = _auth.currentUser;
+    if (user != null) {
+      final patients = await _chatService.getRealPatientsForDoctor(user.uid);
+      final uniquePatients = _removeDuplicatePatients(patients);
+      
+      setState(() {
+        _realPatients = uniquePatients;
+        _isLoading = false;
+      });
+      
+      // Load profile images
+      _loadProfileImages(uniquePatients);
+      // Setup unread listeners
+      _setupUnreadListeners(user.uid, uniquePatients);
+    } else {
+      setState(() {
+        _isLoading = false;
+      });
+    }
   }
-}
 
-  // Remove duplicate patients based on patientId
+  @override
+  void dispose() {
+    // Cancel all subscriptions
+    _unreadSubscriptions.values.forEach((sub) => sub.cancel());
+    super.dispose();
+  }
+
   List<Map<String, dynamic>> _removeDuplicatePatients(List<Map<String, dynamic>> patients) {
     final Map<String, Map<String, dynamic>> uniquePatients = {};
     
@@ -63,18 +76,36 @@ Future<void> _loadRealPatients() async {
     
     return uniquePatients.values.toList();
   }
-Future<void> _loadUnreadCounts(String doctorId) async {
-  for (final patient in _realPatients) {
-    final patientId = patient['patientId'];
-    if (patientId != null) {
-      final chatRoomId = _chatService.generateChatRoomId(patientId, doctorId);
-      final unreadCount = await _chatService.getUnreadCountForDoctor(chatRoomId, doctorId);
-      setState(() {
-        _unreadCounts[patientId] = unreadCount;
-      });
+
+  void _setupUnreadListeners(String doctorId, List<Map<String, dynamic>> patients) {
+    // Cancel existing subscriptions
+    _unreadSubscriptions.values.forEach((sub) => sub.cancel());
+    _unreadSubscriptions.clear();
+    
+    // Set up new subscriptions
+    for (final patient in patients) {
+      final patientId = patient['patientId'];
+      if (patientId != null) {
+        final chatRoomId = _chatService.generateChatRoomId(patientId, doctorId);
+        
+        // Listen for unread status changes
+        final subscription = _chatService.getUnreadStatusStream(chatRoomId, doctorId)
+            .listen((hasUnread) {
+          if (mounted) {
+            setState(() {
+              _hasUnreadMessages[patientId] = hasUnread;
+            });
+            debugPrint('👤 Patient $patientId has unread: $hasUnread');
+          }
+        }, onError: (error) {
+          debugPrint('❌ Error in unread stream: $error');
+        });
+        
+        _unreadSubscriptions[patientId] = subscription;
+      }
     }
   }
-}
+
   @override
   Widget build(BuildContext context) {
     final user = _auth.currentUser;
@@ -90,6 +121,36 @@ Future<void> _loadUnreadCounts(String doctorId) async {
         backgroundColor: Color(0xFF18A3B6),
         foregroundColor: Colors.white,
         actions: [
+          // Chat button with red dot if any unread
+          StreamBuilder<bool>(
+            stream: _getAnyUnreadStream(user.uid),
+            builder: (context, snapshot) {
+              final hasAnyUnread = snapshot.data ?? false;
+              return Stack(
+                children: [
+                  IconButton(
+                    icon: Icon(Icons.chat),
+                    onPressed: () {
+                      // Already on chat screen
+                    },
+                  ),
+                  if (hasAnyUnread)
+                    Positioned(
+                      right: 8,
+                      top: 8,
+                      child: Container(
+                        width: 8,
+                        height: 8,
+                        decoration: BoxDecoration(
+                          color: Colors.red,
+                          shape: BoxShape.circle,
+                        ),
+                      ),
+                    ),
+                ],
+              );
+            },
+          ),
           IconButton(
             icon: Icon(Icons.refresh),
             onPressed: _loadRealPatients,
@@ -100,307 +161,156 @@ Future<void> _loadUnreadCounts(String doctorId) async {
           ? Center(child: CircularProgressIndicator())
           : _realPatients.isNotEmpty 
               ? _buildRealPatientsList(user.uid)
-              : _buildChatRoomsFallback(user.uid),
-      floatingActionButton: FloatingActionButton(
-        onPressed: () => _createRealChatRooms(user.uid),
-        child: Icon(Icons.sync),
-        backgroundColor: Color(0xFF18A3B6),
-        tooltip: 'Sync with real patients',
-      ),
+              : _buildEmptyState(user.uid),
     );
   }
 
+ Stream<bool> _getAnyUnreadStream(String doctorId) {
+  return Stream.periodic(Duration(seconds: 10)).asyncMap((_) async {
+    try {
+      // Check each patient's chat room for unread messages
+      for (final patient in _realPatients) {
+        final patientId = patient['patientId'];
+        if (patientId != null) {
+          final chatRoomId = _chatService.generateChatRoomId(patientId, doctorId);
+          final hasUnread = await _chatService.hasUnreadMessagesForDoctor(chatRoomId, doctorId);
+          if (hasUnread) {
+            return true;
+          }
+        }
+      }
+      return false;
+    } catch (e) {
+      debugPrint('❌ Error checking for any unread: $e');
+      return false;
+    }
+  });
+}
+
   Widget _buildRealPatientsList(String doctorId) {
-    return Column(
-      children: [
-        Padding(
-          padding: EdgeInsets.all(16),
-          child: Text(
-            'My Patients (${_realPatients.length})',
-            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-          ),
-        ),
-        Expanded(
-          child: ListView.builder(
-            padding: EdgeInsets.symmetric(horizontal: 16),
-            itemCount: _realPatients.length,
-            itemBuilder: (context, index) {
-              final patient = _realPatients[index];
-              return _buildRealPatientItem(patient, doctorId);
-            },
-          ),
-        ),
-      ],
+    return ListView.builder(
+      padding: EdgeInsets.all(16),
+      itemCount: _realPatients.length,
+      itemBuilder: (context, index) {
+        final patient = _realPatients[index];
+        return _buildRealPatientItem(patient, doctorId);
+      },
     );
   }
 
   Widget _buildRealPatientItem(Map<String, dynamic> patient, String doctorId) {
-  final patientName = patient['patientName'] ?? 'Patient';
-  final patientId = patient['patientId'];
-  final sessionId = patient['sessionId'];
-  final profileImageUrl = patientId != null ? _profileImageUrls[patientId] : null;
-  final unreadCount = patientId != null ? _unreadCounts[patientId] ?? 0 : 0;
+    final patientName = patient['patientName'] ?? 'Patient';
+    final patientId = patient['patientId'];
+    final sessionId = patient['sessionId'];
+    final profileImageUrl = patientId != null ? _profileImageUrls[patientId] : null;
+    final hasUnread = patientId != null ? (_hasUnreadMessages[patientId] ?? false) : false;
 
-  return Card(
-    margin: EdgeInsets.only(bottom: 12),
-    child: ListTile(
-      leading: _buildProfileAvatar(patientName, profileImageUrl),
-      title: Text(patientName, style: TextStyle(fontWeight: FontWeight.bold)),
-      subtitle: Text('Tap to start chat', style: TextStyle(color: Colors.green)),
-      trailing: _buildMessageCounter(unreadCount), 
-      onTap: () => _openOrCreateChat(patientId, patientName, doctorId, sessionId),
-    ),
-  );
-}
-
-  Widget _buildChatRoomsFallback(String doctorId) {
-    return StreamBuilder<List<Map<String, dynamic>>>(
-      stream: _chatService.getDoctorChatRooms(doctorId),
-      builder: (context, snapshot) {
-        if (snapshot.hasError) {
-          return Center(child: Text('Error: ${snapshot.error}'));
-        }
-
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return Center(child: CircularProgressIndicator());
-        }
-
-        final chatRooms = snapshot.data ?? [];
-        final uniqueChatRooms = _removeDuplicateChatRooms(chatRooms);
-
-        if (uniqueChatRooms.isEmpty) {
-          return _buildEmptyState(doctorId);
-        }
-
-        return ListView.builder(
-          padding: EdgeInsets.all(16),
-          itemCount: uniqueChatRooms.length,
-          itemBuilder: (context, index) {
-            final chatRoom = uniqueChatRooms[index];
-            return _buildChatItem(chatRoom);
-          },
-        );
-      },
-    );
-  }
-Widget _buildMessageCounter(int unreadCount) {
-  if (unreadCount > 0) {
-    return Stack(
-      children: [
-        Icon(Icons.chat, color: Color(0xFF18A3B6)),
-        Positioned(
-          right: 0,
-          top: 0,
-          child: Container(
-            padding: EdgeInsets.all(2),
-            decoration: BoxDecoration(
-              color: Colors.red,
-              borderRadius: BorderRadius.circular(10),
-            ),
-            constraints: BoxConstraints(
-              minWidth: 16,
-              minHeight: 16,
-            ),
-            child: Text(
-              unreadCount > 99 ? '99+' : unreadCount.toString(),
-              style: TextStyle(
-                color: Colors.white,
-                fontSize: 10,
-                fontWeight: FontWeight.bold,
+    return Card(
+      margin: EdgeInsets.only(bottom: 12),
+      child: ListTile(
+        leading: Stack(
+          children: [
+            _buildProfileAvatar(patientName, profileImageUrl),
+            if (hasUnread)
+              Positioned(
+                right: 0,
+                top: 0,
+                child: Container(
+                  width: 12,
+                  height: 12,
+                  decoration: BoxDecoration(
+                    color: Colors.red,
+                    shape: BoxShape.circle,
+                    border: Border.all(color: Colors.white, width: 2),
+                  ),
+                ),
               ),
-              textAlign: TextAlign.center,
+          ],
+        ),
+        title: Row(
+          children: [
+            Expanded(
+              child: Text(
+                patientName,
+                style: TextStyle(
+                  fontWeight: hasUnread ? FontWeight.bold : FontWeight.normal,
+                ),
+              ),
             ),
+            if (hasUnread)
+              Container(
+                padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: Colors.red[50],
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Text(
+                  'New',
+                  style: TextStyle(
+                    color: Colors.red,
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+          ],
+        ),
+        subtitle: Text(
+          hasUnread ? 'You have unread messages' : 'Tap to chat',
+          style: TextStyle(
+            color: hasUnread ? Colors.red : Colors.grey[600],
           ),
-        )
-      ],
-    );
-  } else {
-    return Icon(Icons.chat, color: Color(0xFF18A3B6));
-  }
-}
-  // Remove duplicate chat rooms based on patientId
-  List<Map<String, dynamic>> _removeDuplicateChatRooms(List<Map<String, dynamic>> chatRooms) {
-    final Map<String, Map<String, dynamic>> uniqueChatRooms = {};
-    
-    for (final chatRoom in chatRooms) {
-      final patientId = chatRoom['patientId'];
-      if (patientId != null && !uniqueChatRooms.containsKey(patientId)) {
-        uniqueChatRooms[patientId] = chatRoom;
-      }
-    }
-    
-    return uniqueChatRooms.values.toList();
-  }
-
- Widget _buildChatItem(Map<String, dynamic> chatRoom) {
-  final patientName = chatRoom['patientName'] ?? 'Patient';
-  final patientId = chatRoom['patientId'];
-  final lastMessage = chatRoom['lastMessage'] ?? 'No messages yet';
-  final lastMessageTime = chatRoom['lastMessageTime'] != null 
-      ? DateFormat('MMM dd, HH:mm').format(
-          DateTime.fromMillisecondsSinceEpoch(chatRoom['lastMessageTime']))
-      : '';
-  final profileImageUrl = patientId != null ? _profileImageUrls[patientId] : null;
-  final unreadCount = patientId != null ? _unreadCounts[patientId] ?? 0 : 0;
-
-  return Card(
-    margin: EdgeInsets.only(bottom: 12),
-    child: ListTile(
-      leading: _buildProfileAvatar(patientName, profileImageUrl),
-      title: Text(patientName, style: TextStyle(fontWeight: FontWeight.bold)),
-      subtitle: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            lastMessage,
-            style: TextStyle(
-              fontWeight: unreadCount > 0 ? FontWeight.bold : FontWeight.normal,
-            ),
-          ),
-          if (lastMessageTime.isNotEmpty) 
-            Text(lastMessageTime, style: TextStyle(fontSize: 12, color: Colors.grey)),
-        ],
+        ),
+        
+        onTap: () => _openOrCreateChat(patientId, patientName, doctorId, sessionId),
       ),
-      trailing: _buildMessageCounter(unreadCount), // Updated this line
-      onTap: () => _openChat(chatRoom),
-    ),
-  );
-}
-
-  void _openOrCreateChat(String patientId, String patientName, String doctorId, String sessionId) async {
-    try {
-      // Use the same chat room ID generation
-      final chatRoomId = _chatService.generateChatRoomId(patientId, doctorId);
-      
-      debugPrint('🔑 Generated Chat Room ID: $chatRoomId');
-      debugPrint('   Patient ID: $patientId');
-      debugPrint('   Doctor ID: $doctorId');
-      
-      await _chatService.ensureChatRoomExists(
-        chatRoomId: chatRoomId,
-        patientId: patientId,
-        patientName: patientName,
-        doctorId: doctorId,
-        doctorName: await _chatService.getDoctorName(doctorId),
-        appointmentId: sessionId,
-      );
-
-      _openChat({
-        'id': chatRoomId,
-        'patientId': patientId,
-        'patientName': patientName,
-        'doctorId': doctorId,
-        'doctorName': await _chatService.getDoctorName(doctorId),
-      });
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error starting chat: $e')),
-      );
-    }
+    );
   }
 
-  void _openChat(Map<String, dynamic> chatRoom) {
-    final user = _auth.currentUser;
-    if (user == null) return;
+ void _openOrCreateChat(String? patientId, String patientName, String doctorId, String? sessionId) async {
+  if (patientId == null) return;
+  
+  try {
+    final chatRoomId = _chatService.generateChatRoomId(patientId, doctorId);
+    
+    // Get doctor name BEFORE building the widget
+    final String doctorName = await _chatService.getDoctorName(doctorId);
+    
+    await _chatService.ensureChatRoomExists(
+      chatRoomId: chatRoomId,
+      patientId: patientId,
+      patientName: patientName,
+      doctorId: doctorId,
+      doctorName: doctorName,
+      appointmentId: sessionId,
+    );
+
+    await _chatService.markMessagesAsRead(chatRoomId, doctorId);
+    
+    if (mounted) {
+      setState(() {
+        _hasUnreadMessages[patientId] = false;
+      });
+    }
 
     Navigator.push(
       context,
       MaterialPageRoute(
         builder: (context) => DoctorChatScreen(
-          chatRoomId: chatRoom['id'],
-          patientName: chatRoom['patientName'],
-          patientId: chatRoom['patientId'],
-          doctorId: user.uid,
-          doctorName: chatRoom['doctorName'] ?? 'Dr. Reshika',
+          chatRoomId: chatRoomId,
+          patientName: patientName,
+          patientId: patientId,
+          doctorId: doctorId,
+          doctorName: doctorName,  // Use the already fetched name
         ),
       ),
     );
-  }
-
-  Future<void> _createRealChatRooms(String doctorId) async {
-    try {
-      await _chatService.createChatRoomsFromRealAppointments(doctorId);
-      await _loadRealPatients(); // Refresh the list
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Chat rooms synced with real patients!')),
-      );
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error: $e')),
-      );
-    }
-  }
-  final FirebaseStorage _storage = FirebaseStorage.instance;
-final Map<String, String> _profileImageUrls = {};
-// Load profile images for patients
-Future<void> _loadProfileImages(List<Map<String, dynamic>> patients) async {
-  for (final patient in patients) {
-    final patientId = patient['patientId'];
-    if (patientId != null) {
-      try {
-        final imageUrl = await _getProfileImageUrl(patientId);
-        if (imageUrl != null) {
-          setState(() {
-            _profileImageUrls[patientId] = imageUrl;
-          });
-        }
-      } catch (e) {
-        print('Error loading profile image for patient $patientId: $e');
-      }
-    }
-  }
-}
-
-// Get profile image URL from Firebase Storage
-Future<String?> _getProfileImageUrl(String patientId) async {
-  try {
-    // List all files in the patient's profile images directory
-    final ref = _storage.ref().child('patient_profile_images/$patientId');
-    final result = await ref.listAll();
-    
-    // Get the first image file (assuming there's only one profile image per patient)
-    if (result.items.isNotEmpty) {
-      final imageRef = result.items.first;
-      return await imageRef.getDownloadURL();
-    }
-    return null;
   } catch (e) {
-    print('No profile image found for patient $patientId: $e');
-    return null;
-  }
-}
-
-// Profile avatar widget
-Widget _buildProfileAvatar(String patientName, String? profileImageUrl) {
-  if (profileImageUrl != null) {
-    return CircleAvatar(
-      backgroundColor: Color(0xFF18A3B6),
-      backgroundImage: NetworkImage(profileImageUrl),
-      child: profileImageUrl.isEmpty 
-          ? Text(
-              patientName.isNotEmpty ? patientName[0].toUpperCase() : 'P',
-              style: TextStyle(color: Colors.white)
-            )
-          : null,
-    );
-  } else {
-    return CircleAvatar(
-      backgroundColor: Color(0xFF18A3B6),
-      child: Text(
-        patientName.isNotEmpty ? patientName[0].toUpperCase() : 'P',
-        style: TextStyle(color: Colors.white)
-      ),
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Error starting chat: $e')),
     );
   }
 }
-  Color _getStatusColor(String status) {
-    switch (status.toLowerCase()) {
-      case 'scheduled': return Colors.blue;
-      case 'confirmed': return Colors.orange;
-      case 'in-progress': return Colors.green;
-      default: return Colors.grey;
-    }
-  }
 
   Widget _buildEmptyState(String doctorId) {
     return Center(
@@ -412,18 +322,67 @@ Widget _buildProfileAvatar(String patientName, String? profileImageUrl) {
           Text('No patient chats', style: TextStyle(fontSize: 18)),
           SizedBox(height: 8),
           Text('You will see patients here when you have appointments'),
-          Text('or tap the sync button to check for appointments'),
           SizedBox(height: 20),
-          ElevatedButton(
-            onPressed: () => _createRealChatRooms(doctorId),
-            child: Text('Sync with Appointments'),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Color(0xFF18A3B6),
-              foregroundColor: Colors.white,
-            ),
-          ),
         ],
       ),
     );
+  }
+
+  // Profile avatar widget
+  Widget _buildProfileAvatar(String patientName, String? profileImageUrl) {
+    if (profileImageUrl != null) {
+      return CircleAvatar(
+        backgroundColor: Color(0xFF18A3B6),
+        backgroundImage: NetworkImage(profileImageUrl),
+        child: profileImageUrl.isEmpty 
+            ? Text(
+                patientName.isNotEmpty ? patientName[0].toUpperCase() : 'P',
+                style: TextStyle(color: Colors.white)
+              )
+            : null,
+      );
+    } else {
+      return CircleAvatar(
+        backgroundColor: Color(0xFF18A3B6),
+        child: Text(
+          patientName.isNotEmpty ? patientName[0].toUpperCase() : 'P',
+          style: TextStyle(color: Colors.white)
+        ),
+      );
+    }
+  }
+
+  // Load profile images for patients
+  Future<void> _loadProfileImages(List<Map<String, dynamic>> patients) async {
+    for (final patient in patients) {
+      final patientId = patient['patientId'];
+      if (patientId != null) {
+        try {
+          final imageUrl = await _getProfileImageUrl(patientId);
+          if (imageUrl != null) {
+            setState(() {
+              _profileImageUrls[patientId] = imageUrl;
+            });
+          }
+        } catch (e) {
+          print('Error loading profile image: $e');
+        }
+      }
+    }
+  }
+
+  Future<String?> _getProfileImageUrl(String patientId) async {
+    try {
+      final ref = _storage.ref().child('patient_profile_images/$patientId');
+      final result = await ref.listAll();
+      
+      if (result.items.isNotEmpty) {
+        final imageRef = result.items.first;
+        return await imageRef.getDownloadURL();
+      }
+      return null;
+    } catch (e) {
+      return null;
+    }
   }
 }

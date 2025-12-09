@@ -132,26 +132,11 @@ class DoctorPendingApprovalScreen extends StatelessWidget {
                     foregroundColor: Colors.white,
                     padding: const EdgeInsets.symmetric(horizontal: 30, vertical: 12),
                   ),
-                  child: const Text("Sign Out"),
+                  child: const Text("back to Sign In"),
                 ),
                 
-                // Optional: Add a "Check Status" button
-                const SizedBox(height: 10),
-                TextButton(
-                  onPressed: () {
-                    // Refresh the stream
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text('Checking for updates...'),
-                        duration: Duration(seconds: 1),
-                      ),
-                    );
-                  },
-                  child: const Text(
-                    'Check Status',
-                    style: TextStyle(color: Color(0xFF18A3B6)),
-                  ),
-                ),
+                
+                
               ],
             ),
           ),

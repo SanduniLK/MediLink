@@ -1,3 +1,6 @@
+import 'dart:async';
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:frontend/providers/queue_provider.dart';
 import 'package:frontend/screens/Notifications/notification_service.dart';
@@ -7,7 +10,6 @@ import 'package:provider/provider.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_database/firebase_database.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 
 // Screens
@@ -18,96 +20,124 @@ import 'package:frontend/screens/patient_screens/patient_home.dart';
 // Providers
 import 'package:frontend/providers/doctor_provider.dart';
 
-// Services
-import 'package:frontend/services/chat_service.dart';
-
 // Firebase options
 import 'firebase_options.dart';
 
 void main() async {
+  // Set error handler before anything else
+  FlutterError.onError = (details) {
+    debugPrint('🔥 Flutter Error: ${details.exception}');
+    // Don't crash on shader errors
+    if (details.exception.toString().contains('Impeller') ||
+        details.exception.toString().contains('shader')) {
+      debugPrint('⚠️ Ignoring graphics shader error');
+      return;
+    }
+    FlutterError.presentError(details);
+  };
+
   WidgetsFlutterBinding.ensureInitialized();
-  
+
+  try {
+    // Handle Firebase initialization with proper duplicate app handling
+    await _initializeFirebase();
+    
+    // Initialize notifications
     await NotificationService.initializeLocalNotifications();
-  // Ultimate Firebase initialization that handles hot restart
-  await _initializeFirebaseWithRetry();
-  
-  DioService.initialize();
-  runApp(const MediLinkApp());
+    
+    // Initialize Dio
+    DioService.initialize();
+    
+    runApp(const MediLinkApp());
+  } catch (e) {
+    debugPrint('❌ Main initialization failed: $e');
+    // Fallback app if Firebase fails
+    runApp(const ErrorFallbackApp());
+  }
 }
 
-Future<void> _initializeFirebaseWithRetry() async {
+Future<void> _initializeFirebase() async {
   try {
-    // Try to get existing Firebase app first
+    debugPrint('🚀 Initializing Firebase...');
+    
+    // Handle hot restart - check if Firebase is already initialized
     try {
-      Firebase.app();
-      debugPrint('✅ Firebase app already exists, skipping initialization');
-      return;
+      // Get existing apps
+      final existingApps = Firebase.apps;
+      if (existingApps.isNotEmpty) {
+        debugPrint('✅ Firebase already initialized with ${existingApps.length} app(s)');
+        
+        // For hot restart, we need to handle it differently
+        if (existingApps.any((app) => app.name == '[DEFAULT]')) {
+          debugPrint('⚠️ DEFAULT Firebase app already exists (hot restart detected)');
+          return;
+        }
+      }
     } catch (e) {
-      // No app exists, proceed with initialization
-      debugPrint('🚀 Initializing Firebase...');
-      await Firebase.initializeApp(
-        options: DefaultFirebaseOptions.currentPlatform,
-      );
-      debugPrint('✅ Firebase initialized successfully');
+      debugPrint('⚠️ Error checking existing Firebase apps: $e');
     }
     
-    // Initialize Realtime Database
-    _initializeRealtimeDatabase();
+    // Initialize Firebase
+    await Firebase.initializeApp(
+      options: DefaultFirebaseOptions.currentPlatform,
+    );
     
-    // Test database connection
-    await _testDatabaseConnection();
+    debugPrint('✅ Firebase initialized successfully');
     
   } catch (e) {
     if (e.toString().contains('duplicate-app')) {
-      debugPrint('⚠️ Firebase duplicate app detected (hot restart), continuing...');
+      debugPrint('⚠️ Duplicate Firebase app (hot restart) - continuing');
     } else {
-      debugPrint('❌ Unexpected error during Firebase initialization: $e');
+      debugPrint('❌ Firebase initialization error: $e');
       rethrow;
     }
   }
 }
 
-void _initializeRealtimeDatabase() {
-  try {
-    final database = FirebaseDatabase.instance;
-    
-    if (!kIsWeb) {
-      database.setPersistenceEnabled(true);
-      database.setPersistenceCacheSizeBytes(10000000);
-      debugPrint('✅ Realtime Database persistence enabled');
-    } else {
-      debugPrint('🌐 Web: Using Realtime Database without persistence');
-    }
-    
-  } catch (e) {
-    debugPrint('❌ Error initializing Realtime Database: $e');
+// Fallback app if Firebase fails
+class ErrorFallbackApp extends StatelessWidget {
+  const ErrorFallbackApp({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      debugShowCheckedModeBanner: false,
+      home: Scaffold(
+        body: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Icon(Icons.error_outline, size: 64, color: Colors.red),
+              const SizedBox(height: 20),
+              const Text(
+                'Initialization Error',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 10),
+              const Padding(
+                padding: EdgeInsets.symmetric(horizontal: 40),
+                child: Text(
+                  'There was an issue initializing the app. Please restart.',
+                  textAlign: TextAlign.center,
+                ),
+              ),
+              const SizedBox(height: 20),
+              ElevatedButton(
+                onPressed: () {
+                  // Try to reinitialize
+                  runApp(const MediLinkApp());
+                },
+                child: const Text('Retry'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 }
 
-Future<void> _testDatabaseConnection() async {
-  try {
-    debugPrint('🧪 Testing Realtime Database connection...');
-    
-    final database = FirebaseDatabase.instance;
-    final testRef = database.ref('connection_test');
-    
-    await testRef.set({
-      'timestamp': DateTime.now().millisecondsSinceEpoch,
-      'status': 'connected'
-    });
-    
-    final snapshot = await testRef.get();
-    if (snapshot.exists) {
-      debugPrint('✅ Realtime Database connection successful!');
-    }
-    
-    await testRef.remove();
-    
-  } catch (e) {
-    debugPrint('❌ Realtime Database connection failed: $e');
-  }
-}
-
+// Initialize Firestore data
 void initializeFirestoreData() {
   FirestoreSetup.initializeData();
 }
@@ -121,32 +151,121 @@ class MediLinkApp extends StatelessWidget {
       providers: [
         ChangeNotifierProvider(create: (_) => DoctorProvider()),
         ChangeNotifierProvider(create: (_) => QueueProvider()),
-        Provider(create: (_) => ChatService()),
       ],
       child: MaterialApp(
         debugShowCheckedModeBanner: false,
         title: 'MediLink',
         theme: ThemeData(
           primarySwatch: Colors.teal,
-          primaryColor: Color(0xFF18A3B6),
+          primaryColor: const Color(0xFF18A3B6),
+          // Try disabling some visual effects to help with shader issues
+          visualDensity: VisualDensity.adaptivePlatformDensity,
+          useMaterial3: false, // Disable Material 3 if causing issues
         ),
+        // Disable debug painting to reduce GPU load
+        debugShowMaterialGrid: false,
         home: const EntryPoint(),
       ),
     );
   }
 }
 
-class EntryPoint extends StatelessWidget {
+class EntryPoint extends StatefulWidget {
   const EntryPoint({super.key});
 
   @override
+  State<EntryPoint> createState() => _EntryPointState();
+}
+
+class _EntryPointState extends State<EntryPoint> {
+  bool _isLoading = true;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _initializeApp();
+  }
+
+  Future<void> _initializeApp() async {
+    try {
+      // Give Firebase time to settle
+      await Future.delayed(const Duration(milliseconds: 500));
+      
+      setState(() {
+        _isLoading = false;
+      });
+    } catch (e) {
+      setState(() {
+        _error = e.toString();
+        _isLoading = false;
+      });
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
+    if (_isLoading) {
+      return const Scaffold(
+        body: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              CircularProgressIndicator(),
+              SizedBox(height: 20),
+              Text('Initializing...'),
+            ],
+          ),
+        ),
+      );
+    }
+
+    if (_error != null) {
+      return Scaffold(
+        body: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Icon(Icons.error_outline, size: 64, color: Colors.orange),
+              const SizedBox(height: 20),
+              const Text(
+                'Connection Issue',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 10),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 40),
+                child: Text(
+                  _error!,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(color: Colors.grey),
+                ),
+              ),
+              const SizedBox(height: 20),
+              ElevatedButton(
+                onPressed: _initializeApp,
+                child: const Text('Retry Connection'),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
     return StreamBuilder<User?>(
       stream: FirebaseAuth.instance.authStateChanges(),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Scaffold(
             body: Center(child: CircularProgressIndicator()),
+          );
+        }
+
+        if (snapshot.hasError) {
+          return Scaffold(
+            body: Center(
+              child: Text('Authentication error: ${snapshot.error}'),
+            ),
           );
         }
 
@@ -161,6 +280,14 @@ class EntryPoint extends StatelessWidget {
                 );
               }
 
+              if (userSnapshot.hasError) {
+                return Scaffold(
+                  body: Center(
+                    child: Text('Database error: ${userSnapshot.error}'),
+                  ),
+                );
+              }
+
               if (!userSnapshot.hasData || !userSnapshot.data!.exists) {
                 return const SignInPage();
               }
@@ -169,12 +296,11 @@ class EntryPoint extends StatelessWidget {
               if (userData is! Map<String, dynamic>) {
                 return const SignInPage();
               }
+
               final data = userData;
               final role = data['role'];
 
-              // Initialize chat service for the user
-              _initializeUserChatService(uid, role, data);
-
+              // Simple routing - NO chat initialization
               if (role == 'patient') {
                 return MedicalHomeScreen(uid: uid);
               } else if (role == 'doctor') {
@@ -190,28 +316,4 @@ class EntryPoint extends StatelessWidget {
       },
     );
   }
-// In main.dart, update the initialization:
-void _initializeUserChatService(String uid, String role, Map<String, dynamic> userData) {
-  try {
-    final chatService = ChatService();
-    
-    WidgetsBinding.instance.addPostFrameCallback((_) async {
-      // Test database connection
-      final isConnected = await chatService.testDatabaseConnection();
-      
-      if (isConnected) {
-        debugPrint('✅ Realtime Database is connected!');
-        
-        // Sync with REAL data (not samples)
-        await chatService.syncChatRoomsFromSessions(uid);
-      } else {
-        debugPrint('❌ Realtime Database connection failed');
-      }
-      
-      debugPrint('✅ Chat service ready for $role: $uid');
-    });
-  } catch (e) {
-    debugPrint('❌ Error initializing chat service: $e');
-  }
-}
 }

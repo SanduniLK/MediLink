@@ -1,4 +1,4 @@
-// screens/assistant/assistant_queue_screen.dart
+// screens/assistant_screens/assistant_queue_screen.dart
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -6,33 +6,23 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:intl/intl.dart';
 
 class AssistantQueueScreen extends StatefulWidget {
-  final String? scheduleId;
-  final String? doctorId;
-  final String? doctorName;
-
-  const AssistantQueueScreen({
-    super.key,
-    this.scheduleId,
-    this.doctorId,
-    this.doctorName,
-  });
+  const AssistantQueueScreen({super.key});
 
   @override
   State<AssistantQueueScreen> createState() => _AssistantQueueScreenState();
 }
 
 class _AssistantQueueScreenState extends State<AssistantQueueScreen> {
-  List<Map<String, dynamic>> _queueAppointments = [];
-  List<Map<String, dynamic>> _completedAppointments = [];
-  List<Map<String, dynamic>> _skippedAppointments = [];
-  List<Map<String, dynamic>> _waitingAppointments = [];
-
+  List<Map<String, dynamic>> _waitingPatients = [];
+  Map<String, dynamic>? _currentPatient;
+  List<Map<String, dynamic>> _completedPatients = [];
+  List<Map<String, dynamic>> _skippedPatients = [];
+  
   bool _isLoading = false;
-  bool _showDetails = true;
   StreamSubscription? _queueSubscription;
-  Map<String, dynamic>? _currentSchedule;
+  Map<String, dynamic>? _selectedSchedule;
   List<Map<String, dynamic>> _availableSchedules = [];
-
+  
   final Color _accentColor = const Color(0xFF18A3B6);
   final Color _backgroundColor = const Color(0xFFDDF0F5);
 
@@ -50,19 +40,21 @@ class _AssistantQueueScreenState extends State<AssistantQueueScreen> {
 
   Future<void> _loadAvailableSchedules() async {
     setState(() => _isLoading = true);
-
+    
     try {
-      final user = FirebaseAuth.instance.currentUser;
-      if (user == null) return;
-
-      // Method 1: Check if assistant is assigned to schedules
+      // Get today's active schedules
+      final now = DateTime.now();
+      final startOfDay = DateTime(now.year, now.month, now.day);
+      final endOfDay = DateTime(now.year, now.month, now.day, 23, 59, 59);
+      
       final scheduleQuery = await FirebaseFirestore.instance
-          .collection('schedules')
-          .where('assistantId', isEqualTo: user.uid)
-          .where('date', isGreaterThanOrEqualTo: Timestamp.now())
+          .collection('doctorSchedules')
+          .where('date', isGreaterThanOrEqualTo: Timestamp.fromDate(startOfDay))
+          .where('date', isLessThanOrEqualTo: Timestamp.fromDate(endOfDay))
+          .where('status', isEqualTo: 'active')
           .orderBy('date')
           .get();
-
+      
       if (scheduleQuery.docs.isNotEmpty) {
         final schedules = scheduleQuery.docs.map((doc) {
           final data = doc.data();
@@ -71,51 +63,29 @@ class _AssistantQueueScreenState extends State<AssistantQueueScreen> {
             ...data,
           };
         }).toList();
-
+        
         setState(() {
           _availableSchedules = schedules;
           if (schedules.isNotEmpty) {
-            _currentSchedule = schedules.first;
-            _setupQueueStream(_currentSchedule!['id']);
-          }
-        });
-      } else {
-        // Method 2: If not assigned, show all active schedules
-        final allSchedulesQuery = await FirebaseFirestore.instance
-            .collection('schedules')
-            .where('status', isEqualTo: 'active')
-            .where('date', isGreaterThanOrEqualTo: Timestamp.now())
-            .orderBy('date')
-            .get();
-
-        final schedules = allSchedulesQuery.docs.map((doc) {
-          final data = doc.data();
-          return {
-            'id': doc.id,
-            ...data,
-          };
-        }).toList();
-
-        setState(() {
-          _availableSchedules = schedules;
-          if (schedules.isNotEmpty) {
-            _currentSchedule = schedules.first;
-            _setupQueueStream(_currentSchedule!['id']);
+            _selectedSchedule = schedules.first;
+            _setupQueueStream(_selectedSchedule!['id']);
           }
         });
       }
     } catch (e) {
       debugPrint('Error loading schedules: $e');
     } finally {
-      setState(() => _isLoading = false);
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
     }
   }
 
   void _setupQueueStream(String scheduleId) {
     _queueSubscription?.cancel();
-
+    
     setState(() => _isLoading = true);
-
+    
     _queueSubscription = FirebaseFirestore.instance
         .collection('appointments')
         .where('scheduleId', isEqualTo: scheduleId)
@@ -126,12 +96,11 @@ class _AssistantQueueScreenState extends State<AssistantQueueScreen> {
   }
 
   void _processQueueData(List<DocumentSnapshot> docs) {
-    final appointments = <Map<String, dynamic>>[];
-    final completed = <Map<String, dynamic>>[];
-    final skipped = <Map<String, dynamic>>[];
-    final waiting = <Map<String, dynamic>>[];
-    final inConsultation = <Map<String, dynamic>>[];
-
+    final List<Map<String, dynamic>> waiting = [];
+    Map<String, dynamic>? current;
+    final List<Map<String, dynamic>> completed = [];
+    final List<Map<String, dynamic>> skipped = [];
+    
     for (var doc in docs) {
       final data = doc.data() as Map<String, dynamic>?;
       if (data != null) {
@@ -143,213 +112,53 @@ class _AssistantQueueScreenState extends State<AssistantQueueScreen> {
           'queueStatus': data['queueStatus'] ?? 'waiting',
           'status': data['status'] ?? 'confirmed',
           'appointmentTime': data['appointmentTime'] ?? '--:--',
-          'arrivedAt': data['arrivedAt'],
           'mobile': data['patientMobile'] ?? data['mobile'] ?? '',
         };
 
         final status = data['status'];
         final queueStatus = data['queueStatus'];
 
-        if (status == 'completed') {
+        if (queueStatus == 'in_consultation') {
+          current = appointment;
+        } else if (status == 'completed' || queueStatus == 'completed') {
           completed.add(appointment);
-        } else if (status == 'skipped' ||
-            status == 'absent' ||
-            status == 'cancelled' ||
-            queueStatus == 'skipped') {
+        } else if (status == 'skipped' || 
+                   status == 'absent' || 
+                   status == 'cancelled' ||
+                   queueStatus == 'skipped') {
           skipped.add(appointment);
-        } else if (status == 'confirmed' ||
-            status == 'pending' ||
-            status == 'waiting') {
-          if (queueStatus == 'in_consultation') {
-            inConsultation.add(appointment);
-          } else {
-            waiting.add(appointment);
-          }
+        } else if (status == 'confirmed' || 
+                   status == 'pending' || 
+                   status == 'waiting') {
+          waiting.add(appointment);
         }
       }
     }
-
-    // Sort by token number
-    waiting.sort(
-      (a, b) => (a['tokenNumber'] as int).compareTo(b['tokenNumber'] as int),
-    );
-    completed.sort(
-      (a, b) => (a['tokenNumber'] as int).compareTo(b['tokenNumber'] as int),
-    );
-    skipped.sort(
-      (a, b) => (a['tokenNumber'] as int).compareTo(b['tokenNumber'] as int),
-    );
-
-    final queue = [...inConsultation, ...waiting];
-
+    
+    // Sort waiting patients by token number
+    waiting.sort((a, b) => (a['tokenNumber'] as int).compareTo(b['tokenNumber'] as int));
+    completed.sort((a, b) => (a['tokenNumber'] as int).compareTo(b['tokenNumber'] as int));
+    skipped.sort((a, b) => (a['tokenNumber'] as int).compareTo(b['tokenNumber'] as int));
+    
     if (mounted) {
       setState(() {
-        _queueAppointments = queue;
-        _completedAppointments = completed;
-        _skippedAppointments = skipped;
-        _waitingAppointments = waiting;
+        _waitingPatients = waiting;
+        _currentPatient = current;
+        _completedPatients = completed;
+        _skippedPatients = skipped;
         _isLoading = false;
       });
     }
   }
 
-  Future<void> _startQueueSession() async {
-    if (_currentSchedule == null) return;
-
-    final confirm = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Start Queue Session?'),
-        content: const Text(
-          'This will mark all confirmed appointments as "Waiting" in the queue.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(context, true),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: _accentColor,
-              foregroundColor: Colors.white,
-            ),
-            child: const Text('Start Session'),
-          ),
-        ],
-      ),
-    );
-
-    if (confirm != true) return;
-
-    setState(() => _isLoading = true);
-
-    try {
-      final snapshot = await FirebaseFirestore.instance
-          .collection('appointments')
-          .where('scheduleId', isEqualTo: _currentSchedule!['id'])
-          .get();
-
-      WriteBatch batch = FirebaseFirestore.instance.batch();
-      int updateCount = 0;
-
-      for (var doc in snapshot.docs) {
-        final data = doc.data();
-        final status = data['status'];
-        final currentQueueStatus = data['queueStatus'];
-
-        if (status != 'completed' &&
-            status != 'cancelled' &&
-            status != 'skipped' &&
-            currentQueueStatus != 'in_consultation') {
-          batch.update(doc.reference, {
-            'queueStatus': 'waiting',
-            'lastUpdated': FieldValue.serverTimestamp(),
-          });
-          updateCount++;
-        }
-      }
-
-      if (updateCount > 0) {
-        await batch.commit();
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(
-                'Queue initialized. $updateCount patients set to Waiting.',
-              ),
-              backgroundColor: Colors.green,
-            ),
-          );
-        }
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error starting session: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-    } finally {
-      if (mounted) setState(() => _isLoading = false);
-    }
-  }
-
-  Future<void> _callNextPatient() async {
-    if (_waitingAppointments.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('No patients waiting'),
-          backgroundColor: Colors.orange,
-        ),
-      );
-      return;
-    }
-
-    final nextPatient = _waitingAppointments.first;
-    final patientName = nextPatient['patientName'];
-    final tokenNumber = nextPatient['tokenNumber'];
-
-    final confirm = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Call Next Patient?'),
-        content: Text('Call $patientName (Token #$tokenNumber) for consultation?'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(context, true),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: _accentColor,
-              foregroundColor: Colors.white,
-            ),
-            child: const Text('Call Patient'),
-          ),
-        ],
-      ),
-    );
-
-    if (confirm != true) return;
-
-    try {
-      await FirebaseFirestore.instance
-          .collection('appointments')
-          .doc(nextPatient['id'])
-          .update({
-        'queueStatus': 'in_consultation',
-        'lastUpdated': FieldValue.serverTimestamp(),
-      });
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('$patientName (Token #$tokenNumber) called for consultation'),
-          backgroundColor: Colors.green,
-        ),
-      );
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Error calling patient: $e'),
-          backgroundColor: Colors.red,
-        ),
-      );
-    }
-  }
-
-  Future<void> _markAsSkipped(Map<String, dynamic> appointment) async {
-    final patientName = appointment['patientName'];
-    final tokenNumber = appointment['tokenNumber'];
-
+  Future<void> _markAsSkipped(Map<String, dynamic> patient) async {
+    if (!mounted) return;
+    
     final confirm = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Mark as Skipped?'),
-        content: Text('Mark $patientName (Token #$tokenNumber) as skipped/absent?'),
+        content: Text('Mark ${patient['patientName']} as skipped/absent?'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
@@ -367,150 +176,139 @@ class _AssistantQueueScreenState extends State<AssistantQueueScreen> {
       ),
     );
 
-    if (confirm != true) return;
-
-    try {
-      await FirebaseFirestore.instance
-          .collection('appointments')
-          .doc(appointment['id'])
-          .update({
-        'queueStatus': 'skipped',
-        'status': 'skipped',
-        'lastUpdated': FieldValue.serverTimestamp(),
-      });
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('$patientName marked as skipped'),
-          backgroundColor: Colors.orange,
-        ),
-      );
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Error: $e'),
-          backgroundColor: Colors.red,
-        ),
-      );
+    if (confirm == true) {
+      try {
+        await FirebaseFirestore.instance
+            .collection('appointments')
+            .doc(patient['id'])
+            .update({
+          'queueStatus': 'skipped',
+          'status': 'skipped',
+          'lastUpdated': FieldValue.serverTimestamp(),
+        });
+        
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('${patient['patientName']} marked as skipped'),
+              backgroundColor: Colors.orange,
+            ),
+          );
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Error: $e'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      }
     }
   }
 
-  Future<void> _markAsArrived(Map<String, dynamic> appointment) async {
-    try {
-      await FirebaseFirestore.instance
-          .collection('appointments')
-          .doc(appointment['id'])
-          .update({
-        'arrivedAt': FieldValue.serverTimestamp(),
-        'lastUpdated': FieldValue.serverTimestamp(),
-      });
+  Future<void> _callNextPatient() async {
+    if (_waitingPatients.isEmpty || !mounted) return;
+    
+    final nextPatient = _waitingPatients.first;
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Call Next Patient?'),
+        content: Text('Call ${nextPatient['patientName']} (Token #${nextPatient['tokenNumber']})?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: _accentColor,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('Call Patient'),
+          ),
+        ],
+      ),
+    );
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('${appointment['patientName']} marked as arrived'),
-          backgroundColor: Colors.green,
-        ),
-      );
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Error: $e'),
-          backgroundColor: Colors.red,
-        ),
-      );
+    if (confirm == true) {
+      try {
+        await FirebaseFirestore.instance
+            .collection('appointments')
+            .doc(nextPatient['id'])
+            .update({
+          'queueStatus': 'in_consultation',
+          'lastUpdated': FieldValue.serverTimestamp(),
+        });
+        
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('${nextPatient['patientName']} called for consultation'),
+              backgroundColor: Colors.green,
+            ),
+          );
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Error: $e'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      }
     }
-  }
-
-  Future<void> _sendPatientNotification(
-    String patientId,
-    String patientName,
-    String message,
-  ) async {
-    try {
-      await FirebaseFirestore.instance
-          .collection('patientNotifications')
-          .add({
-        'patientId': patientId,
-        'patientName': patientName,
-        'message': message,
-        'timestamp': DateTime.now().millisecondsSinceEpoch,
-        'read': false,
-        'type': 'queue_update',
-        'scheduleId': _currentSchedule?['id'],
-        'doctorName': _currentSchedule?['doctorName'] ?? 'Doctor',
-      });
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Notification sent to patient'),
-          backgroundColor: Colors.green,
-        ),
-      );
-    } catch (e) {
-      debugPrint('Error sending notification: $e');
-    }
-  }
-
-  void _toggleDetails() {
-    setState(() {
-      _showDetails = !_showDetails;
-    });
   }
 
   @override
   Widget build(BuildContext context) {
-    final totalCount =
-        _queueAppointments.length +
-        _completedAppointments.length +
-        _skippedAppointments.length;
-
-    final currentAppointment = _queueAppointments.firstWhere(
-      (appt) => appt['queueStatus'] == 'in_consultation',
-      orElse: () => {},
-    );
+    final totalPatients = _waitingPatients.length + 
+                         (_currentPatient != null ? 1 : 0) + 
+                         _completedPatients.length + 
+                         _skippedPatients.length;
+    
+    final completedCount = _completedPatients.length;
+    final progress = totalPatients > 0 ? completedCount / totalPatients : 0.0;
 
     return Scaffold(
       appBar: AppBar(
         title: const Text('Queue Assistant'),
         backgroundColor: _accentColor,
         foregroundColor: Colors.white,
-        actions: [
-          if (_currentSchedule != null)
-            IconButton(
-              icon: const Icon(Icons.play_circle_filled),
-              tooltip: 'Start Session',
-              onPressed: _startQueueSession,
-            ),
-          IconButton(
-            icon: Icon(_showDetails ? Icons.visibility_off : Icons.visibility),
-            onPressed: _toggleDetails,
-            tooltip: _showDetails ? 'Hide Details' : 'Show Details',
-          ),
-        ],
       ),
-      body: _isLoading && _queueAppointments.isEmpty
+      body: _isLoading
           ? const Center(child: CircularProgressIndicator())
           : Column(
               children: [
                 // Schedule Selector
                 _buildScheduleSelector(),
                 
-                // Queue Overview Card
-                _buildQueueOverviewCard(
-                  totalCount,
-                  currentAppointment,
+                // Progress Bar Section
+                _buildProgressBar(progress, completedCount, totalPatients),
+                
+                // Current Patient Section
+                if (_currentPatient != null) 
+                  _buildCurrentPatientCard(),
+                
+                // Next Patient Section
+                if (_waitingPatients.isNotEmpty)
+                  _buildNextPatientCard(),
+                
+                // Statistics Section
+                _buildStatisticsCard(),
+                
+                // Action Buttons
+                _buildActionButtons(),
+                
+                // Queue List
+                Expanded(
+                  child: _buildQueueListView(),
                 ),
-                
-                if (_showDetails)
-                  Expanded(
-                    child: _buildDetailedQueueView(),
-                  )
-                else
-                  const SizedBox(height: 16),
-                
-                // Quick Actions
-                if (!_showDetails && _currentSchedule != null)
-                  _buildQuickActions(),
               ],
             ),
     );
@@ -529,6 +327,7 @@ class _AssistantQueueScreenState extends State<AssistantQueueScreen> {
               style: TextStyle(
                 fontWeight: FontWeight.bold,
                 fontSize: 16,
+                color: Color(0xFF18A3B6),
               ),
             ),
             const SizedBox(height: 8),
@@ -537,23 +336,22 @@ class _AssistantQueueScreenState extends State<AssistantQueueScreen> {
                 padding: EdgeInsets.symmetric(vertical: 16),
                 child: Center(
                   child: Text(
-                    'No schedules available',
+                    'No active schedules today',
                     style: TextStyle(color: Colors.grey),
                   ),
                 ),
               )
             else
               DropdownButton<Map<String, dynamic>>(
-                value: _currentSchedule,
+                value: _selectedSchedule,
                 isExpanded: true,
                 items: _availableSchedules.map((schedule) {
                   final doctorName = schedule['doctorName'] ?? 'Unknown Doctor';
-                  final medicalCenter = schedule['medicalCenterName'] ?? 'Unknown Center';
                   final date = schedule['date'] != null
-                      ? DateFormat('MMM dd, yyyy HH:mm').format(
+                      ? DateFormat('hh:mm a').format(
                           (schedule['date'] as Timestamp).toDate(),
                         )
-                      : 'No date';
+                      : 'Today';
                   
                   return DropdownMenuItem<Map<String, dynamic>>(
                     value: schedule,
@@ -565,8 +363,8 @@ class _AssistantQueueScreenState extends State<AssistantQueueScreen> {
                           style: const TextStyle(fontWeight: FontWeight.bold),
                         ),
                         Text(
-                          '$medicalCenter • $date',
-                          style: const TextStyle(fontSize: 12),
+                          'Time: $date',
+                          style: const TextStyle(fontSize: 12, color: Colors.grey),
                         ),
                       ],
                     ),
@@ -575,7 +373,7 @@ class _AssistantQueueScreenState extends State<AssistantQueueScreen> {
                 onChanged: (schedule) {
                   if (schedule != null) {
                     setState(() {
-                      _currentSchedule = schedule;
+                      _selectedSchedule = schedule;
                     });
                     _setupQueueStream(schedule['id']);
                   }
@@ -587,206 +385,51 @@ class _AssistantQueueScreenState extends State<AssistantQueueScreen> {
     );
   }
 
-  Widget _buildQueueOverviewCard(
-    int totalCount,
-    Map<String, dynamic> currentAppointment,
-  ) {
-    return GestureDetector(
-      onTap: _toggleDetails,
-      child: Container(
-        padding: const EdgeInsets.all(16),
-        margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        decoration: BoxDecoration(
-          color: _backgroundColor,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: _accentColor.withOpacity(0.3)),
-        ),
-        child: Column(
-          children: [
-            Row(
-              children: [
-                const Icon(Icons.people, color: Color(0xFF18A3B6)),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text(
-                        'Queue Status',
-                        style: TextStyle(
-                          fontWeight: FontWeight.bold,
-                          color: Color(0xFF18A3B6),
-                        ),
-                      ),
-                      Text(
-                        '${_completedAppointments.length} done • ${_skippedAppointments.length} absent • ${_waitingAppointments.length} waiting',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: Colors.grey[600],
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                Icon(
-                  _showDetails ? Icons.arrow_drop_up : Icons.arrow_drop_down,
-                  color: const Color(0xFF18A3B6),
-                ),
-              ],
-            ),
-            if (currentAppointment.isNotEmpty) ...[
-              const SizedBox(height: 12),
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: Colors.blue[50],
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: Colors.blue[100]!),
-                ),
-                child: Row(
-                  children: [
-                    const Icon(Icons.person, color: Colors.blue, size: 20),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text(
-                            'Currently Consulting',
-                            style: TextStyle(
-                              fontWeight: FontWeight.bold,
-                              color: Colors.blue,
-                            ),
-                          ),
-                          Text(
-                            '${currentAppointment['patientName']} (#${currentAppointment['tokenNumber']})',
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildDetailedQueueView() {
-    return SingleChildScrollView(
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Action Buttons
-            Row(
-              children: [
-                Expanded(
-                  child: ElevatedButton.icon(
-                    onPressed: _waitingAppointments.isNotEmpty ? _callNextPatient : null,
-                    icon: const Icon(Icons.volume_up, size: 20),
-                    label: const Text('Call Next Patient'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.green,
-                      foregroundColor: Colors.white,
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: OutlinedButton.icon(
-                    onPressed: _loadAvailableSchedules,
-                    icon: const Icon(Icons.refresh, size: 20),
-                    label: const Text('Refresh'),
-                  ),
-                ),
-              ],
-            ),
-            
-            const SizedBox(height: 20),
-            
-            // Statistics
-            _buildQueueStatistics(),
-            
-            const SizedBox(height: 20),
-            
-            // Waiting Patients List
-            if (_waitingAppointments.isNotEmpty) ...[
-              _buildPatientListSection(
-                'Waiting Patients (${_waitingAppointments.length})',
-                _waitingAppointments,
-                'waiting',
-              ),
-              const SizedBox(height: 20),
-            ],
-            
-            // Currently Consulting
-            final currentPatient = _queueAppointments.firstWhere(
-              (appt) => appt['queueStatus'] == 'in_consultation',
-              orElse: () => {},
-            );
-            if (currentPatient.isNotEmpty) ...[
-              _buildPatientListSection(
-                'Currently Consulting',
-                [currentPatient],
-                'consulting',
-              ),
-              const SizedBox(height: 20),
-            ],
-            
-            // Completed Patients
-            if (_completedAppointments.isNotEmpty) ...[
-              _buildPatientListSection(
-                'Completed (${_completedAppointments.length})',
-                _completedAppointments,
-                'completed',
-              ),
-              const SizedBox(height: 20),
-            ],
-            
-            // Skipped/Absent Patients
-            if (_skippedAppointments.isNotEmpty) ...[
-              _buildPatientListSection(
-                'Skipped/Absent (${_skippedAppointments.length})',
-                _skippedAppointments,
-                'skipped',
-              ),
-            ],
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildQueueStatistics() {
+  Widget _buildProgressBar(double progress, int completed, int total) {
     return Card(
+      margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       child: Padding(
         padding: const EdgeInsets.all(16),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceAround,
+        child: Column(
           children: [
-            _buildStatItem(
-              'Total',
-              '${_queueAppointments.length + _completedAppointments.length + _skippedAppointments.length}',
-              Colors.blue,
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text(
+                  'Queue Progress',
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 16,
+                  ),
+                ),
+                Text(
+                  '$completed/$total completed',
+                  style: const TextStyle(
+                    color: Colors.green,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ],
             ),
-            _buildStatItem(
-              'Waiting',
-              '${_waitingAppointments.length}',
-              Colors.orange,
+            const SizedBox(height: 12),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(10),
+              child: LinearProgressIndicator(
+                value: progress,
+                backgroundColor: Colors.grey[200],
+                valueColor: const AlwaysStoppedAnimation<Color>(Colors.green),
+                minHeight: 12,
+              ),
             ),
-            _buildStatItem(
-              'Completed',
-              '${_completedAppointments.length}',
-              Colors.green,
-            ),
-            _buildStatItem(
-              'Skipped',
-              '${_skippedAppointments.length}',
-              Colors.red,
+            const SizedBox(height: 8),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                _buildProgressItem('Waiting', _waitingPatients.length, Colors.orange),
+                _buildProgressItem('Consulting', _currentPatient != null ? 1 : 0, Colors.blue),
+                _buildProgressItem('Completed', completed, Colors.green),
+                _buildProgressItem('Skipped', _skippedPatients.length, Colors.red),
+              ],
             ),
           ],
         ),
@@ -794,12 +437,12 @@ class _AssistantQueueScreenState extends State<AssistantQueueScreen> {
     );
   }
 
-  Widget _buildStatItem(String label, String count, Color color) {
+  Widget _buildProgressItem(String label, int count, Color color) {
     return Column(
       children: [
         Container(
-          width: 40,
-          height: 40,
+          width: 30,
+          height: 30,
           decoration: BoxDecoration(
             color: color.withOpacity(0.1),
             borderRadius: BorderRadius.circular(8),
@@ -807,11 +450,210 @@ class _AssistantQueueScreenState extends State<AssistantQueueScreen> {
           ),
           child: Center(
             child: Text(
-              count,
+              '$count',
               style: TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.bold,
                 color: color,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: 10,
+            color: Colors.grey[600],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildCurrentPatientCard() {
+    return Card(
+      margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      color: Colors.blue[50],
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: Colors.blue,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Icon(
+                    Icons.person,
+                    color: Colors.white,
+                    size: 24,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Currently Consulting',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.blue,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      Text(
+                        _currentPatient!['patientName'],
+                        style: const TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: Colors.blue,
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Text(
+                    'Token #${_currentPatient!['tokenNumber']}',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            if (_currentPatient!['mobile'] != null && _currentPatient!['mobile'].toString().isNotEmpty)
+              Row(
+                children: [
+                  Icon(Icons.phone, size: 16, color: Colors.grey[600]),
+                  const SizedBox(width: 8),
+                  Text(
+                    _currentPatient!['mobile'].toString(),
+                    style: TextStyle(color: Colors.grey[600]),
+                  ),
+                ],
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildNextPatientCard() {
+    final nextPatient = _waitingPatients.first;
+    return Card(
+      margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      color: Colors.orange[50],
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: Colors.orange,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Icon(
+                    Icons.access_time,
+                    color: Colors.white,
+                    size: 24,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Next Patient',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.orange,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      Text(
+                        nextPatient['patientName'],
+                        style: const TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: Colors.orange,
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Text(
+                    'Token #${nextPatient['tokenNumber']}',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildStatisticsCard() {
+    return Card(
+      margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceAround,
+          children: [
+            _buildStatCircle('Waiting', _waitingPatients.length, Colors.orange),
+            _buildStatCircle('In Room', _currentPatient != null ? 1 : 0, Colors.blue),
+            _buildStatCircle('Completed', _completedPatients.length, Colors.green),
+            _buildStatCircle('Skipped', _skippedPatients.length, Colors.red),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildStatCircle(String label, int count, Color color) {
+    return Column(
+      children: [
+        Container(
+          width: 50,
+          height: 50,
+          decoration: BoxDecoration(
+            color: color,
+            shape: BoxShape.circle,
+          ),
+          child: Center(
+            child: Text(
+              '$count',
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
               ),
             ),
           ),
@@ -828,209 +670,229 @@ class _AssistantQueueScreenState extends State<AssistantQueueScreen> {
     );
   }
 
-  Widget _buildPatientListSection(
-    String title,
-    List<Map<String, dynamic>> patients,
-    String status,
-  ) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          title,
-          style: const TextStyle(
-            fontSize: 18,
-            fontWeight: FontWeight.bold,
-            color: Color(0xFF18A3B6),
-          ),
-        ),
-        const SizedBox(height: 8),
-        ...patients.map((patient) => _buildPatientCard(patient, status)),
-      ],
-    );
-  }
-
-  Widget _buildPatientCard(Map<String, dynamic> patient, String status) {
-    final tokenNumber = patient['tokenNumber'] ?? 0;
-    final patientName = patient['patientName'] ?? 'Unknown';
-    final appointmentTime = patient['appointmentTime'] ?? '--:--';
-    final mobile = patient['mobile'] ?? '';
-    final arrivedAt = patient['arrivedAt'];
-
-    Color statusColor = Colors.grey;
-    String statusText = 'Unknown';
-
-    switch (status) {
-      case 'waiting':
-        statusColor = Colors.orange;
-        statusText = 'WAITING';
-        break;
-      case 'consulting':
-        statusColor = Colors.green;
-        statusText = 'IN CONSULTATION';
-        break;
-      case 'completed':
-        statusColor = Colors.blue;
-        statusText = 'COMPLETED';
-        break;
-      case 'skipped':
-        statusColor = Colors.red;
-        statusText = 'SKIPPED';
-        break;
-    }
-
-    return Card(
-      margin: const EdgeInsets.only(bottom: 8),
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Container(
-                  width: 40,
-                  height: 40,
-                  decoration: BoxDecoration(
-                    color: statusColor.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: statusColor),
-                  ),
-                  child: Center(
-                    child: Text(
-                      '#$tokenNumber',
-                      style: TextStyle(
-                        color: statusColor,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        patientName,
-                        style: const TextStyle(
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      if (mobile.isNotEmpty)
-                        Text(
-                          mobile,
-                          style: const TextStyle(fontSize: 12, color: Colors.grey),
-                        ),
-                    ],
-                  ),
-                ),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: statusColor.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Text(
-                    statusText,
-                    style: TextStyle(
-                      fontSize: 10,
-                      fontWeight: FontWeight.bold,
-                      color: statusColor,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                Icon(Icons.access_time, size: 14, color: Colors.grey[600]),
-                const SizedBox(width: 4),
-                Text('Appointment: $appointmentTime'),
-                const Spacer(),
-                if (arrivedAt != null)
-                  Text(
-                    'Arrived: ${DateFormat('HH:mm').format((arrivedAt as Timestamp).toDate())}',
-                    style: const TextStyle(fontSize: 12, color: Colors.green),
-                  ),
-              ],
-            ),
-            if (status == 'waiting') ...[
-              const SizedBox(height: 8),
-              Row(
-                children: [
-                  Expanded(
-                    child: OutlinedButton.icon(
-                      onPressed: () => _markAsArrived(patient),
-                      icon: const Icon(Icons.check_circle, size: 16),
-                      label: const Text('Mark Arrived'),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: OutlinedButton.icon(
-                      onPressed: () => _markAsSkipped(patient),
-                      icon: const Icon(Icons.close, size: 16),
-                      label: const Text('Skip'),
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: Colors.orange,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: OutlinedButton.icon(
-                      onPressed: () => _sendPatientNotification(
-                        patient['patientId'],
-                        patientName,
-                        'Please proceed to consultation room. Token #$tokenNumber',
-                      ),
-                      icon: const Icon(Icons.notification_important, size: 16),
-                      label: const Text('Notify'),
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildQuickActions() {
+  Widget _buildActionButtons() {
     return Padding(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       child: Row(
         children: [
           Expanded(
             child: ElevatedButton.icon(
-              onPressed: _waitingAppointments.isNotEmpty ? _callNextPatient : null,
-              icon: const Icon(Icons.volume_up),
-              label: const Text('Call Next'),
+              onPressed: _waitingPatients.isNotEmpty ? _callNextPatient : null,
+              icon: const Icon(Icons.volume_up, size: 20),
+              label: const Text('Call Next Patient'),
               style: ElevatedButton.styleFrom(
                 backgroundColor: Colors.green,
                 foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(vertical: 16),
+                padding: const EdgeInsets.symmetric(vertical: 12),
               ),
             ),
           ),
           const SizedBox(width: 12),
           Expanded(
-            child: ElevatedButton.icon(
-              onPressed: _toggleDetails,
-              icon: const Icon(Icons.list),
-              label: const Text('View All'),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: _accentColor,
-                foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(vertical: 16),
+            child: OutlinedButton.icon(
+              onPressed: _loadAvailableSchedules,
+              icon: const Icon(Icons.refresh, size: 20),
+              label: const Text('Refresh'),
+              style: OutlinedButton.styleFrom(
+                padding: const EdgeInsets.symmetric(vertical: 12),
               ),
             ),
           ),
         ],
       ),
     );
+  }
+
+  Widget _buildQueueListView() {
+    return DefaultTabController(
+      length: 3,
+      child: Column(
+        children: [
+          TabBar(
+            tabs: [
+              Tab(
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(Icons.access_time, size: 16),
+                    const SizedBox(width: 4),
+                    Text('Waiting (${_waitingPatients.length})'),
+                  ],
+                ),
+              ),
+              Tab(
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(Icons.check_circle, size: 16),
+                    const SizedBox(width: 4),
+                    Text('Completed (${_completedPatients.length})'),
+                  ],
+                ),
+              ),
+              Tab(
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(Icons.close, size: 16),
+                    const SizedBox(width: 4),
+                    Text('Skipped (${_skippedPatients.length})'),
+                  ],
+                ),
+              ),
+            ],
+            labelColor: _accentColor,
+            indicatorColor: _accentColor,
+          ),
+          Expanded(
+            child: TabBarView(
+              children: [
+                _buildPatientList(_waitingPatients, 'waiting'),
+                _buildPatientList(_completedPatients, 'completed'),
+                _buildPatientList(_skippedPatients, 'skipped'),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPatientList(List<Map<String, dynamic>> patients, String status) {
+    if (patients.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              _getStatusIcon(status),
+              size: 60,
+              color: Colors.grey[300],
+            ),
+            const SizedBox(height: 16),
+            Text(
+              _getEmptyMessage(status),
+              style: TextStyle(
+                color: Colors.grey[500],
+                fontSize: 16,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return ListView.builder(
+      padding: const EdgeInsets.all(12),
+      itemCount: patients.length,
+      itemBuilder: (context, index) {
+        return _buildPatientListItem(patients[index], status);
+      },
+    );
+  }
+
+  Widget _buildPatientListItem(Map<String, dynamic> patient, String status) {
+    final tokenNumber = patient['tokenNumber'] ?? 0;
+    final patientName = patient['patientName'] ?? 'Unknown';
+    final appointmentTime = patient['appointmentTime'] ?? '--:--';
+    final mobile = patient['mobile'] ?? '';
+
+    Color statusColor = Colors.grey;
+    IconData statusIcon = Icons.person;
+
+    switch (status) {
+      case 'waiting':
+        statusColor = Colors.orange;
+        statusIcon = Icons.access_time;
+        break;
+      case 'completed':
+        statusColor = Colors.green;
+        statusIcon = Icons.check_circle;
+        break;
+      case 'skipped':
+        statusColor = Colors.red;
+        statusIcon = Icons.close;
+        break;
+    }
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: 8),
+      child: ListTile(
+        leading: Container(
+          width: 40,
+          height: 40,
+          decoration: BoxDecoration(
+            color: statusColor.withOpacity(0.1),
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: statusColor),
+          ),
+          child: Center(
+            child: Text(
+              '#$tokenNumber',
+              style: TextStyle(
+                color: statusColor,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+        ),
+        title: Text(
+          patientName,
+          style: const TextStyle(fontWeight: FontWeight.bold),
+        ),
+        subtitle: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (mobile.isNotEmpty)
+              Text(
+                mobile,
+                style: const TextStyle(fontSize: 12),
+              ),
+            Text(
+              'Appointment: $appointmentTime',
+              style: const TextStyle(fontSize: 12, color: Colors.grey),
+            ),
+          ],
+        ),
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(statusIcon, color: statusColor, size: 20),
+            if (status == 'waiting')
+              IconButton(
+                icon: const Icon(Icons.close, color: Colors.red, size: 20),
+                onPressed: () => _markAsSkipped(patient),
+                tooltip: 'Mark as Skipped',
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  IconData _getStatusIcon(String status) {
+    switch (status) {
+      case 'waiting':
+        return Icons.access_time;
+      case 'completed':
+        return Icons.check_circle;
+      case 'skipped':
+        return Icons.close;
+      default:
+        return Icons.person;
+    }
+  }
+
+  String _getEmptyMessage(String status) {
+    switch (status) {
+      case 'waiting':
+        return 'No patients waiting';
+      case 'completed':
+        return 'No consultations completed yet';
+      case 'skipped':
+        return 'No skipped patients';
+      default:
+        return 'No patients';
+    }
   }
 }

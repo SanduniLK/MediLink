@@ -1,5 +1,7 @@
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:frontend/screens/doctor_screens/create_schedule_screen.dart';
 import 'schedule_appointments_screen.dart';
 import 'package:frontend/telemedicine/doctor_telemedicine_page.dart';
 
@@ -182,16 +184,28 @@ class Allschedule extends StatefulWidget {
 class _AllscheduleState extends State<Allschedule> {
   late Stream<QuerySnapshot> _schedulesStream;
   bool _isLoading = true;
+   String? _currentDoctorId;
 
   @override
   void initState() {
     super.initState();
-    _initializeStream();
+    geteachdoctorID();
   }
-
+ void geteachdoctorID(){
+  final user=FirebaseAuth.instance.currentUser;
+  if (user!=null){
+    _currentDoctorId=user.uid;
+    _initializeStream();
+  }else{
+    setState(() {
+      _isLoading=false;
+    });
+  }
+ }
   void _initializeStream() {
     _schedulesStream = FirebaseFirestore.instance
         .collection('doctorSchedules')
+        .where('doctorId', isEqualTo: _currentDoctorId) 
         .snapshots();
 
     setState(() {
@@ -414,7 +428,7 @@ class _AllscheduleState extends State<Allschedule> {
           const SizedBox(height: 24),
           ElevatedButton(
             onPressed: () {
-              // Add create schedule functionality
+              
             },
             style: ElevatedButton.styleFrom(
               backgroundColor: primaryColor,

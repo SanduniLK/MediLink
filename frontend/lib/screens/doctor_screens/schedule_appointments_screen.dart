@@ -1300,7 +1300,7 @@ if (_activeAppointments > 0 && _currentQueueNumber > 0)
                         Text(
                           appointment.patientName,
                           style: TextStyle(
-                            fontSize: 16,
+                            fontSize: 14,
                             fontWeight: FontWeight.w600,
                             color: textColorDark,
                           ),

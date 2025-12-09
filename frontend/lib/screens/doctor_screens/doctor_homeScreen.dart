@@ -1,34 +1,22 @@
 import 'dart:async';
-
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:frontend/providers/doctor_provider.dart';
 import 'package:frontend/screens/Notifications/DoctorNotificationPage.dart';
 import 'package:frontend/screens/doctor_screens/allschedule.dart';
 import 'package:frontend/screens/doctor_screens/create_schedule_screen.dart';
 import 'package:frontend/screens/doctor_screens/doctor_appointments_page.dart';
 import 'package:frontend/screens/doctor_screens/doctor_feedback_dashboard.dart';
 import 'package:frontend/screens/doctor_screens/doctor_profile.dart';
-import 'package:frontend/screens/doctor_screens/doctor_qr_scanner_screen.dart';
-
 import 'package:frontend/screens/doctor_screens/doctor_revenue_analyze.dart';
-import 'package:frontend/screens/doctor_screens/prescription_screen.dart';
-
-
+import 'package:frontend/screens/doctor_screens/new_medicalcenter_register.dart';
 import 'package:frontend/screens/doctor_screens/settings_screen.dart';
 import 'package:frontend/screens/doctor_screens/today_appointments_screen.dart';
-import 'package:frontend/screens/doctor_screens/written_prescribe.dart';
-
-import 'package:frontend/screens/patient_screens/notifications.dart';
-import 'package:frontend/screens/phamecy_screens/prescriptionImageScreen.dart';
+import 'package:frontend/services/chat_service.dart';
 import 'package:frontend/telemedicine/doctor_telemedicine_page.dart';
+import 'package:frontend/telemedicine/notification_badge.dart';
 import 'package:intl/intl.dart';
-import 'package:provider/provider.dart';
-
-
-import 'package:frontend/screens/doctor_screens/doctor_chat_screen.dart';
 import 'package:frontend/screens/doctor_screens/doctor_chat_list_screen.dart';
 
 class DoctorHomeScreen extends StatefulWidget {
@@ -54,6 +42,11 @@ class _DoctorHomeScreenState extends State<DoctorHomeScreen> {
   double doctorFeedbackScore = 0.0;
   int totalFeedbackCount = 0;
 
+  final ChatService _chatService = ChatService();
+  final FirebaseAuth _auth = FirebaseAuth.instance;
+  int _unreadMessageCount = 0;
+  StreamSubscription? _unreadSubscription;
+
   // Your exact theme colors
   final Color primaryColor = const Color(0xFF18A3B6);
   final Color secondaryColor = const Color(0xFF32BACD);
@@ -68,21 +61,36 @@ final Map<String, int> _unreadCounts = {};
   void initState() {
     super.initState();
     _loadDoctorData();
-    _loadTodayStats();
+    _loadTodayStats(); 
     _loadUnreadMessagesCount();
      _getDoctorInfo();
      _startMessageListener();
      _loadDoctorProfileImage(); 
      _loadTodaySessions();
      _loadDoctorFeedback();
+     _setupUnreadListener();
   }
   StreamSubscription? _messageSubscription;
 
 @override
 void dispose() {
   _messageSubscription?.cancel();
+  _unreadSubscription?.cancel();
   super.dispose();
 }
+void _setupUnreadListener() async {
+    final user = _auth.currentUser;
+    if (user != null) {
+      _unreadSubscription = _chatService.getTotalUnreadCountStream(user.uid, 'doctor')
+          .listen((count) {
+        if (mounted) {
+          setState(() {
+            _unreadMessageCount = count;
+          });
+        }
+      });
+    }
+  }
 void _startMessageListener() {
   final user = FirebaseAuth.instance.currentUser;
   if (user == null) return;
@@ -95,6 +103,17 @@ void _startMessageListener() {
     _loadUnreadMessagesCount();
   });
 }
+ void _navigateToDoctorChat() {
+    final user = _auth.currentUser;
+    if (user != null) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => DoctorChatListScreen(),
+        ),
+      );
+    }
+  }
 void _getDoctorInfo() {
     final user = FirebaseAuth.instance.currentUser;
     if (user != null) {
@@ -355,46 +374,106 @@ Future<void> _testSpecificImage() async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
 
+    // Get TODAY's date in the format stored in appointments
     final now = DateTime.now();
-    final todayFormatted = DateFormat('dd/MM/yyyy').format(now);
+    final todayFormatted = '${now.day}/${now.month}/${now.year}'; // "5/12/2025"
+    final todayFormatted2 = '${now.day.toString().padLeft(2, '0')}/${now.month.toString().padLeft(2, '0')}/${now.year}'; // "05/12/2025"
     
-    // Get all appointments for this doctor
+    print('📅 TODAY IS: $todayFormatted');
+    print('🔍 Looking for appointments with date: $todayFormatted or $todayFormatted2');
+
+    // Get ALL appointments for this doctor
     final appointmentsSnapshot = await FirebaseFirestore.instance
         .collection('appointments')
         .where('doctorId', isEqualTo: user.uid)
         .get();
 
+    print('📊 Found ${appointmentsSnapshot.docs.length} total appointments');
+
     int todayCount = 0;
     int waitingCount = 0;
-
+    
     for (final doc in appointmentsSnapshot.docs) {
       final appointment = doc.data();
-      final appointmentDate = appointment['date']?.toString() ?? '';
       
-      // Check if appointment is for today
-      if (_isDateToday(appointmentDate, now)) {
+      // Check ALL possible date fields
+      final date1 = appointment['appointmentDate']?.toString() ?? '';
+      final date2 = appointment['date']?.toString() ?? '';
+      final date3 = appointment['selectedDate']?.toString() ?? '';
+      
+      // Try to match any date field
+      bool isToday = false;
+      
+      for (final dateStr in [date1, date2, date3]) {
+        if (dateStr.isEmpty) continue;
+        
+        final extractedDate = _extractDateOnly(dateStr);
+        
+        if (extractedDate == todayFormatted || extractedDate == todayFormatted2) {
+          isToday = true;
+          break;
+        }
+      }
+      
+      if (isToday) {
         todayCount++;
         
-        // Check if waiting/checked-in
-        final status = appointment['status']?.toString() ?? '';
-        final queueStatus = appointment['queueStatus']?.toString() ?? '';
+        // Check if it's waiting
+        final status = appointment['status'] ?? '';
+        final queueStatus = appointment['queueStatus'] ?? '';
         
-        if (status == 'confirmed' || status == 'pending' || 
-            queueStatus == 'waiting' || queueStatus == 'checked-in') {
+        if ((status == 'confirmed' || status == 'pending') ||
+            (queueStatus == 'waiting' || queueStatus == 'checked-in')) {
           waitingCount++;
         }
       }
     }
+
+    print('🎯 FINAL COUNT: $todayCount appointments for today');
 
     setState(() {
       todayAppointmentsCount = todayCount;
       waitingPatientsCount = waitingCount;
       hasActiveQueue = waitingCount > 0;
     });
+
   } catch (e) {
-    print('Error loading today stats: $e');
+    print('🔥 ERROR _loadTodayStats: $e');
+    // Set to 0 on error
+    setState(() {
+      todayAppointmentsCount = 0;
+      waitingPatientsCount = 0;
+      hasActiveQueue = false;
+    });
   }
 }
+
+// Add this helper method
+String _extractDateOnly(String dateString) {
+  if (dateString.isEmpty) return '';
+  
+  dateString = dateString.trim();
+  
+  // Case 1: Already in format "5/12/2025"
+  if (RegExp(r'^\d{1,2}/\d{1,2}/\d{4}$').hasMatch(dateString)) {
+    return dateString;
+  }
+  
+  // Case 2: Has parentheses like "Today (5/12/2025)"
+  if (dateString.contains('(') && dateString.contains(')')) {
+    final start = dateString.indexOf('(') + 1;
+    final end = dateString.indexOf(')', start);
+    if (start < end) {
+      final extracted = dateString.substring(start, end).trim();
+      return extracted;
+    }
+  }
+  
+  return dateString;
+}
+
+
+
 
 
 bool _isDateToday(String dateString, DateTime today) {
@@ -603,20 +682,7 @@ Future<void> _loadUnreadMessagesCount() async {
     }
   }
 
- 
 
-  
-
-  
-
-  
-
-  void _navigateToNotifications() {
-    Navigator.push(
-      context,
-      MaterialPageRoute(builder: (context) => const NotificationScreen()),
-    );
-  }
 
   // ADD THESE NEW NAVIGATION METHODS FOR CHAT
   void _navigateToChatList() {
@@ -641,12 +707,7 @@ void _navigateTOfeedbackscreen(){
   MaterialPageRoute(builder: (context) => DoctorFeedbackDashboard(),)
   );
 }
-void _navigateTowrittenPrescriptions() {
-    Navigator.push(
-      context,
-      MaterialPageRoute(builder: (context) => AllPrescriptionsScreen())
-    );
-  }
+
   void _navigatetosessions(){
     Navigator.push(
       context,
@@ -664,6 +725,12 @@ void _navigateTowrittenPrescriptions() {
   }
 void _navigatetoAmmountAnalysis(){
   Navigator.push(context, MaterialPageRoute(builder: (context) => const DoctorRevenueAnalysisPage()));
+}
+void _navigatetoregistermedicalcenter(){
+  Navigator.push(
+    context, 
+    MaterialPageRoute(
+      builder: (context)=> MedicalCenterSelectionScreen()));
 }
   
   @override
@@ -735,31 +802,19 @@ Widget _buildCurrentScreen() {
                         ],
                       ),
                       child: IconButton(
-                        icon: Icon(Icons.chat_outlined, color: primaryColor),
+                        icon: Icon(Icons.chat_outlined, color:Color.fromARGB(255, 225, 114, 44)),
                         onPressed: _navigateToChatList,
                       ),
                     ),
-                    if (unreadMessagesCount > 0)
-                      Positioned(
-                        top: 8,
-                        right: 8,
-                        child: Container(
-                          padding: const EdgeInsets.all(4),
-                          decoration: BoxDecoration(
-                            color: Colors.red,
-                            shape: BoxShape.circle,
-                            border: Border.all(color: Colors.white, width: 1.5),
-                          ),
-                          child: Text(
-                            unreadMessagesCount > 9 ? '9+' : '$unreadMessagesCount',
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 8,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ),
-                      ),
+                    if (_unreadMessageCount > 0)
+                Positioned(
+                  right: 8,
+                  top: 8,
+                  child: NotificationBadge(
+                    count: _unreadMessageCount,
+                    size: 16,
+                  ),
+                ),
                   ],
                 ),
               ),
@@ -779,7 +834,7 @@ Widget _buildCurrentScreen() {
                     ],
                   ),
                   child: IconButton(
-                      icon: const Icon(Icons.notifications),
+                      icon: const Icon(Icons.notifications,color: Color.fromARGB(255, 231, 133, 42),),
                        onPressed: () {
                       Navigator.push(
                       context,
@@ -1341,16 +1396,6 @@ Color _getFeedbackColor(double score) {
               onTap: _navigateToSchedule,
             ),
             
-            
-           
-           
-            _buildQuickActionButton(
-              icon: Icons.chat_outlined,
-              label: 'Messages',
-              color: primaryDark,
-              onTap: _navigateToChatList,
-              badgeCount: unreadMessagesCount,
-            ),
             _buildQuickActionButton(
               icon: Icons.video_call_outlined,
               label: 'Telemedicine',
@@ -1364,21 +1409,22 @@ Color _getFeedbackColor(double score) {
               onTap: _navigateTOfeedbackscreen, 
               color: primaryDark
             ),
-            _buildQuickActionButton(
-              icon: Icons.description, 
-              label: 'Written Prescriptions',
-              onTap: _navigateTowrittenPrescriptions, 
-              color: primaryDark
-            ),
+            
             _buildQuickActionButton(
               icon: Icons.medical_information, 
-              label: 'My consultation',
+              label: 'Today consultation',
               onTap: _navigatetosessions, 
               color: primaryDark
             ),
             _buildQuickActionButton(
+              icon: Icons.new_label_outlined, 
+              label: 'register new \nmedical center',
+              onTap: _navigatetoregistermedicalcenter, 
+              color: primaryDark
+            ),
+            _buildQuickActionButton(
               icon: Icons.show_chart, 
-              label: 'anlysis ammount',
+              label: 'revenue anlysis ',
               onTap: _navigatetoAmmountAnalysis, 
               color: primaryDark
             ),

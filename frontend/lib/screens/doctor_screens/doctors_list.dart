@@ -51,43 +51,54 @@ class _DoctorsListScreenState extends State<DoctorsListScreen> {
   }
 
   void _applyFilters() {
-    List<Map<String, dynamic>> result = List.from(doctors);
+  List<Map<String, dynamic>> result = List.from(doctors);
 
-    // Apply search filter
-    if (_searchQuery.isNotEmpty) {
-      result = result.where((doctor) {
-        final name = doctor['fullname']?.toString().toLowerCase() ?? '';
-        final specialization = doctor['specialization']?.toString().toLowerCase() ?? '';
-        final hospital = doctor['hospital']?.toString().toLowerCase() ?? '';
-        final experience = doctor['experience']?.toString().toLowerCase() ?? '';
+  // Apply search filter
+  if (_searchQuery.isNotEmpty) {
+    result = result.where((doctor) {
+      final name = doctor['fullname']?.toString().toLowerCase() ?? '';
+      final specialization = doctor['specialization']?.toString().toLowerCase() ?? '';
+      final primaryHospital = doctor['hospital']?.toString().toLowerCase() ?? '';
+      final allHospitals = doctor['allHospitals'] ?? [];
+      final experience = doctor['experience']?.toString().toLowerCase() ?? '';
 
-        return name.contains(_searchQuery) ||
-            specialization.contains(_searchQuery) ||
-            hospital.contains(_searchQuery) ||
-            experience.contains(_searchQuery);
-      }).toList();
-    }
+      // Check if search matches ANY hospital name
+      bool hospitalMatch = primaryHospital.contains(_searchQuery);
+      if (!hospitalMatch && allHospitals is List) {
+        hospitalMatch = allHospitals.any((hospital) => 
+          hospital.toString().toLowerCase().contains(_searchQuery));
+      }
 
-    // Apply specialization filter
-    if (_selectedSpecialization != 'All') {
-      result = result.where((doctor) {
-        return doctor['specialization'] == _selectedSpecialization;
-      }).toList();
-    }
-
-    // Apply hospital filter
-    if (_selectedHospital != 'All') {
-      result = result.where((doctor) {
-        return doctor['hospital'] == _selectedHospital;
-      }).toList();
-    }
-
-    
-
-    setState(() {
-      filteredDoctors = result;
-    });
+      return name.contains(_searchQuery) ||
+          specialization.contains(_searchQuery) ||
+          hospitalMatch ||
+          experience.contains(_searchQuery);
+    }).toList();
   }
+
+  // Apply specialization filter
+  if (_selectedSpecialization != 'All') {
+    result = result.where((doctor) {
+      return doctor['specialization'] == _selectedSpecialization;
+    }).toList();
+  }
+
+  // Apply hospital filter - check ALL hospitals
+  if (_selectedHospital != 'All') {
+    result = result.where((doctor) {
+      final primaryHospital = doctor['hospital'];
+      final allHospitals = doctor['allHospitals'] ?? [];
+      
+      // Check primary hospital OR any hospital in the list
+      return primaryHospital == _selectedHospital || 
+             (allHospitals is List && allHospitals.contains(_selectedHospital));
+    }).toList();
+  }
+
+  setState(() {
+    filteredDoctors = result;
+  });
+}
 
   void _toggleFilters() {
     setState(() {
@@ -107,83 +118,107 @@ class _DoctorsListScreenState extends State<DoctorsListScreen> {
   }
 
   Future<void> _loadDoctorsFromFirebase() async {
-    try {
+  try {
+    setState(() {
+      isLoading = true;
+      errorMessage = '';
+    });
+
+    print('🔍 Loading doctors from Firebase...');
+
+    final querySnapshot = await FirebaseFirestore.instance
+        .collection('doctors')
+        .where('role', isEqualTo: 'doctor')
+        .get();
+
+    print('✅ Found ${querySnapshot.docs.length} doctors in Firebase');
+
+    if (querySnapshot.docs.isEmpty) {
       setState(() {
-        isLoading = true;
-        errorMessage = '';
+        errorMessage = 'No doctors registered in the system yet';
       });
+      return;
+    }
 
-      print('🔍 Loading doctors from Firebase...');
-
-      final querySnapshot = await FirebaseFirestore.instance
-          .collection('doctors')
-          .where('role', isEqualTo: 'doctor')
-          .get();
-
-      print('✅ Found ${querySnapshot.docs.length} doctors in Firebase');
-
-      if (querySnapshot.docs.isEmpty) {
-        setState(() {
-          errorMessage = 'No doctors registered in the system yet';
-        });
-        return;
-      }
-
-      List<Map<String, dynamic>> doctorsList = [];
-      Set<String> specializationSet = {'All'};
-      Set<String> hospitalSet = {'All'};
+    List<Map<String, dynamic>> doctorsList = [];
+    Set<String> specializationSet = {'All'};
+    Set<String> hospitalSet = {'All'};
+    
+    for (var doc in querySnapshot.docs) {
+      final data = doc.data();
       
-      for (var doc in querySnapshot.docs) {
-        final data = doc.data();
-        
-        String medicalCenterName = 'No Medical Center';
-        String medicalCenterId = '';
-        final medicalCenters = data['medicalCenters'];
-        
-        if (medicalCenters is List && medicalCenters.isNotEmpty) {
-          final firstCenter = medicalCenters[0];
-          if (firstCenter is Map<String, dynamic>) {
-            medicalCenterName = firstCenter['name'] ?? 'Medical Center';
-            medicalCenterId = firstCenter['id'] ?? '';
+      // Get ALL medical centers (not just the first one)
+      List<String> medicalCenterNames = [];
+      List<String> medicalCenterIds = [];
+      final medicalCenters = data['medicalCenters'];
+      
+      if (medicalCenters is List && medicalCenters.isNotEmpty) {
+        for (var center in medicalCenters) {
+          if (center is Map<String, dynamic>) {
+            final centerName = center['name']?.toString().trim();
+            final centerId = center['id']?.toString();
+            
+            // Only include APPROVED centers
+            final centerStatus = center['status']?.toString();
+            if (centerName != null && 
+                centerName.isNotEmpty && 
+                centerStatus == 'approved') {
+              medicalCenterNames.add(centerName);
+              medicalCenterIds.add(centerId ?? '');
+              
+              // Add to hospital filter options
+              hospitalSet.add(centerName);
+            }
           }
         }
-
-        final doctorData = {
-          'id': doc.id,
-          'uid': data['uid'] ?? doc.id,
-          'fullname': data['fullname'] ?? 'Dr. Unknown',
-          'specialization': data['specialization'] ?? 'General Practitioner',
-          'hospital': medicalCenterName,
-          'medicalCenterId': medicalCenterId,
-          'experience': data['experience'] ?? 'Not specified',
-          'fees': (data['fees'] ?? 0.0).toDouble(),
-          'profileImage': data['profileImage'], 
-          'medicalCenters': medicalCenters,
-        };
-
-        doctorsList.add(doctorData);
-
-        // Add to filter options
-        specializationSet.add(doctorData['specialization']);
-        hospitalSet.add(doctorData['hospital']);
       }
+      
+      // If no approved centers, use fallback
+      final primaryMedicalCenter = medicalCenterNames.isNotEmpty 
+          ? medicalCenterNames.first 
+          : 'No Medical Center';
+      final primaryMedicalCenterId = medicalCenterIds.isNotEmpty 
+          ? medicalCenterIds.first 
+          : '';
 
-      setState(() {
-        doctors = doctorsList;
-        filteredDoctors = doctorsList;
-        specializations = specializationSet.toList();
-        hospitals = hospitalSet.toList();
-      });
+      final doctorData = {
+        'id': doc.id,
+        'uid': data['uid'] ?? doc.id,
+        'fullname': data['fullname'] ?? 'Dr. Unknown',
+        'specialization': data['specialization'] ?? 'General Practitioner',
+        'hospital': primaryMedicalCenter, // Primary/First hospital
+        'allHospitals': medicalCenterNames, // ALL hospitals
+        'allHospitalIds': medicalCenterIds, // ALL hospital IDs
+        'medicalCenterId': primaryMedicalCenterId,
+        'medicalCenterIds': medicalCenterIds, // ALL medical center IDs
+        'experience': data['experience'] ?? 'Not specified',
+        'fees': (data['fees'] ?? 0.0).toDouble(),
+        'profileImage': data['profileImage'], 
+        'medicalCenters': medicalCenters,
+      };
 
-    } catch (e) {
-      print('❌ Error loading doctors from Firebase: $e');
-      setState(() {
-        errorMessage = 'Failed to load doctors: $e';
-      });
-    } finally {
-      setState(() => isLoading = false);
+      doctorsList.add(doctorData);
+
+      // Add to filter options
+      specializationSet.add(doctorData['specialization']);
     }
+
+    setState(() {
+      doctors = doctorsList;
+      filteredDoctors = doctorsList;
+      specializations = specializationSet.toList();
+      hospitals = hospitalSet.toList(); // Now includes ALL hospitals
+    });
+
+  } catch (e) {
+    print('❌ Error loading doctors from Firebase: $e');
+    setState(() {
+      errorMessage = 'Failed to load doctors: $e';
+    });
+  } finally {
+    setState(() => isLoading = false);
   }
+}
 
   @override
   Widget build(BuildContext context) {
@@ -435,45 +470,100 @@ class _DoctorsListScreenState extends State<DoctorsListScreen> {
   }
 
   Widget _buildDoctorCard(Map<String, dynamic> doctor) {
-    return Card(
-      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-      elevation: 2,
-      child: ListTile(
-        leading: _buildClickableDoctorAvatar(doctor),
-        title: Text(
-          doctor['fullname'] ?? 'Dr. Unknown',
-          style: const TextStyle(fontWeight: FontWeight.bold),
-        ),
-        subtitle: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
+  final allHospitals = doctor['allHospitals'] ?? [];
+  
+  return Card(
+    margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+    elevation: 2,
+    child: ListTile(
+      leading: _buildClickableDoctorAvatar(doctor),
+      title: Text(
+        doctor['fullname'] ?? 'Dr. Unknown',
+        style: const TextStyle(fontWeight: FontWeight.bold),
+      ),
+      subtitle: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            doctor['specialization'] ?? 'General Practitioner',
+            style: TextStyle(
+              color: Colors.blue[700],
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+          SizedBox(height: 4),
+          
+          // Display ALL medical centers as a list
+          if (allHospitals.isNotEmpty)
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Medical Centers:',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Colors.grey[700],
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+                SizedBox(height: 2),
+                // List all medical centers
+                for (var hospital in allHospitals)
+                  Padding(
+                    padding: EdgeInsets.only(left: 8, bottom: 2),
+                    child: Text(
+                      '• ${hospital.toString()}',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.grey[600],
+                      ),
+                    ),
+                  ),
+                SizedBox(height: 4),
+              ],
+            )
+          else
             Text(
-              doctor['specialization'] ?? 'General Practitioner',
+              'No Medical Center',
               style: TextStyle(
-                color: Colors.blue[700],
-                fontWeight: FontWeight.w500,
+                fontSize: 12,
+                color: Colors.grey[600],
               ),
             ),
-            Text(doctor['hospital']),
-            if (doctor['experience'] != null && doctor['experience'] != 'Not specified')
-              Text('Experience: ${doctor['experience']}'),
-            if (doctor['fees'] != null && doctor['fees'] > 0)
-              Text(
+          
+          if (doctor['experience'] != null && doctor['experience'] != 'Not specified')
+            Padding(
+              padding: EdgeInsets.only(top: 4),
+              child: Text(
+                'Experience: ${doctor['experience']}',
+                style: TextStyle(
+                  fontSize: 12,
+                  color: Colors.grey[600],
+                ),
+              ),
+            ),
+            
+          if (doctor['fees'] != null && doctor['fees'] > 0)
+            Padding(
+              padding: EdgeInsets.only(top: 4),
+              child: Text(
                 'Fees: Rs. ${doctor['fees']}',
                 style: TextStyle(
+                  fontSize: 12,
                   color: Colors.green[700],
                   fontWeight: FontWeight.bold,
                 ),
               ),
-          ],
-        ),
-        trailing: const Icon(Icons.arrow_forward_ios, size: 16),
-        onTap: () {
-          _fetchAndShowAvailableSchedules(doctor);
-        },
+            ),
+        ],
       ),
-    );
-  }
+      trailing: const Icon(Icons.arrow_forward_ios, size: 16),
+      onTap: () {
+        _fetchAndShowAvailableSchedules(doctor);
+      },
+    ),
+  );
+}
 
   Widget _buildClickableDoctorAvatar(Map<String, dynamic> doctor) {
     final String? profileImageUrl = doctor['profileImage'];

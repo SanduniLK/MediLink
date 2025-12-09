@@ -279,8 +279,8 @@ class _SuperAdminDashboardState extends State<SuperAdminDashboard> {
           ),
           _buildDrawerItem(icon: Icons.dashboard, label: 'Dashboard', index: 0),
           _buildDrawerItem(icon: Icons.apartment, label: 'Medical Centers', index: 4),
-          _buildDrawerItem(icon: Icons.analytics, label: 'Analysis & Reports', index: 5),
-          _buildDrawerItem(icon: Icons.settings, label: 'System Settings', index: 6),
+          _buildDrawerItem(icon: Icons.analytics, label: 'phamecy approve', index: 5),
+          
           const Divider(),
           ListTile(
             leading: const Icon(Icons.logout, color: Colors.red),
@@ -457,7 +457,7 @@ class SuperAdminHomePage extends StatelessWidget {
           count: state._totalDoctors,
           icon: Icons.medical_services,
           color: Colors.green,
-          badge: state._pendingDoctorRequests > 0 ? state._pendingDoctorRequests : null,
+          
           onTap: () => onNavigate(1), // Doctors is at index 1
         ),
         _buildStatCard(
@@ -558,54 +558,192 @@ class SuperAdminHomePage extends StatelessWidget {
     );
   }
 
-  Widget _buildQuickActions() {
-    return Card(
-      elevation: 2,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'Quick Actions',
-              style: TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-              ),
+ Widget _buildQuickActions() {
+  return Card(
+    elevation: 2,
+    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+    child: Padding(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Quick Actions',
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
             ),
-            const SizedBox(height: 12),
-            GridView.count(
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              crossAxisCount: 2,
-              crossAxisSpacing: 8,
-              mainAxisSpacing: 8,
-              childAspectRatio: 3,
+          ),
+          const SizedBox(height: 12),
+          
+          // ADD: 3 Beautiful Tiles Section
+          const Text(
+            'Primary Actions',
+            style: TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w600,
+              color: Colors.grey,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Builder(
+            builder: (context) => _buildBeautifulTiles(context),
+          ),
+        ],
+      ),
+    ),
+  );
+}
+Widget _buildBeautifulTiles(BuildContext context) {
+  return Column(
+    children: [
+      // Tile 1: Add Medical Center
+      _buildActionTile(
+        context: context, // ADD THIS
+        icon: Icons.add_business_outlined,
+        title: 'Add Medical Center',
+        subtitle: 'Register new medical centers',
+        color: Colors.blue,
+        iconBackground: Colors.blue.withOpacity(0.1),
+        onTap: () => onNavigate(4),
+      ),
+      
+      const SizedBox(height: 12),
+      
+      // Tile 2: Manage Doctors
+      _buildActionTile(
+        context: context, // ADD THIS
+        icon: Icons.medical_services_outlined,
+        title: 'Manage Doctors',
+        subtitle: 'View and manage all doctors',
+        color: Colors.green,
+        iconBackground: Colors.green.withOpacity(0.1),
+        onTap: () => onNavigate(1),
+      ),
+      
+      const SizedBox(height: 12),
+      
+      // Tile 3: Pharmacy Approvals
+      _buildActionTile(
+        context: context, // ADD THIS
+        icon: Icons.local_pharmacy_outlined,
+        title: 'Pharmacy Approvals',
+        subtitle: 'Review pending pharmacy requests',
+        color: Colors.orange,
+        iconBackground: Colors.orange.withOpacity(0.1),
+        badge: true,
+        onTap: () => onNavigate(5),
+      ),
+    ],
+  );
+}
+Widget _buildActionTile({
+  required BuildContext context,
+  required IconData icon,
+  required String title,
+  required String subtitle,
+  required Color color,
+  required Color iconBackground,
+  bool badge = false,
+  int badgeCount = 0,
+  required VoidCallback onTap,
+}) {
+  final state = context.findAncestorStateOfType<_SuperAdminDashboardState>();
+  final hasPendingRequests = badge && (title == 'Pharmacy Approvals' 
+      ? (state?._pendingPharmacyRequests ?? 0) > 0
+      : (title == 'Manage Doctors' 
+          ? (state?._pendingDoctorRequests ?? 0) > 0
+          : false));
+
+  return InkWell(
+    onTap: onTap,
+    borderRadius: BorderRadius.circular(12),
+    child: Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.grey.shade200, width: 1),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          // Icon with background
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: iconBackground,
+              shape: BoxShape.circle,
+            ),
+            child: Icon(icon, size: 24, color: color),
+          ),
+          
+          const SizedBox(width: 16),
+          
+          // Text content
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                _buildActionChip(
-                  icon: Icons.add_business,
-                  label: 'Add Center',
-                  onTap: () => onNavigate(4),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        title,
+                        style: const TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.black87,
+                        ),
+                      ),
+                    ),
+                    if (hasPendingRequests)
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: Colors.red,
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Text(
+                          state?._pendingPharmacyRequests.toString() ?? '0',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                  ],
                 ),
-                _buildActionChip(
-                  icon: Icons.medical_services,
-                  label: 'Manage Doctors',
-                  onTap: () => onNavigate(1),
+                const SizedBox(height: 4),
+                Text(
+                  subtitle,
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: Colors.grey.shade600,
+                  ),
                 ),
-                _buildActionChip(
-                  icon: Icons.local_pharmacy,
-                  label: 'Pharmacy Approvals',
-                  onTap: () => onNavigate(5),
-                ),
-               
               ],
             ),
-          ],
-        ),
+          ),
+          
+          // Arrow icon
+          Icon(
+            Icons.chevron_right_rounded,
+            color: Colors.grey.shade400,
+            size: 24,
+          ),
+        ],
       ),
-    );
-  }
+    ),
+  );
+}
 
   Widget _buildActionChip({
     required IconData icon,

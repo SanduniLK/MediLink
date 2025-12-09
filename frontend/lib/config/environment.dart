@@ -4,7 +4,7 @@ import 'package:http/http.dart' as http;
 
 class Environment {
   // ADD http:// to the beginning
-  static String socketUrl = 'http://10.197.152.75:5001';
+  static String socketUrl = 'http://192.168.1.126:5001';
   
   static Future<void> initialize() async {
     debugPrint('🚀 Connecting to backend at: $socketUrl');

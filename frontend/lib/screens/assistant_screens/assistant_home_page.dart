@@ -4,6 +4,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:frontend/enroll_screnns/sign_in_page.dart';
 import 'package:frontend/screens/admin_screens/admin_test_reports_screen.dart';
 import 'package:frontend/screens/assistant_screens/Assistance_queue_screen.dart';
+import 'package:frontend/screens/assistant_screens/attendance_marking_screen.dart';
 
 class AssistantHomePage extends StatefulWidget {
   const AssistantHomePage({super.key});
@@ -117,7 +118,7 @@ class _AssistantHomePageState extends State<AssistantHomePage> {
                   Navigator.push(
                       context, 
                       MaterialPageRoute(
-                        builder: (context) => AssistantViewOnlyQueueScreen(scheduleId: scheduleId!)
+                        builder: (context) => AssistantQueueScreen()
                       ),
                     );
                 },
@@ -150,6 +151,14 @@ class _AssistantHomePageState extends State<AssistantHomePage> {
                   }
                 },
               ),
+              _buildActionCard(
+                icon: Icons.mark_as_unread, 
+                label: "mark attendece", 
+                color: Colors.black45, 
+                onTap: (){
+                  Navigator.push(context,
+                  MaterialPageRoute(builder:(context)=>AttendanceMarkingScreen()));
+                })
             ],
           ),
         ],

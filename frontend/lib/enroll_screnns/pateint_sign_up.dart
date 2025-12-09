@@ -570,7 +570,7 @@ if (_role != "pharmacy") ...[
                       ),
                       const Divider(height: 15, thickness: 1, color: Color(0xFFE0E0E0)),
                       
-                      // ✅ FIXED: Fetch from medical_centers collection
+                    
                       FutureBuilder<QuerySnapshot>(
                         future: FirebaseFirestore.instance
                             .collection('medical_centers')

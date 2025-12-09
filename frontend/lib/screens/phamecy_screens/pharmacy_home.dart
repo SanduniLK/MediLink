@@ -1,5 +1,7 @@
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:frontend/enroll_screnns/sign_in_page.dart';
 import 'package:frontend/screens/phamecy_screens/unified_patient_search_screen.dart';
 import 'package:intl/intl.dart';
 import 'patient_search_screen.dart';
@@ -385,7 +387,7 @@ class _PharmacyHomeScreenState extends State<PharmacyHomeScreen> {
   );
 }
 
- Widget _buildStatisticsSection() {
+Widget _buildStatisticsSection() {
   return Column(
     crossAxisAlignment: CrossAxisAlignment.start,
     children: [
@@ -406,35 +408,31 @@ class _PharmacyHomeScreenState extends State<PharmacyHomeScreen> {
         crossAxisCount: 2,
         crossAxisSpacing: 12,
         mainAxisSpacing: 12,
-        childAspectRatio: 1.4,
+        childAspectRatio: 1.0, // Reset to 1.0
         children: [
           _buildStatCard(
             icon: Icons.medical_services,
             title: "Today's Issuances",
             value: _todayIssuances.toString(),
             color: Colors.blue.shade600,
-            subtitle: "Prescriptions issued",
           ),
           _buildStatCard(
             icon: Icons.assignment,
             title: "Total Prescriptions", 
             value: _pendingPrescriptions.toString(),
             color: Colors.orange.shade600,
-            subtitle: "Active & Completed",
           ),
           _buildStatCard(
             icon: Icons.people,
             title: "Patients Served",
             value: _activePatients.toString(),
             color: Colors.green.shade600,
-            subtitle: "Today",
           ),
           _buildStatCard(
             icon: Icons.calendar_month,
             title: "Monthly Issuances",
             value: _totalMonthlyIssuances.toString(),
             color: Colors.purple.shade600,
-            subtitle: "This month",
           ),
         ],
       ),
@@ -442,69 +440,60 @@ class _PharmacyHomeScreenState extends State<PharmacyHomeScreen> {
   );
 }
 
-  Widget _buildStatCard({
-    required IconData icon,
-    required String title,
-    required String value,
-    required Color color,
-    String subtitle = "",
-  }) {
-    return Card(
-      elevation: 2,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    color: color.withOpacity(0.1),
-                    shape: BoxShape.circle,
-                  ),
-                  child: Icon(icon, size: 20, color: color),
+Widget _buildStatCard({
+  required IconData icon,
+  required String title,
+  required String value,
+  required Color color,
+}) {
+  return Card(
+    elevation: 2,
+    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+    child: Padding(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min, // Important: use min size
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: color.withOpacity(0.1),
+                  shape: BoxShape.circle,
                 ),
-                const Spacer(),
-                Text(
-                  value,
-                  style: TextStyle(
-                    fontSize: 24,
-                    fontWeight: FontWeight.bold,
-                    color: color,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            Text(
-              title,
-              style: const TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.w600,
-                color: Colors.black87,
+                child: Icon(icon, size: 20, color: color),
               ),
-            ),
-            if (subtitle.isNotEmpty) ...[
-              const SizedBox(height: 2),
               Text(
-                subtitle,
-                style: const TextStyle(
-                  fontSize: 11,
-                  color: Colors.grey,
+                value,
+                style: TextStyle(
+                  fontSize: 24,
+                  fontWeight: FontWeight.bold,
+                  color: color,
                 ),
               ),
             ],
-          ],
-        ),
+          ),
+          const SizedBox(height: 12),
+          Text(
+            title,
+            style: const TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w600,
+              color: Colors.black87,
+            ),
+            overflow: TextOverflow.ellipsis,
+            maxLines: 2,
+          ),
+        ],
       ),
-    );
-  }
-
-  
+    ),
+  );
+}
 
 
   Widget _buildActivityList() {
@@ -884,25 +873,20 @@ Widget _buildSettingsItem({
   );
 }
 
-// Logout confirmation dialog
-void _showLogoutConfirmation() {
-  showDialog(
+/// Logout confirmation dialog - ALTERNATIVE SOLUTION
+Future<void> _showLogoutConfirmation() async {
+  final result = await showDialog<bool>(
     context: context,
     builder: (context) => AlertDialog(
       title: const Text('Log Out'),
       content: const Text('Are you sure you want to log out?'),
       actions: [
         TextButton(
-          onPressed: () => Navigator.pop(context),
+          onPressed: () => Navigator.pop(context, false),
           child: const Text('Cancel'),
         ),
         TextButton(
-          onPressed: () {
-            Navigator.pop(context);
-            // Add your logout logic here
-            // Example: FirebaseAuth.instance.signOut();
-            // Then navigate to login screen
-          },
+          onPressed: () => Navigator.pop(context, true),
           style: TextButton.styleFrom(
             foregroundColor: Colors.red,
           ),
@@ -911,6 +895,53 @@ void _showLogoutConfirmation() {
       ],
     ),
   );
+
+  if (result == true && mounted) {
+    try {
+      // Show loading indicator
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => const Center(
+          child: CircularProgressIndicator(),
+        ),
+      );
+
+      // Sign out from Firebase
+      await FirebaseAuth.instance.signOut();
+      
+      // Delay to ensure clean state
+      await Future.delayed(const Duration(milliseconds: 500));
+      
+      // Close loading dialog
+      if (Navigator.canPop(context)) {
+        Navigator.pop(context);
+      }
+      
+      // Force navigation with MaterialPageRoute
+      Navigator.of(context).pushAndRemoveUntil(
+        MaterialPageRoute(
+          builder: (context) => SignInPage(),
+        ),
+        (Route<dynamic> route) => false,
+      );
+
+    } catch (e) {
+      // Close loading dialog if still open
+      if (Navigator.canPop(context)) {
+        Navigator.pop(context);
+      }
+      
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error signing out: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
 }
 
   String get _getPharmacyFirstLetter {

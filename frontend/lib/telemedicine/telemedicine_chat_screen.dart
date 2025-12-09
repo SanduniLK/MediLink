@@ -38,6 +38,7 @@ class _TelemedicineChatScreenState extends State<TelemedicineChatScreen> {
   void initState() {
     super.initState();
     _setupMessageListener(); // ADD THIS
+    _markMessagesAsRead();
     
     // Debug to see what's happening
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -45,6 +46,20 @@ class _TelemedicineChatScreenState extends State<TelemedicineChatScreen> {
       _chatService.debugAllMessages(widget.chatRoomId);
     });
   }
+void _markMessagesAsRead() async {
+  final user = _auth.currentUser;
+  if (user != null) {
+    final isDoctor = user.uid == widget.doctorId;
+    await _chatService.markMessagesAsRead(
+      widget.chatRoomId,
+      user.uid,
+    );
+  }
+}
+void _onChatScreenEntered() {
+  _markMessagesAsRead();
+  _scrollToBottom();
+}
 
   // ADD THIS METHOD
   void _setupMessageListener() {
@@ -231,6 +246,9 @@ class _TelemedicineChatScreenState extends State<TelemedicineChatScreen> {
 
   @override
   Widget build(BuildContext context) {
+     WidgetsBinding.instance.addPostFrameCallback((_) {
+    _onChatScreenEntered();
+  });
     return Scaffold(
       appBar: AppBar(
         title: Text('Dr. ${widget.doctorName}'),
@@ -515,6 +533,7 @@ void _sendMessage() async {
   void dispose() {
     _messageController.dispose();
     _scrollController.dispose();
+    _markMessagesAsRead();
     super.dispose();
   }
 }

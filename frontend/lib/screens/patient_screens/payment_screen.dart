@@ -16,7 +16,7 @@ class PaymentScreen extends StatefulWidget {
   final String medicalCenterName;
   final String scheduleId;
   final String doctorId;
-
+  
   const PaymentScreen({
     Key? key,
     required this.appointmentData,
@@ -38,14 +38,15 @@ class _PaymentScreenState extends State<PaymentScreen> {
   bool _processingPayment = false;
   final DynamicTokenService _tokenService = DynamicTokenService();
   String _consultationType = 'video';
-
+  String _selectedDateOnly = '';
   @override
   void initState() {
     super.initState();
     _determineConsultationType();
+    _selectedDateOnly = _parseSelectedDate();
   }
 
-  void _determineConsultationType() {
+   void _determineConsultationType() {
     final appointmentType =
         widget.appointmentData['appointmentType'] ?? 'physical';
 
@@ -57,6 +58,27 @@ class _PaymentScreenState extends State<PaymentScreen> {
 
     print('🎯 Consultation type determined: $_consultationType');
   }
+
+ String _parseSelectedDate() {
+  final dateString = widget.selectedDate;
+  
+  print('📅 Original date string: "$dateString"');
+  
+  // Case 1: Contains parentheses like "Today (5/12/2025)" or "Tomorrow (8/12/2025)"
+  if (dateString.contains('(') && dateString.contains(')')) {
+    final start = dateString.indexOf('(') + 1;
+    final end = dateString.indexOf(')');
+    if (start < end) {
+      final extracted = dateString.substring(start, end).trim();
+      print('📅 Extracted date from parentheses: "$extracted"');
+      return extracted;
+    }
+  }
+  
+  // Case 2: Just return as is if no parentheses
+  print('📅 Using original date as is: "$dateString"');
+  return dateString.trim();
+}
 
   // Build PayHere payment object
   Map<String, dynamic> _createPayHerePaymentObject() {
@@ -158,7 +180,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
         'failedAt': FieldValue.serverTimestamp(),
         'patientName': widget.appointmentData['patientName'],
         'doctorName': widget.doctorName,
-        'appointmentDate': widget.selectedDate,
+        'date': _selectedDateOnly,
         'appointmentTime': widget.selectedTime,
       };
 
@@ -258,7 +280,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
       final tokenNumber = await _tokenService.assignTokenNumberForSchedule(
   widget.scheduleId,  // Pass scheduleId instead of doctorId
   widget.doctorId,
-  widget.selectedDate,
+  _selectedDateOnly,
 );
       print('Schedule Token assigned: $tokenNumber');
 
@@ -276,7 +298,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
         'doctorName': widget.doctorName,
         'doctorSpecialty': widget.doctorSpecialty,
         'medicalCenterName': widget.medicalCenterName,
-        'selectedDate': widget.selectedDate,
+        'appointmentDate': _selectedDateOnly,
         'selectedTime': widget.selectedTime,
         'paymentId': 'PAY_${DateTime.now().millisecondsSinceEpoch}',
       };
@@ -366,7 +388,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
         'patientId': widget.appointmentData['patientId'],
         'chatRoomId': chatRoomId,
         'videoLink': 'https://medilink.app/call/$telemedicineId',
-        'date': widget.selectedDate,
+        'date': _selectedDateOnly,
         'timeSlot': widget.selectedTime,
         'status': 'Scheduled',
         'createdAt': DateTime.now().toIso8601String(),

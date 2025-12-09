@@ -816,13 +816,12 @@ void _endCall() {
     
     // 2. Stop connection monitoring FIRST
     _connectionMonitor?.cancel();
-   // _connectionMonitor = null;
     _cancelIceTimeoutMonitor();
     
     // 3. Use the enhanced end call in TelemedicineService
     _telemedicine.endCall(widget.userType);
     
-   debugPrint('🔄 Updating join status to false...');
+    debugPrint('🔄 Updating join status to false...');
     FirestoreService.updateSessionJoinStatus(
       appointmentId: widget.appointmentId,
       userType: widget.userType,
@@ -831,11 +830,42 @@ void _endCall() {
       debugPrint('❌ Error updating join status: $e');
     });
 
-    // 4. Force cleanup of renderers
+    // 4. ✅ UPDATE FIREBASE STATUS FROM "In-Progress" TO "Completed" ✅
+    debugPrint('📝 Updating appointment status from "In-Progress" to "Completed"...');
+    
+    // Get the document reference and update
+    FirebaseFirestore.instance
+        .collection('telemedicine_sessions')
+        .where('appointmentId', isEqualTo: widget.appointmentId)
+        .get()
+        .then((querySnapshot) {
+      if (querySnapshot.docs.isNotEmpty) {
+        final documentId = querySnapshot.docs.first.id;
+        FirebaseFirestore.instance
+            .collection('telemedicine_sessions')
+            .doc(documentId)
+            .update({
+              'status': 'Completed',
+              'endedAt': FieldValue.serverTimestamp(),
+            })
+            .then((_) {
+              debugPrint('✅✅✅ Appointment status updated to "Completed" for ${widget.appointmentId}');
+            })
+            .catchError((e) {
+              debugPrint('❌ Error updating status: $e');
+            });
+      } else {
+        debugPrint('❌ No document found for appointment: ${widget.appointmentId}');
+      }
+    }).catchError((e) {
+      debugPrint('❌ Error getting session document: $e');
+    });
+
+    // 5. Force cleanup of renderers
     _localRenderer.srcObject = null;
     _remoteRenderer.srcObject = null;
     
-    // 5. Reset all local states
+    // 6. Reset all local states
     if (mounted) {
       setState(() {
         _callStatus = 'ended';
@@ -851,7 +881,7 @@ void _endCall() {
     // Complete cleanup
     _completeCallCleanup();
 
-    // Navigate back
+    // Navigate back after a short delay
     Future.delayed(Duration(milliseconds: 500), () {
       if (mounted) {
         Navigator.pop(context);
@@ -1461,9 +1491,7 @@ void _checkNotifications() async {
             : _buildAudioArea(primaryColor, secondaryColor, veryLightColor, lightColor),
         ),
 
-        // Debug Panel
-        _buildDebugPanel(lightColor, primaryColor, secondaryColor),
-
+        
         // Controls
         _buildControlPanel(lightColor, primaryColor, secondaryColor),
       ],
@@ -1718,35 +1746,7 @@ Widget _buildAudioArea(Color primaryColor, Color secondaryColor, Color backgroun
   );
 }
 
-Widget _buildDebugPanel(Color lightColor, Color primaryColor, Color secondaryColor) {
-  return Container(
-    padding: const EdgeInsets.all(12),
-    decoration: BoxDecoration(
-      color: lightColor,
-      border: Border(
-        top: BorderSide(color: primaryColor, width: 1),
-        bottom: BorderSide(color: primaryColor, width: 1),
-      ),
-    ),
-    child: Column(
-      children: [
-        // Status Indicators
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceAround,
-          children: [
-            _buildStatusIndicator('AUDIO', _isAudioEnabled, primaryColor),
-            _buildStatusIndicator('VIDEO', _isVideoEnabled, primaryColor),
-            _buildConnectionIndicator(_callStatus, primaryColor),
-          ],
-        ),
-        
-        SizedBox(height: 12),
-        
-        
-      ],
-    ),
-  );
-}
+
 
 Widget _buildControlPanel(Color lightColor, Color primaryColor, Color secondaryColor) {
   return Container(
@@ -1762,26 +1762,9 @@ Widget _buildControlPanel(Color lightColor, Color primaryColor, Color secondaryC
       ],
     ),
     child: Row(
-      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+      mainAxisAlignment: MainAxisAlignment.center, // Changed to center since there's only one button
       children: [
-        // Video Toggle (only for video calls)
-        if (widget.consultationType == 'video')
-          _buildControlButton(
-            _isVideoEnabled ? Icons.videocam : Icons.videocam_off,
-            _isVideoEnabled ? 'Video On' : 'Video Off',
-            _toggleVideo,
-            _isVideoEnabled ? primaryColor : Colors.red,
-          ),
-
-        // Audio Toggle
-        _buildControlButton(
-          _isAudioEnabled ? Icons.mic : Icons.mic_off,
-          _isAudioEnabled ? 'Mic On' : 'Mic Off',
-          _toggleAudio,
-          _isAudioEnabled ? primaryColor : Colors.red,
-        ),
-
-        // End Call
+        // Only keep the End Call button
         _buildControlButton(
           Icons.call_end,
           'End Call',
@@ -1789,7 +1772,6 @@ Widget _buildControlPanel(Color lightColor, Color primaryColor, Color secondaryC
           Colors.red,
           isEndCall: true,
         ),
- 
       ],
     ),
   );

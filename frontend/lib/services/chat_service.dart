@@ -1,4 +1,3 @@
-// services/chat_service.dart - COMPLETE CORRECTED VERSION
 import 'package:firebase_database/firebase_database.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -12,37 +11,42 @@ import 'package:open_file/open_file.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
+import 'dart:math' as math;
 
 class ChatService {
-  late final FirebaseDatabase _database;
+   late final FirebaseDatabase _database;
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final FirebaseAuth _auth = FirebaseAuth.instance;
   final FirebaseStorage _storage = FirebaseStorage.instance;
   final ImagePicker _imagePicker = ImagePicker();
 
   ChatService() {
-    _database = FirebaseDatabase.instanceFor(
+   _database = FirebaseDatabase.instanceFor(
       app: FirebaseAuth.instance.app,
       databaseURL: 'https://medilink-c7499-default-rtdb.asia-southeast1.firebasedatabase.app/',
     );
+    debugPrint('✅ ChatService initialized with asia-southeast1 region');
   }
+    
 
-  // ========== DATABASE CONNECTION & TESTING ==========
   
+
+
+
   Future<bool> testDatabaseConnection() async {
     try {
-      debugPrint('🔌 Testing Realtime Database connection...');
+      debugPrint('🔌 Testing Realtime Database connection to asia-southeast1...');
       
       final testRef = _database.ref('connection_test');
       await testRef.set({
         'timestamp': DateTime.now().millisecondsSinceEpoch,
         'status': 'connected',
-        'message': 'Database is working!'
+        'region': 'asia-southeast1'
       });
       
       final snapshot = await testRef.get();
       if (snapshot.exists) {
-        debugPrint('✅ Realtime Database connection SUCCESSFUL!');
+        debugPrint('✅ Realtime Database connection SUCCESSFUL! (asia-southeast1)');
         await testRef.remove();
         return true;
       } else {
@@ -356,23 +360,43 @@ Future<void> debugAllMessages(String chatRoomId) async {
     debugPrint('❌ Error debugging messages: $e');
   }
 }
-// In your ChatService class, add this method:
-Future<int> getUnreadCountForDoctor(String chatRoomId, String doctorId) async {
+
+Future<int> getTotalUnreadCountForDoctor(String doctorId) async {
   try {
-    final snapshot = await FirebaseFirestore.instance
-        .collection('chat_rooms')
-        .doc(chatRoomId)
-        .collection('messages')
-        .where('read', isEqualTo: false)
-        .where('senderId', isNotEqualTo: doctorId)
-        .get();
+    debugPrint('🔍 Getting total unread count for doctor: $doctorId');
     
-    return snapshot.docs.length;
+    int totalUnread = 0;
+    
+    // Get all chat rooms where this doctor is a participant
+    final chatRoomsRef = _database.ref('chatRooms');
+    final chatRoomsSnapshot = await chatRoomsRef.get();
+    
+    if (chatRoomsSnapshot.exists) {
+      final data = chatRoomsSnapshot.value as Map<dynamic, dynamic>?;
+      
+      if (data != null) {
+        for (final chatRoomEntry in data.entries) {
+          final chatRoomId = chatRoomEntry.key;
+          final chatRoomData = Map<String, dynamic>.from(chatRoomEntry.value as Map);
+          
+          // Check if this doctor is in this chat room
+          final chatRoomDoctorId = chatRoomData['doctorId'];
+          if (chatRoomDoctorId == doctorId) {
+            // Get unread count for this specific chat room
+            
+          }
+        }
+      }
+    }
+    
+    debugPrint('✅ Total doctor unread count: $totalUnread');
+    return totalUnread;
   } catch (e) {
-    print('Error getting unread count: $e');
+    debugPrint('❌ Error getting total doctor unread count: $e');
     return 0;
   }
 }
+
   // ========== FILE PICKER METHODS ==========
 
  Future<File?> pickImage() async {
@@ -911,36 +935,309 @@ Future<void> _saveToDownloads(File tempFile, String fileName) async {
     }
   }
 
-  Future<void> markMessagesAsRead(String chatRoomId, String userId) async {
-    try {
-      final messagesRef = _database.ref('chatRooms/$chatRoomId/messages');
-      final snapshot = await messagesRef.get();
+Future<void> markMessagesAsRead(String chatRoomId, String userId) async {
+  try {
+    final messagesRef = _database.ref('chatRooms/$chatRoomId/messages');
+    final snapshot = await messagesRef.get();
+    
+    if (snapshot.exists) {
+      final updates = <String, dynamic>{};
+      final data = snapshot.value as Map<dynamic, dynamic>;
       
-      if (snapshot.exists) {
-        final updates = <String, dynamic>{};
-        final data = snapshot.value as Map<dynamic, dynamic>;
+      // Get chat room info to identify roles
+      final chatRoomSnapshot = await _database.ref('chatRooms/$chatRoomId').get();
+      String? patientId = '';
+      String? doctorId = '';
+      
+      if (chatRoomSnapshot.exists) {
+        final chatRoomData = Map<String, dynamic>.from(
+          chatRoomSnapshot.value as Map<dynamic, dynamic>
+        );
+        patientId = chatRoomData['patientId'];
+        doctorId = chatRoomData['doctorId'];
+      }
+      
+      data.forEach((key, value) {
+        final message = Map<String, dynamic>.from(value as Map);
+        
+        // FIXED: Mark as read if:
+        // If user is doctor, mark patient's messages as read
+        // If user is patient, mark doctor's messages as read
+        if (userId == doctorId && message['senderId'] == patientId && 
+            (message['read'] == false || message['read'] == null)) {
+          updates['$key/read'] = true;
+          updates['$key/readAt'] = DateTime.now().millisecondsSinceEpoch;
+        } else if (userId == patientId && message['senderId'] == doctorId && 
+            (message['read'] == false || message['read'] == null)) {
+          updates['$key/read'] = true;
+          updates['$key/readAt'] = DateTime.now().millisecondsSinceEpoch;
+        }
+      });
+      
+      if (updates.isNotEmpty) {
+        await messagesRef.update(updates);
+        debugPrint('✅ Marked ${updates.length ~/ 2} messages as read in $chatRoomId');
+      }
+    }
+  } catch (e) {
+    debugPrint('❌ Error marking messages as read: $e');
+  }
+}
+Future<void> debugUnreadMessages(String chatRoomId, String doctorId) async {
+  try {
+    debugPrint('🔍 DEBUG: Unread messages analysis for doctor $doctorId');
+    
+    final chatRoomSnapshot = await _database.ref('chatRooms/$chatRoomId').get();
+    if (!chatRoomSnapshot.exists) {
+      debugPrint('   ❌ Chat room not found');
+      return;
+    }
+    
+    final chatRoomData = Map<String, dynamic>.from(
+      chatRoomSnapshot.value as Map<dynamic, dynamic>
+    );
+    
+    final patientId = chatRoomData['patientId'];
+    final doctorIdInChat = chatRoomData['doctorId'];
+    
+    debugPrint('   👤 Patient ID: $patientId');
+    debugPrint('   👨‍⚕️ Doctor ID in chat: $doctorIdInChat');
+    debugPrint('   👨‍⚕️ Current doctor: $doctorId');
+    
+    final messagesRef = _database.ref('chatRooms/$chatRoomId/messages');
+    final snapshot = await messagesRef.get();
+    
+    if (snapshot.exists) {
+      final data = snapshot.value as Map<dynamic, dynamic>?;
+      if (data != null) {
+        debugPrint('   📊 Total messages: ${data.length}');
+        
+        int patientMessages = 0;
+        int doctorMessages = 0;
+        int unreadFromPatient = 0;
         
         data.forEach((key, value) {
           final message = Map<String, dynamic>.from(value as Map);
-          if (message['senderId'] != userId && (message['read'] == false || message['read'] == null)) {
-            updates['$key/read'] = true;
+          final senderId = message['senderId'];
+          final readStatus = message['read'];
+          final text = message['text']?.toString().substring(0, math.min(30, message['text']?.toString().length ?? 0)) ?? '';
+          
+          if (senderId == patientId) {
+            patientMessages++;
+            if (readStatus == false || readStatus == null) {
+              unreadFromPatient++;
+              debugPrint('   🔴 UNREAD from patient: "$text..." (read: $readStatus)');
+            } else {
+              debugPrint('   ✅ READ from patient: "$text..." (read: $readStatus)');
+            }
+          } else if (senderId == doctorId) {
+            doctorMessages++;
+            debugPrint('   💬 From doctor: "$text..." (read: $readStatus)');
+          } else {
+            debugPrint('   ❓ From unknown ($senderId): "$text..."');
           }
         });
         
-        if (updates.isNotEmpty) {
-          await messagesRef.update(updates);
-          debugPrint('✅ Marked messages as read in $chatRoomId');
+        debugPrint('   📊 Summary:');
+        debugPrint('     - Patient messages: $patientMessages');
+        debugPrint('     - Doctor messages: $doctorMessages');
+        debugPrint('     - Unread from patient: $unreadFromPatient');
+        
+        // Calculate what should be shown
+        final correctUnreadCount = unreadFromPatient;
+        debugPrint('   ✅ Correct unread count should be: $correctUnreadCount');
+      }
+    } else {
+      debugPrint('   📭 No messages in chat room');
+    }
+  } catch (e) {
+    debugPrint('❌ Debug error: $e');
+  }
+}
+
+
+  Stream<int> getUnreadCount(String chatRoomId, String userId) {
+  return _database.ref('chatRooms/$chatRoomId/messages')
+      .onValue
+      .map((event) {
+    int unreadCount = 0;
+    
+    if (event.snapshot.exists) {
+      final data = event.snapshot.value as Map<dynamic, dynamic>?;
+      if (data != null) {
+        data.forEach((key, value) {
+          final message = Map<String, dynamic>.from(value as Map);
+          if (message['senderId'] != userId && (message['read'] == false || message['read'] == null)) {
+            unreadCount++;
+          }
+        });
+      }
+    }
+    
+    debugPrint('📊 Unread count for $chatRoomId: $unreadCount');
+    return unreadCount;
+  });
+}
+Future<int> getTotalUnreadCount(String userId, String userType) async {
+  try {
+    debugPrint('📊 Getting total unread count for user: $userId ($userType)');
+    
+    int totalUnread = 0;
+    
+    // Get all chat rooms where this user is a participant
+    final chatRoomsRef = _database.ref('chatRooms');
+    final chatRoomsSnapshot = await chatRoomsRef.get();
+    
+    if (chatRoomsSnapshot.exists) {
+      final data = chatRoomsSnapshot.value as Map<dynamic, dynamic>?;
+      
+      if (data != null) {
+        // Filter chat rooms where user is a participant
+        for (final chatRoomEntry in data.entries) {
+          final chatRoomId = chatRoomEntry.key;
+          final chatRoomData = Map<String, dynamic>.from(chatRoomEntry.value as Map);
+          
+          // Check if user is in this chat room
+          final participants = chatRoomData['participants'] as Map<dynamic, dynamic>? ?? {};
+          final patientId = chatRoomData['patientId'];
+          final doctorId = chatRoomData['doctorId'];
+          
+          bool isUserInChat = false;
+          if (userType == 'doctor') {
+            isUserInChat = doctorId == userId || participants[userId] == true;
+          } else if (userType == 'patient') {
+            isUserInChat = patientId == userId || participants[userId] == true;
+          } else {
+            // For admin, check if they have access to this medical center
+            // You'll need to implement admin logic based on your structure
+          }
+          
+          if (isUserInChat) {
+            // Get unread messages count for this chat room
+            final unreadCount = await getUnreadCountForUser(chatRoomId, userId);
+            totalUnread += unreadCount;
+          }
         }
       }
-    } catch (e) {
-      debugPrint('❌ Error marking messages as read: $e');
     }
+    
+    debugPrint('📊 Total unread messages: $totalUnread');
+    return totalUnread;
+  } catch (e) {
+    debugPrint('❌ Error getting total unread count: $e');
+    return 0;
   }
+}
+Future<int> getUnreadCountForUser(String chatRoomId, String userId) async {
+  try {
+    final messagesRef = _database.ref('chatRooms/$chatRoomId/messages');
+    final snapshot = await messagesRef.get();
+    
+    int unreadCount = 0;
+    
+    if (snapshot.exists) {
+      final data = snapshot.value as Map<dynamic, dynamic>?;
+      if (data != null) {
+        data.forEach((key, value) {
+          final message = Map<String, dynamic>.from(value as Map);
+          // Count as unread if:
+          // 1. Message is from other user
+          // 2. Message is not read (read == false or null)
+          if (message['senderId'] != userId && 
+              (message['read'] == false || message['read'] == null)) {
+            unreadCount++;
+          }
+        });
+      }
+    }
+    
+    return unreadCount;
+  } catch (e) {
+    debugPrint('❌ Error getting unread count for user: $e');
+    return 0;
+  }
+}
+Future<int> getUnreadCountForDoctorInChatRoom(String chatRoomId, String doctorId) async {
+  try {
+    debugPrint('🔍 Getting unread count for doctor $doctorId in chat room $chatRoomId');
+    
+    // First, get the chat room to identify patient ID
+    final chatRoomRef = _database.ref('chatRooms/$chatRoomId');
+    final chatRoomSnapshot = await chatRoomRef.get();
+    
+    if (!chatRoomSnapshot.exists) {
+      return 0;
+    }
+    
+    final chatRoomData = Map<String, dynamic>.from(
+      chatRoomSnapshot.value as Map<dynamic, dynamic>
+    );
+    final patientId = chatRoomData['patientId'];
+    
+    if (patientId == null) {
+      return 0;
+    }
+    
+    // Get all messages
+    final messagesRef = _database.ref('chatRooms/$chatRoomId/messages');
+    final messagesSnapshot = await messagesRef.get();
+    
+    int unreadCount = 0;
+    
+    if (messagesSnapshot.exists) {
+      final messagesData = messagesSnapshot.value as Map<dynamic, dynamic>?;
+      
+      if (messagesData != null) {
+        messagesData.forEach((key, value) {
+          final message = Map<String, dynamic>.from(value as Map);
+          final senderId = message['senderId'];
+          final readStatus = message['read'] ?? false;
+          
+          // Count as unread if:
+          // 1. Message is from patient (not doctor)
+          // 2. Message is not read
+          if (senderId == patientId && readStatus == false) {
+            unreadCount++;
+          }
+        });
+      }
+    }
+    
+    debugPrint('✅ Unread count for doctor in $chatRoomId: $unreadCount');
+    return unreadCount;
+  } catch (e) {
+    debugPrint('❌ Error getting unread count: $e');
+    return 0;
+  }
+}
 
-  Stream<int> getUnreadMessageCount(String chatRoomId, String userId) {
-    return _database.ref('chatRooms/$chatRoomId/messages')
-        .onValue
-        .map((event) {
+Stream<int> getTotalUnreadCountStream(String userId, String userType) {
+  return Stream.periodic(const Duration(seconds: 10)).asyncMap((_) async {
+    return await getTotalUnreadCount(userId, userType);
+  }).distinct();
+}
+Stream<int> getUnreadCountStream(String chatRoomId, String doctorId) {
+  return _database.ref('chatRooms/$chatRoomId/messages')
+      .onValue
+      .asyncMap((event) async {
+    try {
+      // Get the patient ID from chat room
+      final chatRoomRef = _database.ref('chatRooms/$chatRoomId');
+      final chatRoomSnapshot = await chatRoomRef.get();
+      
+      if (!chatRoomSnapshot.exists) {
+        return 0;
+      }
+      
+      final chatRoomData = Map<String, dynamic>.from(
+        chatRoomSnapshot.value as Map<dynamic, dynamic>
+      );
+      final patientId = chatRoomData['patientId'];
+      
+      if (patientId == null) {
+        return 0;
+      }
+      
       int unreadCount = 0;
       
       if (event.snapshot.exists) {
@@ -948,7 +1245,10 @@ Future<void> _saveToDownloads(File tempFile, String fileName) async {
         if (data != null) {
           data.forEach((key, value) {
             final message = Map<String, dynamic>.from(value as Map);
-            if (message['senderId'] != userId && (message['read'] == false || message['read'] == null)) {
+            final senderId = message['senderId'];
+            final readStatus = message['read'] ?? false;
+            
+            if (senderId == patientId && readStatus == false) {
               unreadCount++;
             }
           });
@@ -956,9 +1256,12 @@ Future<void> _saveToDownloads(File tempFile, String fileName) async {
       }
       
       return unreadCount;
-    });
-  }
-
+    } catch (e) {
+      debugPrint('❌ Error in unread count stream: $e');
+      return 0;
+    }
+  });
+}
   // Get doctor name from Firestore
   Future<String> getDoctorName(String doctorId) async {
     try {
@@ -970,7 +1273,110 @@ Future<void> _saveToDownloads(File tempFile, String fileName) async {
       return 'Dr. Reshika';
     }
   }
-
+Future<bool> hasUnreadMessagesForDoctor(String chatRoomId, String doctorId) async {
+  try {
+    debugPrint('🔍 Checking for unread messages in $chatRoomId for doctor: $doctorId');
+    
+    // Get the chat room to identify patient ID
+    final chatRoomRef = _database.ref('chatRooms/$chatRoomId');
+    final chatRoomSnapshot = await chatRoomRef.get();
+    
+    if (!chatRoomSnapshot.exists) {
+      return false;
+    }
+    
+    final chatRoomData = Map<String, dynamic>.from(
+      chatRoomSnapshot.value as Map<dynamic, dynamic>
+    );
+    final patientId = chatRoomData['patientId'];
+    
+    if (patientId == null) {
+      return false;
+    }
+    
+    // Get all messages
+    final messagesRef = _database.ref('chatRooms/$chatRoomId/messages');
+    final messagesSnapshot = await messagesRef.get();
+    
+    if (messagesSnapshot.exists) {
+      final messagesData = messagesSnapshot.value as Map<dynamic, dynamic>?;
+      
+      if (messagesData != null) {
+        for (final entry in messagesData.entries) {
+          final message = Map<String, dynamic>.from(entry.value as Map);
+          final senderId = message['senderId'];
+          final readStatus = message['read'] ?? false;
+          
+          // If any message is from patient and not read, return true
+          if (senderId == patientId && readStatus == false) {
+            debugPrint('✅ Found unread message from patient in $chatRoomId');
+            return true;
+          }
+        }
+      }
+    }
+    
+    return false;
+  } catch (e) {
+    debugPrint('❌ Error checking unread messages: $e');
+    return false;
+  }
+}
+Stream<bool> getUnreadStatusStream(String chatRoomId, String userId) {
+  return _database.ref('chatRooms/$chatRoomId/messages')
+      .onValue
+      .asyncMap((event) async {
+    try {
+      // Get the chat room to identify the other user
+      final chatRoomRef = _database.ref('chatRooms/$chatRoomId');
+      final chatRoomSnapshot = await chatRoomRef.get();
+      
+      if (!chatRoomSnapshot.exists) {
+        return false;
+      }
+      
+      final chatRoomData = Map<String, dynamic>.from(
+        chatRoomSnapshot.value as Map<dynamic, dynamic>
+      );
+      
+      String otherUserId = '';
+      
+      // Determine who the other user is based on current user's role
+      if (userId == chatRoomData['doctorId']) {
+        otherUserId = chatRoomData['patientId'] ?? '';
+      } else if (userId == chatRoomData['patientId']) {
+        otherUserId = chatRoomData['doctorId'] ?? '';
+      } else {
+        return false; // User not in this chat
+      }
+      
+      if (otherUserId.isEmpty) {
+        return false;
+      }
+      
+      // Check for unread messages from the other user
+      if (event.snapshot.exists) {
+        final data = event.snapshot.value as Map<dynamic, dynamic>?;
+        if (data != null) {
+          for (final entry in data.entries) {
+            final message = Map<String, dynamic>.from(entry.value as Map);
+            final senderId = message['senderId'];
+            final readStatus = message['read'] ?? false;
+            
+            if (senderId == otherUserId && readStatus == false) {
+              return true;
+            }
+          }
+        }
+      }
+      
+      return false;
+    } catch (e) {
+      debugPrint('❌ Error in unread status stream: $e');
+      return false;
+    }
+  });
+}
   // Get patient name from Firestore
   Future<String> getPatientName(String patientId) async {
     try {

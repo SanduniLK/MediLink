@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/services.dart';
+import 'package:frontend/enroll_screnns/sign_in_page.dart';
 
 class PharmacySettingsScreen extends StatefulWidget {
   final String uid;
@@ -236,121 +237,54 @@ class _PharmacySettingsScreenState extends State<PharmacySettingsScreen> {
           ),
         ],
       ),
-      body: Column(
-      children: [
-        Expanded(
-          child: _isLoading
-              ? const Center(child: CircularProgressIndicator())
-              : SingleChildScrollView(
-                  padding: const EdgeInsets.all(16),
-                  child: Form(
-                    key: _formKey,
-                    child: Column(
-                      children: [
-                        // Pharmacy Avatar with first letter
-                        _buildPharmacyAvatar(),
-                        
-                        const SizedBox(height: 10),
+      body: _isLoading
+    ? const Center(child: CircularProgressIndicator())
+    : SingleChildScrollView(
+        padding: const EdgeInsets.all(16),
+        child: Form(
+          key: _formKey,
+          child: Column(
+            children: [
+              // Pharmacy Avatar with first letter
+              _buildPharmacyAvatar(),
+              
+              const SizedBox(height: 10),
 
-                        // Pharmacy Name
-                        Text(
-                          nameCtrl.text.isEmpty ? "Pharmacy Name" : nameCtrl.text,
-                          style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-                        ),
-                        
-                        Text(
-                          licenseCtrl.text.isEmpty ? "License Number" : "License: ${licenseCtrl.text}",
-                          style: TextStyle(
-                            fontSize: 14,
-                            color: Colors.grey.shade600,
-                          ),
-                        ),
-
-                        const SizedBox(height: 20),
-
-                        // Change Password Section
-                        _buildChangePasswordSection(),
-
-                        const SizedBox(height: 20),
-
-                        // Pharmacy Details Form
-                        _buildFormFields(),
-
-                        const SizedBox(height: 30),
-                        
-                        // Save Button
-                        _buildSaveButton(),
-                      ],
-                    ),
-                  ),
+              // Pharmacy Name
+              Text(
+                nameCtrl.text.isEmpty ? "Pharmacy Name" : nameCtrl.text,
+                style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+              ),
+              
+              Text(
+                licenseCtrl.text.isEmpty ? "License Number" : "License: ${licenseCtrl.text}",
+                style: TextStyle(
+                  fontSize: 14,
+                  color: Colors.grey.shade600,
                 ),
+              ),
+
+              const SizedBox(height: 20),
+
+              // Change Password Section
+              _buildChangePasswordSection(),
+
+              const SizedBox(height: 20),
+
+              // Pharmacy Details Form
+              _buildFormFields(),
+
+              const SizedBox(height: 30),
+              
+              // Save Button
+              _buildSaveButton(),
+            ],
+          ),
         ),
-        
-        // Sign Out Button at the bottom outside the scrollable area
-        Container(
-          width: double.infinity,
-          padding: const EdgeInsets.all(16),
-          child: _buildSignOutButton(),
-        ),
-      ],
-    ),
+      ),
     );
     
   }
-Widget _buildSignOutButton() {
-  return SizedBox(
-    width: double.infinity,
-    child: ElevatedButton.icon(
-      onPressed: _signOut,
-      icon: const Icon(Icons.logout),
-      label: const Text(
-        "Sign Out",
-        style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-      ),
-      style: ElevatedButton.styleFrom(
-        backgroundColor: Colors.redAccent,
-        foregroundColor: Colors.white,
-        padding: const EdgeInsets.symmetric(vertical: 14),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(10),
-        ),
-      ),
-    ),
-  );
-}
-Future<void> _signOut() async {
-  final shouldLogout = await showDialog<bool>(
-    context: context,
-    builder: (context) => AlertDialog(
-      title: const Text("Sign Out"),
-      content: const Text("Are you sure you want to sign out?"),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.of(context).pop(false),
-          child: const Text("Cancel"),
-        ),
-        TextButton(
-          onPressed: () => Navigator.of(context).pop(true),
-          child: const Text("Sign Out", style: TextStyle(color: Colors.red)),
-        ),
-      ],
-    ),
-  );
-
-  if (shouldLogout == true) {
-    try {
-      await FirebaseAuth.instance.signOut();
-      if (!mounted) return;
-
-      Navigator.pushReplacementNamed(context, "/login");
-    } catch (e) {
-      if (mounted) {
-        _showErrorSnackBar("Error signing out: $e");
-      }
-    }
-  }
-}
-
 
 
   Widget _buildPharmacyAvatar() {

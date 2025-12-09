@@ -1,4 +1,6 @@
+import 'dart:async';
 import 'dart:ui';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:frontend/enroll_screnns/sign_in_page.dart';
@@ -18,6 +20,7 @@ import 'package:frontend/screens/patient_screens/my_appointments_page.dart';
 import 'package:frontend/screens/patient_screens/patient_prescriptions.dart';
 import 'package:frontend/screens/patient_screens/patient_queue_status.dart';
 import 'package:frontend/screens/patient_screens/patient_test_reports_screen.dart';
+import 'package:frontend/services/chat_service.dart';
 
 import 'package:frontend/telemedicine/patient_telemedicine_page.dart';
 
@@ -40,29 +43,66 @@ class _MedicalHomeScreenState extends State<MedicalHomeScreen> {
   int _selectedIndex = 0;
   String? patientId;
   String? patientName;
-
+  bool _isLoading = true;
+  final ChatService _chatService = ChatService();
+  int _unreadMessageCount = 0;
+  StreamSubscription? _unreadSubscription;
   @override
   void initState() {
     super.initState();
     _getPatientId();
     _getPatientInfo();
+    _setupUnreadListener();
   }
-void _getPatientInfo() {
-  try {
+  void _setupUnreadListener() async {
     final user = FirebaseAuth.instance.currentUser;
     if (user != null) {
-      // ADD mounted CHECK
-      if (mounted) {
-        setState(() {
-          patientId = user.uid;
-          patientName = user.displayName ?? 'Patient';
-        });
-      }
+      // Start listening for unread messages
+      _unreadSubscription = _chatService.getTotalUnreadCountStream(user.uid, 'patient')
+          .listen((count) {
+        if (mounted) {
+          setState(() {
+            _unreadMessageCount = count;
+          });
+        }
+      });
+    }
+  }
+Future<void> _getPatientInfo() async {
+  try {
+    final user = FirebaseAuth.instance.currentUser;
+
+    if (user == null) {
+      if (mounted) setState(() => _isLoading = false);
+      return;
+    }
+
+    final doc = await FirebaseFirestore.instance
+        .collection('patients')
+        .doc(user.uid)
+        .get();
+
+    String fullName = doc.data()?['fullname'] ?? 'Patient';
+    String firstName = fullName.split(' ').first;
+
+    if (mounted) {
+      setState(() {
+        patientId = user.uid;
+        patientName = firstName; 
+        _isLoading = false;
+      });
     }
   } catch (e) {
-    print('❌ Error getting patient info: $e');
+    print('❌ Error loading patient info: $e');
+    if (mounted) {
+      setState(() {
+        patientName = 'Patient';
+        _isLoading = false;
+      });
+    }
   }
 }
+
 
 void _getPatientId() {
   try {
@@ -72,6 +112,7 @@ void _getPatientId() {
       if (mounted) {
         setState(() {
           patientId = user.uid;
+          
         });
       }
     }
@@ -179,6 +220,12 @@ Future<void> _forceSignOut() async {
     }
   }
 }
+@override
+  void dispose() {
+    _unreadSubscription?.cancel();
+    super.dispose();
+  }
+  
   @override
   Widget build(BuildContext context) {
     final currentUser = FirebaseAuth.instance.currentUser;
@@ -472,7 +519,7 @@ void _showSignOutConfirmation() {
               _buildHeader(screenWidth),
               _buildGridButtons(),
               _buildHealthReportSummary(), 
-              _buildInfoBar(),
+            
               _buildAiSection(),
               const SizedBox(height: 20),
             ],
@@ -641,7 +688,7 @@ Widget _buildHeader(double screenWidth) {
           ),
         ),
 
-        const Padding(
+         Padding(
           padding: EdgeInsets.fromLTRB(20, 60, 20, 0), 
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -663,7 +710,7 @@ Widget _buildHeader(double screenWidth) {
               ),
               SizedBox(height: 10),
               Text(
-                'Hello, Patient!',
+                  "Hello, ${patientName ?? 'patient'}!",
                 style: TextStyle(
                   color: Colors.white, 
                   fontSize: 32, 
@@ -868,26 +915,7 @@ void _navigateToChatList(BuildContext context) {
     );
   }
 
-  Widget _buildInfoBar() {
-    return GestureDetector(
-      onTap: () {
-        Navigator.push(context,
-            MaterialPageRoute(builder: (_) => const InformationScreen()));
-      },
-      child: Container(
-        margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 20),
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(color: kSoftAqua, borderRadius: BorderRadius.circular(15)),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: const [
-            Text('Information', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: kDeepTeal)),
-            Icon(Icons.arrow_forward_ios, color: kDeepTeal),
-          ],
-        ),
-      ),
-    );
-  }
+ 
 
   Widget _buildAiSection() {
     return GestureDetector(

@@ -3,7 +3,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 class AdminScheduleService {
   static final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   static const String schedulesCollection = 'doctorSchedules';
-  static const String appointmentSlotsCollection = 'appointmentSlots';
+  
 
   // Get schedules count for specific medical center
   static Future<Map<String, int>> getSchedulesCount(String medicalCenterId) async {
@@ -149,8 +149,8 @@ class AdminScheduleService {
       
       print('✅ Schedule $scheduleId approved successfully');
       
-      // Create appointment slots for patients
-      await _createAppointmentSlots(scheduleId);
+      
+      
       
     } catch (e) {
       print('❌ Error approving schedule: $e');
@@ -176,34 +176,5 @@ class AdminScheduleService {
   }
 
   // Create appointment slots when schedule is approved
-  static Future<void> _createAppointmentSlots(String scheduleId) async {
-    try {
-      final scheduleDoc = await _firestore.collection(schedulesCollection).doc(scheduleId).get();
-      final scheduleData = scheduleDoc.data() as Map<String, dynamic>?;
-      
-      if (scheduleData == null) return;
-      
-      await _firestore.collection(appointmentSlotsCollection).add({
-        'scheduleId': scheduleId,
-        'doctorId': scheduleData['doctorId'],
-        'doctorName': scheduleData['doctorName'],
-        'medicalCenterId': scheduleData['medicalCenterId'],
-        'medicalCenterName': scheduleData['medicalCenterName'],
-        'date': scheduleData['date'],
-        'startTime': scheduleData['startTime'],
-        'endTime': scheduleData['endTime'],
-        'slotDuration': scheduleData['slotDuration'],
-        'appointmentType': scheduleData['appointmentType'],
-        'maxAppointments': scheduleData['maxAppointments'],
-        'availableSlots': scheduleData['availableSlots'] ?? scheduleData['maxAppointments'],
-        'bookedAppointments': 0,
-        'status': 'available',
-        'createdAt': FieldValue.serverTimestamp(),
-      });
-      
-      print('✅ Created appointment slot for schedule $scheduleId');
-    } catch (e) {
-      print('❌ Error creating appointment slots: $e');
-    }
-  }
+  
 }

@@ -34,7 +34,11 @@ class _PatientTelemedicinePageState extends State<PatientTelemedicinePage> {
   StreamSubscription? _sessionsSubscription;
   String _selectedFilter = 'all';
 
+final Map<String, int> _unreadCounts = {};
+final Map<String, StreamSubscription> _unreadSubscriptions = {};
+final ChatService _chatService = ChatService();
 
+final Map<String, bool> _hasUnreadMessages = {};
 
   
 
@@ -56,7 +60,10 @@ class _PatientTelemedicinePageState extends State<PatientTelemedicinePage> {
 
   @override
   void dispose() {
-    _sessionsSubscription?.cancel();
+      _unreadSubscriptions.values.forEach((sub) => sub.cancel());
+  _unreadSubscriptions.clear();
+  
+  _sessionsSubscription?.cancel();
     super.dispose();
   }
 
@@ -115,35 +122,74 @@ void _setFilter(String filter) {
       }
     }
   }
+void _setupChatListeners() {
+  for (final session in _sessions) {
+    final chatRoomId = _chatService.generateChatRoomId(widget.patientId, session.doctorId);
+    
+    // Listen for unread messages
+    final subscription = _chatService.getUnreadCountStream(chatRoomId, widget.patientId)
+        .listen((count) {
+      if (mounted) {
+        setState(() {
+          _unreadCounts[session.appointmentId] = count;
+        });
+      }
+    });
+    
+    _unreadSubscriptions[session.appointmentId] = subscription;
+  }
+}
+
+void _setupChatUnreadListeners() {
+  // Cancel existing subscriptions
+  _unreadSubscriptions.values.forEach((sub) => sub.cancel());
+  _unreadSubscriptions.clear();
+  
+  // Set up new subscriptions for each session
+  for (final session in _sessions) {
+    final chatRoomId = _chatService.generateChatRoomId(widget.patientId, session.doctorId);
+    
+    // Listen for unread status
+    final subscription = _chatService.getUnreadStatusStream(chatRoomId, widget.patientId)
+        .listen((hasUnread) {
+      if (mounted) {
+        setState(() {
+          _hasUnreadMessages[session.appointmentId] = hasUnread;
+        });
+        debugPrint('👨‍⚕️ Doctor ${session.doctorName} has unread: $hasUnread');
+      }
+    }, onError: (error) {
+      debugPrint('❌ Error in patient unread stream: $error');
+    });
+    
+    _unreadSubscriptions[session.appointmentId] = subscription;
+  }
+}
 
   void _handleSessionsData(List<Map<String, dynamic>> sessionsData) {
-    if (!mounted) return;
-    
-    print('📋 Received ${sessionsData.length} real sessions from Firestore');
-    
-    final sessions = sessionsData.map((data) {
-      try {
-        print('📝 Parsing real session: ${data['patientName']} - ${data['status']}');
-        return TelemedicineSession.fromMap(data);
-      } catch (e) {
-        print('❌ Error parsing session data: $e');
-        print('❌ Problematic data: $data');
-        return null;
-      }
-    }).where((session) => session != null).cast<TelemedicineSession>().toList();
-
-    print('✅ Successfully parsed ${sessions.length} real sessions');
-
-    if (mounted) {
-      setState(() {
-        _sessions = sessions;
-        _applyFilter();
-        _isLoading = false;
-        _usingRealData = true;
-        _hasError = false;
-      });
+  if (!mounted) return;
+  
+  final sessions = sessionsData.map((data) {
+    try {
+      return TelemedicineSession.fromMap(data);
+    } catch (e) {
+      return null;
     }
+  }).where((session) => session != null).cast<TelemedicineSession>().toList();
+
+  if (mounted) {
+    setState(() {
+      _sessions = sessions;
+      _applyFilter();
+      _isLoading = false;
+      _usingRealData = true;
+      _hasError = false;
+    });
+    
+    // Setup unread listeners AFTER sessions are loaded
+    _setupUnreadListeners();
   }
+}
 
   void _handleSessionsError(error) {
     print('❌ Firestore stream error: $error');
@@ -371,21 +417,40 @@ bool _canPatientJoin(TelemedicineSession session) {
                   ),
                 ),
                 SizedBox(width: 8),
-                // CHAT BUTTON
-                Container(
-                  width: 50,
-                  child: ElevatedButton(
-                    onPressed: () => _navigateToChatScreen(session),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.green,
-                      padding: EdgeInsets.all(12),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                    ),
-                    child: Icon(Icons.chat, color: Colors.white),
-                  ),
-                ),
+         Container(
+  width: 50,
+  child: Stack(
+    children: [
+      ElevatedButton(
+        onPressed: () => _navigateToChatScreen(session),
+        style: ElevatedButton.styleFrom(
+          backgroundColor: Colors.green,
+          padding: EdgeInsets.all(12),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(8),
+          ),
+        ),
+        child: Icon(Icons.chat, color: Colors.white),
+      ),
+      // RED DOT for unread messages - FIXED THIS
+      if (_hasUnreadMessages.containsKey(session.appointmentId) && 
+          _hasUnreadMessages[session.appointmentId] == true)
+        Positioned(
+          right: 0,
+          top: 0,
+          child: Container(
+            width: 12,
+            height: 12,
+            decoration: BoxDecoration(
+              color: Colors.red,
+              shape: BoxShape.circle,
+              border: Border.all(color: Colors.white, width: 2),
+            ),
+          ),
+        ),
+    ],
+  ),
+),
               ],
             )
           else if (session.status == 'Completed')
@@ -412,22 +477,26 @@ bool _canPatientJoin(TelemedicineSession session) {
   );
 }
 
-void _navigateToChatScreen(TelemedicineSession session) {
+void _navigateToChatScreen(TelemedicineSession session) async {
   debugPrint('💬 Navigating to chat screen with Dr. ${session.doctorName}');
   
-  // Use the same chat room ID generation as ChatService
-  final chatRoomId = ChatService().generateChatRoomId(widget.patientId, session.doctorId);
+  final chatRoomId = _chatService.generateChatRoomId(widget.patientId, session.doctorId);
   
-  debugPrint('🔑 Generated Chat Room ID: $chatRoomId');
-  debugPrint('   Patient ID: ${widget.patientId}');
-  debugPrint('   Doctor ID: ${session.doctorId}');
+  // Mark messages as read before opening
+  await _chatService.markMessagesAsRead(chatRoomId, widget.patientId);
   
-  // Navigate to your chat screen
+  // Clear unread status immediately
+  if (mounted) {
+    setState(() {
+      _hasUnreadMessages[session.appointmentId] = false;
+    });
+  }
+  
   Navigator.push(
     context,
     MaterialPageRoute(
       builder: (context) => TelemedicineChatScreen(
-        chatRoomId: chatRoomId, // Use the properly generated ID
+        chatRoomId: chatRoomId,
         patientId: widget.patientId,
         patientName: widget.patientName,
         doctorId: session.doctorId,
@@ -437,7 +506,6 @@ void _navigateToChatScreen(TelemedicineSession session) {
     ),
   );
 }
-
 
   Widget _buildDetailRow({required IconData icon, required String text, bool isPrice = false}) {
     return Row(
@@ -516,7 +584,31 @@ void _navigateToChatScreen(TelemedicineSession session) {
       ),
     );
   }
-
+void _setupUnreadListeners() {
+  // Cancel existing subscriptions
+  _unreadSubscriptions.values.forEach((sub) => sub.cancel());
+  _unreadSubscriptions.clear();
+  
+  // Set up new subscriptions for each session
+  for (final session in _sessions) {
+    final chatRoomId = _chatService.generateChatRoomId(widget.patientId, session.doctorId);
+    
+    // Listen for unread status
+    final subscription = _chatService.getUnreadStatusStream(chatRoomId, widget.patientId)
+        .listen((hasUnread) {
+      if (mounted) {
+        setState(() {
+          _hasUnreadMessages[session.appointmentId] = hasUnread;
+        });
+        debugPrint('👨‍⚕️ Doctor ${session.doctorName} has unread: $hasUnread');
+      }
+    }, onError: (error) {
+      debugPrint('❌ Error in patient unread stream: $error');
+    });
+    
+    _unreadSubscriptions[session.appointmentId] = subscription;
+  }
+}
   Widget _buildDialogDetailRow(String label, String value) {
     return Padding(
       padding: EdgeInsets.symmetric(vertical: 6),
