@@ -21,7 +21,7 @@ class _MedicalCenterManagementScreenState
   final TextEditingController _medLicenseController = TextEditingController();
 
   bool isLoading = false;
-
+String get medicalCenterName => _nameController.text.trim();
   Future<void> _addMedicalCenter() async {
     if (!_formKey.currentState!.validate()) return;
 
@@ -29,7 +29,7 @@ class _MedicalCenterManagementScreenState
 
     try {
       final email = _emailController.text.trim();
-      final password = "12345678";
+      final password = "$medicalCenterName@12345";
 
       UserCredential cred = await FirebaseAuth.instance
           .createUserWithEmailAndPassword(email: email, password: password);
@@ -228,7 +228,7 @@ class _MedicalCenterManagementScreenState
                           const SizedBox(width: 10),
                           Expanded(
                             child: Text(
-                              "Default password: 12345678\nMedical center can change it later.",
+                              "Default password: Medical center name@12345678\nMedical center can change it later.",
                               style: TextStyle(
                                 color: Colors.grey[700],
                                 fontSize: 14,

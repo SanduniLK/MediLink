@@ -17,6 +17,7 @@ class _SignUpPageState extends State<SignUpPage> {
 
   String _role = "patient"; // default role
   final _fullnameController = TextEditingController();
+  final _NationalIDController = TextEditingController();
   final _emailController = TextEditingController();
   final _mobileController = TextEditingController();
   final _dobController = TextEditingController();
@@ -48,6 +49,7 @@ class _SignUpPageState extends State<SignUpPage> {
   @override
   void dispose() {
     _fullnameController.dispose();
+    //_NationalIDController.dispose();
     _emailController.dispose();
     _mobileController.dispose();
     _dobController.dispose();
@@ -95,23 +97,74 @@ Future<void> _selectDate() async {
   }
 }
   void _calculateAge(String dob) {
-    try {
-      DateTime birthDate = DateFormat("yyyy-MM-dd").parse(dob);
-      DateTime today = DateTime.now();
-      int age = today.year - birthDate.year;
-      if (today.month < birthDate.month ||
-          (today.month == birthDate.month && today.day < birthDate.day)) {
-        age--;
-      }
-      setState(() => _age = age);
-    } catch (e) {
-      setState(() => _age = null);
+  try {
+    DateTime birthDate = DateFormat("yyyy-MM-dd").parse(dob);
+    DateTime today = DateTime.now();
+    int age = today.year - birthDate.year;
+    
+    // Adjust for month/day
+    if (today.month < birthDate.month ||
+        (today.month == birthDate.month && today.day < birthDate.day)) {
+      age--;
+    }
+    
+    setState(() => _age = age);
+    
+  } catch (e) {
+    setState(() => _age = null);
+  }
+}
+  
+  Future<void> _register() async {
+    if (!_formKey.currentState!.validate()) return;
+       if (_role == "doctor" && (_age == null || _age! < 18)) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text("You must be 18 years or older to register as a doctor"),
+        backgroundColor: Colors.red,
+      ),
+    );
+    return;
+  }
+
+  // Validate National ID for patients 18+
+  if (_role == "patient" && _age != null && _age! >= 18) {
+    if (_NationalIDController.text.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text("National ID is required for patients 18+"),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
     }
   }
 
-  Future<void> _register() async {
-    if (!_formKey.currentState!.validate()) return;
+  // Validate National ID for doctors (always required)
+  if (_role == "doctor" && _NationalIDController.text.trim().isEmpty) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text("National ID is required for doctors"),
+        backgroundColor: Colors.red,
+      ),
+    );
+    return;
+  }
 
+  // Rest of your existing validation...
+  if (_role == "doctor" && _selectedMedicalCenters.isEmpty) {
+    ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Please select at least one Medical Center")));
+    return;
+  }
+
+  if (_passwordController.text.trim() != _confirmPasswordController.text.trim()) {
+    ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Passwords do not match")));
+    return;
+  }
+
+  setState(() => isLoading = true);
     if (_role == "doctor" && _selectedMedicalCenters.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text("Please select at least one Medical Center")));
@@ -146,11 +199,12 @@ Future<void> _selectDate() async {
         "createdAt": FieldValue.serverTimestamp(),
       });
 
-      // ✅ STORE IN SPECIFIC COLLECTIONS BASED ON ROLE
+     
       if (_role == "patient") {
         await FirebaseFirestore.instance.collection("patients").doc(uid).set({
           "uid": uid,
           "fullname": _fullnameController.text.trim(),
+          "NationalID": _NationalIDController.text.trim(),
           "dob": _dobController.text.trim(),
           "age": _age,
           "mobile": _mobileController.text.trim(),
@@ -165,6 +219,7 @@ Future<void> _selectDate() async {
         await FirebaseFirestore.instance.collection("doctor_requests").doc(uid).set({
           "uid": uid,
           "fullname": _fullnameController.text.trim(),
+          "NationalId": _NationalIDController.text.trim(),
           "email": _emailController.text.trim(),
           "specialization": _specializationController.text.trim(),
           "address": _addressController.text.trim(),
@@ -507,11 +562,14 @@ if (_role != "pharmacy") ...[
                   validator: (val) => val == null ? "Select gender" : null,
                 ),
                 const SizedBox(height: 12),
-                TextFormField(
-                  controller: _addressController,
-                  decoration: _inputDecoration("Address", Icons.location_on_outlined),
-                  maxLines: 2,
-                ),
+               if (_age != null && _age! >= 18)
+    TextFormField(
+      controller: _NationalIDController,
+      decoration: _inputDecoration("National ID", Icons.badge_outlined),
+      validator: (val) => val!.isEmpty ? "National ID is required" : null,
+    ),
+  if (_age != null && _age! >= 18) const SizedBox(height: 12),
+    
               ],
 
               // Doctor-specific
@@ -522,6 +580,14 @@ if (_role != "pharmacy") ...[
                   validator: (val) => val!.isEmpty ? "Enter specialization" : null,
                 ),
                 const SizedBox(height: 12),
+                
+  const SizedBox(height: 12),
+  TextFormField(
+    controller: _NationalIDController,
+    decoration: _inputDecoration("National ID", Icons.badge_outlined),
+    validator: (val) => val!.isEmpty ? "National ID is required" : null,
+  ),
+  
                 TextFormField(
                   controller: _addressController,
                   decoration: _inputDecoration(
@@ -782,6 +848,8 @@ if (_role != "pharmacy") ...[
                   validator: (val) => val!.isEmpty ? "Enter pharmacy address" : null,
                 ),
               ],
+              
+              
 
               const SizedBox(height: 12),
 

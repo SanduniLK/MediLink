@@ -31,6 +31,7 @@ class _PatientProfileScreenState extends State<PatientProfileScreen> {
   final weightCtrl = TextEditingController();
 
   String lifestyle = "Non-smoker";
+  String bloodGroup = "A+";
   String? profilePicUrl;
   File? pickedImage;
   bool _isUploadingImage = false;
@@ -267,7 +268,7 @@ class _PatientProfileScreenState extends State<PatientProfileScreen> {
         "age": int.tryParse(ageCtrl.text) ?? 0,
         "email": emailCtrl.text,
         "address": addressCtrl.text,
-        "bloodGroup": bloodCtrl.text,
+        "bloodGroup": bloodGroup,
         "allergies": allergyCtrl.text,
         "height": h,
         "weight": w,
@@ -361,7 +362,7 @@ class _PatientProfileScreenState extends State<PatientProfileScreen> {
               const SizedBox(height: 20),
 
               // Medical Info
-              TextFormField(controller: bloodCtrl, decoration: const InputDecoration(labelText: "Blood Group")),
+              
               TextFormField(controller: allergyCtrl, decoration: const InputDecoration(labelText: "Allergies")),
 
               const SizedBox(height: 20),
@@ -378,7 +379,15 @@ class _PatientProfileScreenState extends State<PatientProfileScreen> {
                     .toList(),
                 onChanged: (val) => setState(() => lifestyle = val!),
               ),
-
+             
+              DropdownButtonFormField(
+                value: bloodGroup,
+                decoration: const InputDecoration(labelText:"Blood group" ),
+                items: ["A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-"]
+                    .map((e) => DropdownMenuItem(value: e, child:  Text(e)))
+                    .toList(),
+                onChanged: (val) => setState(() => bloodGroup = val!),
+              ),
               const SizedBox(height: 20),
 
               // QR Code

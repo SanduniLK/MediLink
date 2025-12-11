@@ -6,8 +6,6 @@ import 'package:flutter/material.dart';
 import 'package:frontend/enroll_screnns/sign_in_page.dart';
 import 'package:frontend/screens/Notifications/PatientNotificationPage.dart';
 import 'package:frontend/screens/doctor_screens/doctor_chat_list_screen.dart';
-
-// Import all necessary screens
 import 'package:frontend/screens/doctor_screens/doctors_list.dart';
 import 'package:frontend/screens/patient_screens/PatientProfileScreen.dart';
 import 'package:frontend/screens/patient_screens/ai_predications.dart';
@@ -21,7 +19,6 @@ import 'package:frontend/screens/patient_screens/patient_prescriptions.dart';
 import 'package:frontend/screens/patient_screens/patient_queue_status.dart';
 import 'package:frontend/screens/patient_screens/patient_test_reports_screen.dart';
 import 'package:frontend/services/chat_service.dart';
-
 import 'package:frontend/telemedicine/patient_telemedicine_page.dart';
 
 // --- Dedicated Color Palette ---
@@ -155,10 +152,10 @@ void _getPatientId() {
     // Navigate to login screen using MaterialPageRoute
     if (!mounted) return;
     
-    // Import your login screen and use MaterialPageRoute
+    
     Navigator.pushAndRemoveUntil(
       context,
-      MaterialPageRoute(builder: (context) => const SignInPage()), // Replace with your actual login screen
+      MaterialPageRoute(builder: (context) => const SignInPage()), 
       (route) => false,
     );
     
@@ -214,7 +211,7 @@ Future<void> _forceSignOut() async {
     if (mounted) {
       Navigator.pushNamedAndRemoveUntil(
         context, 
-        '/welcome',  // CHANGED TO '/welcome'
+        '/welcome',  
         (route) => false,
       );
     }

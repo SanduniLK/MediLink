@@ -119,12 +119,12 @@ class _SuperAdminDashboardState extends State<SuperAdminDashboard> {
     'Doctors',
     'Patients',
     'Pharmacies',
-    'Medical Centers', // Only in drawer
+    'Medical Centers', 
     
-    'Approvals', // Only in quick actions
+    'Approvals', 
   ];
 
-  // FIX: Safe navigation method
+  
   void _navigateToScreen(int index) {
     if (index >= 0 && index < _screens.length) {
       setState(() {
@@ -137,8 +137,7 @@ class _SuperAdminDashboardState extends State<SuperAdminDashboard> {
       });
     }
   }
-
-  // FIX: Safe index getter for bottom navigation
+  
   int get _safeBottomNavIndex {
     // Only allow indexes 0-3 for bottom navigation
     if (_selectedIndex < _bottomNavItemsCount) {
@@ -190,7 +189,7 @@ class _SuperAdminDashboardState extends State<SuperAdminDashboard> {
 
   Widget _buildBottomNavigationBar() {
     return BottomNavigationBar(
-      currentIndex: _safeBottomNavIndex, // FIX: Use safe index
+      currentIndex: _safeBottomNavIndex, 
       onTap: (index) {
         // FIX: Only navigate to bottom nav screens (0-3)
         if (index >= 0 && index < _bottomNavItemsCount) {
