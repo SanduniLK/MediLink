@@ -1,13 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-
 // Screens
 import 'package:frontend/screens/Sadmin_screens/home_page.dart';
 import 'package:frontend/screens/admin_screens/admin_homePage.dart';
 import 'package:frontend/screens/assistant_screens/assistant_home_page.dart';
 import 'package:frontend/screens/doctor_screens/doctor_homeScreen.dart';
-
 import 'package:frontend/screens/doctor_screens/doctor_pending_approval.dart.dart';
 import 'package:frontend/screens/patient_screens/patient_home.dart';
 import 'package:frontend/enroll_screnns/pateint_sign_up.dart';
@@ -31,7 +29,7 @@ class _SignInPageState extends State<SignInPage> {
   static const Color _brightCyan = Color(0xFF32BACD);
   static const Color _softAqua = Color(0xFFB2DEE6);
 
-  // ✅ Super Admin UID
+  
   static const String superAdminAuthUid = "T3vM7ps10lcwrmxdkLJ7lSllyha2";
 
  Future<void> _signin() async {
@@ -41,7 +39,7 @@ class _SignInPageState extends State<SignInPage> {
     try {
       final email = _emailController.text.trim();
       final password = _passwordController.text.trim();
-
+      
       if (email.isEmpty || password.isEmpty) {
         _showSnackBar('Please enter email and password.');
         _safeSetState(() => isLoading = false);
@@ -78,7 +76,7 @@ class _SignInPageState extends State<SignInPage> {
   return;
       }
 
-      // 3️⃣ GET USER ROLE AND VERIFICATION STATUS
+     
       final userDoc = await FirebaseFirestore.instance
           .collection('users')
           .doc(uid)
@@ -158,7 +156,7 @@ void _showSnackBar(String message, {bool isError = false}) {
       MaterialPageRoute(builder: (_) => page),
     );
   }
-  // PATIENT FLOW: Register → Email Verification → Sign In → Home Page
+  
   Future<void> _handlePatientNavigation(String uid) async {
     final patientDoc = await FirebaseFirestore.instance
         .collection('patients')
@@ -178,7 +176,7 @@ void _showSnackBar(String message, {bool isError = false}) {
     }
   } 
 
-  // DOCTOR FLOW: Register → Email Verification → Sign In → Pending Approval → Home Page
+  
   Future<void> _handleDoctorNavigation(String uid) async {
     // Check if doctor is approved
     final doctorDoc = await FirebaseFirestore.instance
@@ -238,7 +236,7 @@ void _showSnackBar(String message, {bool isError = false}) {
         .get();
 
     if (pharmacyDoc.exists) {
-      // Approved pharmacy - go to home
+      // Approved pharmacy
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(builder: (_) => PharmacyHomeScreen(uid: uid)),
