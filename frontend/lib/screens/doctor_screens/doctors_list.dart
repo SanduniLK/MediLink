@@ -582,7 +582,7 @@ class _DoctorsListScreenState extends State<DoctorsListScreen> {
             : null,
         onBackgroundImageError: profileImageUrl != null && profileImageUrl.isNotEmpty
             ? (exception, stackTrace) {
-                // Error handled silently - only called when image exists but fails to load
+                
               }
             : null, // Set to null when no backgroundImage
         child: profileImageUrl != null && profileImageUrl.isNotEmpty
@@ -614,33 +614,6 @@ class _DoctorsListScreenState extends State<DoctorsListScreen> {
     );
   }
 
-  Widget _buildDoctorAvatar(Map<String, dynamic> doctor) {
-    final String? profileImageUrl = doctor['profileImage'];
-    
-    print('🔄 Building doctor avatar:');
-    print('   - Doctor: ${doctor['fullname']}');
-    print('   - Profile Image URL: $profileImageUrl');
-    print('   - URL valid: ${profileImageUrl != null && profileImageUrl.isNotEmpty}');
-
-    if (profileImageUrl != null && profileImageUrl.isNotEmpty) {
-      return CircleAvatar(
-        radius: 25,
-        backgroundColor: Colors.grey[200],
-        backgroundImage: NetworkImage(profileImageUrl),
-        onBackgroundImageError: (exception, stackTrace) {
-          print('❌ Error loading doctor profile image: $exception');
-          print('❌ URL that failed: $profileImageUrl');
-        },
-      );
-    } else {
-      print('ℹ️ No profile image found for ${doctor['fullname']}, using default');
-      return const CircleAvatar(
-        radius: 25,
-        backgroundColor: Color(0xFF18A3B6),
-        child: Icon(Icons.person, color: Colors.white, size: 20),
-      );
-    }
-  }
 
   Future<void> _fetchAndShowAvailableSchedules(Map<String, dynamic> doctor) async {
     try {
@@ -784,10 +757,10 @@ class _DoctorsListScreenState extends State<DoctorsListScreen> {
   }
 
 Map<String, dynamic>? _processSingleDateSchedule(String scheduleId, Map<String, dynamic> data, String doctorName, DateTime currentDate) {
-  // Handle date field - Check for availableDate FIRST, then scheduleDate as fallback
+ 
   DateTime? scheduleDate;
   
-  // PRIORITY 1: Use availableDate (string format "2025-10-25")
+  
   if (data['availableDate'] != null && data['availableDate'] is String) {
     final availableDateStr = data['availableDate'] as String;
     try {
@@ -798,7 +771,7 @@ Map<String, dynamic>? _processSingleDateSchedule(String scheduleId, Map<String, 
     }
   }
   
-  // PRIORITY 2: Fallback to scheduleDate (timestamp)
+ 
   if (scheduleDate == null && data['scheduleDate'] != null) {
     if (data['scheduleDate'] is Timestamp) {
       scheduleDate = (data['scheduleDate'] as Timestamp).toDate();
@@ -823,13 +796,13 @@ Map<String, dynamic>? _processSingleDateSchedule(String scheduleId, Map<String, 
     return null;
   }
 
-  // Get time slots from weekly schedule for Saturday
+
   String startTime = '09:00';
   String endTime = '17:00';
   int slotDuration = 30;
   int maxAppointments = 10;
 
-  // Get time slots from weekly schedule for the specific day
+
   if (data['weeklySchedule'] != null && data['weeklySchedule'] is List) {
     final weeklySchedule = data['weeklySchedule'] as List<dynamic>;
     final dayName = _getDayName(scheduleDate.weekday).toLowerCase();
@@ -1084,7 +1057,7 @@ Map<String, dynamic>? _processSingleDateSchedule(String scheduleId, Map<String, 
 
     // Fetch actual patient data
     final patientId = currentUser.uid;
-    String patientName = 'Patient'; // Default fallback
+    String patientName = 'Patient'; 
 
     // Try to get patient name from patients collection
     final patientDoc = await FirebaseFirestore.instance
@@ -1114,8 +1087,8 @@ Map<String, dynamic>? _processSingleDateSchedule(String scheduleId, Map<String, 
       context,
       MaterialPageRoute(
         builder: (_) => BookAppointmentPage(
-          patientId: patientId, // Actual patient ID
-          patientName: patientName, // Actual patient name
+          patientId: patientId, 
+          patientName: patientName, 
           doctorId: doctor['uid'] ?? doctor['id'] ?? '',
           doctorName: doctor['fullname'] ?? 'Dr. Unknown',
           doctorSpecialty: doctor['specialization'] ?? 'General Practitioner',

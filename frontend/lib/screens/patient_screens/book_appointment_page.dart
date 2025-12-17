@@ -44,7 +44,7 @@ class _BookAppointmentPageState extends State<BookAppointmentPage> {
   int _bookedAppointments = 0;
   int _maxAppointments = 0;
   bool _processingBooking = false;
-    double _medicalCenterFees = 0.0;
+  double _medicalCenterFees = 0.0;
   double get _totalAmount => widget.doctorFees + _medicalCenterFees;
   bool _loadingMedicalCenterFees = false;
   
@@ -66,7 +66,7 @@ class _BookAppointmentPageState extends State<BookAppointmentPage> {
   }
 @override
 void dispose() {
-  searchController.dispose(); // Add this line
+  searchController.dispose(); 
   super.dispose();
 }
 void _onSearchChanged() {
@@ -85,7 +85,7 @@ Future<void> _loadMedicalCenterFees() async {
       });
     }
 
-    // ADD THESE DEBUG PRINTS
+    
     print('📋 Medical Center Details from Widget:');
     print('   - ID: ${widget.medicalCenterId}');
     print('   - Name: ${widget.medicalCenterName}');
@@ -181,7 +181,7 @@ void _toggleSearchBar() {
   Future<void> _checkAppointmentAvailability() async {
     try {
      if (isMounted) {
-  setState(() {
+      setState(() {
     _isSlotAvailable = _bookedAppointments < _maxAppointments;
     _checkingAvailability = false;
     if (availableConsultationTypes.isNotEmpty) {
@@ -262,7 +262,7 @@ void _toggleSearchBar() {
     }
   }
 
-  // MARK: New method to determine available consultation types
+ 
   void _updateAvailableConsultationTypes() {
     if (scheduleAppointmentType == 'physical') {
       // If doctor scheduled physical, only show physical
@@ -298,7 +298,7 @@ void _toggleSearchBar() {
       return;
     }
 
-    // MARK: Validate selected consultation type is allowed
+    //  Validate selected consultation type is allowed
     if (!availableConsultationTypes.contains(selectedConsultationType)) {
       _showErrorSnackBar('Selected consultation type is not available for this schedule.');
       return;
@@ -485,7 +485,7 @@ void _toggleSearchBar() {
 
             const SizedBox(height: 20),
 
-            // MARK: Updated Consultation Type Section
+            //  Updated Consultation Type Section
             if (availableConsultationTypes.length > 1) ...[
               Card(
                 elevation: 4,

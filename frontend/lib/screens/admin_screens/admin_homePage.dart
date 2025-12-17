@@ -398,48 +398,8 @@ class _AdminHomePageState extends State<AdminHomePage> {
                       }
                     },
                   ),
-                  _buildCompactElegantButton(
-                    icon: Icons.settings_suggest_rounded,
-                    label: 'Settings',
-                    color: Colors.grey,
-                    onTap: () {
-                      if (_medicalCenterId != null &&
-                          _medicalCenterName != null) {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (context) => AdminSettingsScreen(
-                              medicalCenterId: _medicalCenterId!,
-                              medicalCenterName: _medicalCenterName!,
-                            ),
-                          ),
-                        );
-                      } else {
-                        _showSnackBar('Loading medical center information...');
-                      }
-                    },
-                  ),
-                  _buildCompactElegantButton(
-                    icon: Icons.upload_file_outlined,
-                    label: 'upload\nReports',
-                    color: const Color(0xFFC135FF),
-                    onTap: () {
-                      if (_medicalCenterId != null &&
-                          _medicalCenterName != null) {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (context) => AdminTestReportsScreen(
-                              medicalCenterId: _medicalCenterId!,
-                              medicalCenterName: _medicalCenterName!,
-                            ),
-                          ),
-                        );
-                      } else {
-                        _showSnackBar('Loading medical center information...');
-                      }
-                    },
-                  ),
+                 
+                  
                   _buildCompactElegantButton(
                     icon: Icons.analytics_rounded,
                     label: 'Revenue\nanalysis',

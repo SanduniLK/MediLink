@@ -99,14 +99,17 @@ class _AdminScheduleApprovalScreenState extends State<AdminScheduleApprovalScree
                 
                 Expanded(
                   child: DefaultTabController(
+                    
                     length: 3,
                     child: Column(
                       children: [
                         const TabBar(
+                          labelColor: Color.fromARGB(255, 16, 131, 146),
                           tabs: [
                             Tab(
                               icon: Icon(Icons.pending_actions),
                               text: 'Pending',
+                              
                             ),
                             Tab(
                               icon: Icon(Icons.check_circle),
