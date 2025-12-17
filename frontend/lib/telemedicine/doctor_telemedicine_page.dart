@@ -58,7 +58,7 @@ void initState() {
   debugPrint('Schedule ID: ${widget.scheduleId}');
   
   // Add a small delay to ensure widget is fully mounted
-  Future.delayed(Duration.zero, () {
+   WidgetsBinding.instance.addPostFrameCallback((_) {
     if (mounted) {
       _loadDoctorSessions();
     }

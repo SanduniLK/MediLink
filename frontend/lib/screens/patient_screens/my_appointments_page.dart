@@ -2,10 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:intl/intl.dart';
-import 'package:frontend/services/feedback_service.dart'; // Add this import
 
-// Add this import for your feedback screen
-import 'feedback_form_screen.dart'; // Make sure this path is correct
+
+
+import 'feedback_form_screen.dart'; 
 
 class TokenService {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
@@ -124,7 +124,7 @@ class _MyAppointmentsPageState extends State<MyAppointmentsPage>
   List<Map<String, dynamic>> _getUpcomingAppointments() {
     return appointments.where((apt) {
       final status = apt['status']?.toString() ?? '';
-      // Upcoming appointments are confirmed/pending and not completed/cancelled
+      
       return (status == 'confirmed' || status == 'pending') && 
              status != 'completed' && 
              status != 'cancelled';
@@ -933,29 +933,9 @@ class _MyAppointmentsPageState extends State<MyAppointmentsPage>
     }
   }
 
-  IconData _getActionIcon(String type) {
-    switch (type) {
-      case 'physical':
-        return Icons.directions;
-      case 'audio':
-      case 'video':
-        return Icons.video_call;
-      default:
-        return Icons.info;
-    }
-  }
+  
 
-  String _getActionText(String type) {
-    switch (type) {
-      case 'physical':
-        return 'Get Directions';
-      case 'audio':
-      case 'video':
-        return 'Join Call';
-      default:
-        return 'View Details';
-    }
-  }
+  
 
   String _formatQueueStatus(String queueStatus) {
     switch (queueStatus) {

@@ -1,421 +1,589 @@
+// screens/doctor_screens/report_generation_screen.dart
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:frontend/model/report_model.dart';
+import 'package:intl/intl.dart';
 
-// Enum to define chart types for the reusable widget
-enum ChartType { line, bar }
+import '../../services/report_service.dart';
 
-class AnalysisReportScreen extends StatefulWidget {
-  const AnalysisReportScreen({super.key});
+class ReportGenerationScreen extends StatefulWidget {
+  final String patientId;
+  final String patientName;
+  final String? appointmentId;
+  final String? scheduleId;
+
+  const ReportGenerationScreen({
+    super.key,
+    required this.patientId,
+    required this.patientName,
+    this.appointmentId,
+    this.scheduleId,
+  });
 
   @override
-  State<AnalysisReportScreen> createState() => _AnalysisReportScreenState();
+  State<ReportGenerationScreen> createState() => _ReportGenerationScreenState();
 }
 
-class _AnalysisReportScreenState extends State<AnalysisReportScreen> {
-  // Sample data for heart rate chart over 7 days
-  final List<double> heartRateData = [75, 72, 78, 80, 76, 74, 79];
-  final List<String> days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+class _ReportGenerationScreenState extends State<ReportGenerationScreen> {
+  final ReportService _reportService = ReportService();
+  final TextEditingController _titleController = TextEditingController();
+  final TextEditingController _diagnosisController = TextEditingController();
+  final TextEditingController _treatmentController = TextEditingController();
+  final TextEditingController _notesController = TextEditingController();
+  
+  String _selectedReportType = 'prescription';
+  List<Map<String, dynamic>> _medications = [];
+  List<Map<String, dynamic>> _tests = [];
+  bool _isGenerating = false;
 
-  // Sample data for blood pressure chart over 7 days
-  final List<double> bloodPressureData = [120, 125, 118, 130, 122, 128, 124];
-  final List<String> bloodPressureLabels = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+  final List<String> _reportTypes = [
+    'prescription',
+    'lab_request',
+    'diagnosis',
+    'medical_certificate',
+    'referral',
+    'summary',
+  ];
 
-  // Sample data for diabetic chart: blood glucose levels over 6 months
-  final List<double> diabeticData = [6.2, 5.8, 6.0, 6.5, 6.1, 5.9];
-  final List<String> months = ['Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug'];
+  @override
+  void initState() {
+    super.initState();
+    _titleController.text = 'Medical Report for ${widget.patientName}';
+  }
+
+  void _addMedication() {
+    showDialog(
+      context: context,
+      builder: (context) => MedicationDialog(
+        onSave: (medication) {
+          setState(() {
+            _medications.add(medication);
+          });
+        },
+      ),
+    );
+  }
+
+  void _addTest() {
+    showDialog(
+      context: context,
+      builder: (context) => TestDialog(
+        onSave: (test) {
+          setState(() {
+            _tests.add(test);
+          });
+        },
+      ),
+    );
+  }
+
+  Future<void> _generateReport() async {
+    if (_titleController.text.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please enter a title')),
+      );
+      return;
+    }
+
+    setState(() => _isGenerating = true);
+
+    try {
+      // Get current user (doctor)
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) return;
+
+      // Get doctor info
+      final doctorDoc = await FirebaseFirestore.instance
+          .collection('doctors')
+          .doc(user.uid)
+          .get();
+      
+      final doctorName = doctorDoc.data()?['fullname'] ?? 'Doctor';
+
+      // Create report data based on type
+      Map<String, dynamic> reportData = {
+        'diagnosis': _diagnosisController.text,
+        'treatment': _treatmentController.text,
+        'notes': _notesController.text,
+        'medications': _medications,
+        'tests': _tests,
+        'generatedDate': DateFormat('yyyy-MM-dd HH:mm').format(DateTime.now()),
+      };
+
+      // Create report object
+      final report = MedicalReport(
+        id: '',
+        patientId: widget.patientId,
+        patientName: widget.patientName,
+        doctorId: user.uid,
+        doctorName: doctorName,
+        reportType: _selectedReportType,
+        title: _titleController.text,
+        data: reportData,
+        createdAt: DateTime.now(),
+        appointmentId: widget.appointmentId,
+        scheduleId: widget.scheduleId,
+      );
+
+      // Save report
+      final reportId = await _reportService.generateReport(report);
+
+      // Show success
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Report generated successfully! ID: $reportId'),
+            backgroundColor: Colors.green,
+          ),
+        );
+
+        // Navigate back or show preview
+        Navigator.pop(context, reportId);
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isGenerating = false);
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFDDF0F5),
       appBar: AppBar(
-        title: const Text(
-          'Health Analysis Report',
-          style: TextStyle(
-            color: Colors.white,
-            fontWeight: FontWeight.bold,
-          ),
-        ),
+        title: const Text('Generate Medical Report'),
         backgroundColor: const Color(0xFF18A3B6),
-        elevation: 0,
+        foregroundColor: Colors.white,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.preview),
+            onPressed: () {
+              // Preview report
+              _previewReport();
+            },
+          ),
+        ],
       ),
       body: SingleChildScrollView(
-        child: Padding(
-          padding: const EdgeInsets.all(16.0),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _buildReportHeader(),
-              const SizedBox(height: 20),
-              HealthChartCard(
-                title: 'Heart Rate History',
-                data: heartRateData,
-                labels: days,
-                chartType: ChartType.line,
-                labelDescription: 'Last 7 days',
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Patient Info Card
+            Card(
+              elevation: 3,
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Row(
+                  children: [
+                    const Icon(Icons.person, color: Color(0xFF18A3B6)),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            widget.patientName,
+                            style: const TextStyle(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 18,
+                            ),
+                          ),
+                          Text('Patient ID: ${widget.patientId}'),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
               ),
-              const SizedBox(height: 20),
-              HealthChartCard(
-                title: 'Blood Pressure History',
-                data: bloodPressureData,
-                labels: bloodPressureLabels,
-                chartType: ChartType.line,
-                labelDescription: 'Last 7 days',
+            ),
+
+            const SizedBox(height: 20),
+
+            // Report Type
+            _buildSectionTitle('Report Type'),
+            DropdownButtonFormField<String>(
+              value: _selectedReportType,
+              items: _reportTypes.map((type) {
+                return DropdownMenuItem(
+                  value: type,
+                  child: Text(_formatReportType(type)),
+                );
+              }).toList(),
+              onChanged: (value) {
+                setState(() {
+                  _selectedReportType = value!;
+                });
+              },
+              decoration: const InputDecoration(
+                border: OutlineInputBorder(),
+                labelText: 'Select Report Type',
               ),
-              const SizedBox(height: 20),
-              HealthChartCard(
-                title: 'Diabetic Report',
-                data: diabeticData,
-                labels: months,
-                chartType: ChartType.bar,
-                labelDescription: 'Last 6 months (HbA1c %)',
+            ),
+
+            const SizedBox(height: 20),
+
+            // Report Title
+            _buildSectionTitle('Report Title'),
+            TextField(
+              controller: _titleController,
+              decoration: const InputDecoration(
+                border: OutlineInputBorder(),
+                labelText: 'Report Title',
+                hintText: 'Enter report title',
               ),
-              const SizedBox(height: 20),
-              _buildDownloadButton(context),
+            ),
+
+            const SizedBox(height: 20),
+
+            // Diagnosis
+            _buildSectionTitle('Diagnosis'),
+            TextField(
+              controller: _diagnosisController,
+              maxLines: 3,
+              decoration: const InputDecoration(
+                border: OutlineInputBorder(),
+                labelText: 'Diagnosis',
+                hintText: 'Enter diagnosis details',
+              ),
+            ),
+
+            const SizedBox(height: 20),
+
+            // Treatment
+            _buildSectionTitle('Treatment Plan'),
+            TextField(
+              controller: _treatmentController,
+              maxLines: 3,
+              decoration: const InputDecoration(
+                border: OutlineInputBorder(),
+                labelText: 'Treatment',
+                hintText: 'Enter treatment details',
+              ),
+            ),
+
+            const SizedBox(height: 20),
+
+            // Medications Section
+            _buildSectionTitle('Medications'),
+            if (_medications.isNotEmpty) ...[
+              ..._medications.map((med) => _buildMedicationItem(med)),
+              const SizedBox(height: 10),
             ],
-          ),
+            ElevatedButton.icon(
+              onPressed: _addMedication,
+              icon: const Icon(Icons.add),
+              label: const Text('Add Medication'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF18A3B6),
+                foregroundColor: Colors.white,
+              ),
+            ),
+
+            const SizedBox(height: 20),
+
+            // Tests Section
+            _buildSectionTitle('Lab Tests'),
+            if (_tests.isNotEmpty) ...[
+              ..._tests.map((test) => _buildTestItem(test)),
+              const SizedBox(height: 10),
+            ],
+            ElevatedButton.icon(
+              onPressed: _addTest,
+              icon: const Icon(Icons.add),
+              label: const Text('Add Lab Test'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF18A3B6),
+                foregroundColor: Colors.white,
+              ),
+            ),
+
+            const SizedBox(height: 20),
+
+            // Notes
+            _buildSectionTitle('Additional Notes'),
+            TextField(
+              controller: _notesController,
+              maxLines: 4,
+              decoration: const InputDecoration(
+                border: OutlineInputBorder(),
+                labelText: 'Notes',
+                hintText: 'Any additional notes or instructions',
+              ),
+            ),
+
+            const SizedBox(height: 30),
+
+            // Generate Button
+            SizedBox(
+              width: double.infinity,
+              height: 50,
+              child: ElevatedButton(
+                onPressed: _isGenerating ? null : _generateReport,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.green,
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                ),
+                child: _isGenerating
+                    ? const CircularProgressIndicator(color: Colors.white)
+                    : const Text(
+                        'GENERATE REPORT',
+                        style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                      ),
+              ),
+            ),
+
+            const SizedBox(height: 20),
+          ],
         ),
       ),
     );
   }
 
-  Widget _buildReportHeader() {
-    return const Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          'Report for Sarah',
-          style: TextStyle(
-            fontSize: 24,
-            fontWeight: FontWeight.bold,
-            color: Color(0xFF18A3B6),
+  Widget _buildSectionTitle(String title) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Text(
+        title,
+        style: const TextStyle(
+          fontSize: 16,
+          fontWeight: FontWeight.bold,
+          color: Color(0xFF18A3B6),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildMedicationItem(Map<String, dynamic> medication) {
+    return Card(
+      margin: const EdgeInsets.only(bottom: 8),
+      child: ListTile(
+        leading: const Icon(Icons.medication, color: Colors.blue),
+        title: Text(medication['name']),
+        subtitle: Text('${medication['dosage']} - ${medication['frequency']}'),
+        trailing: IconButton(
+          icon: const Icon(Icons.delete, color: Colors.red),
+          onPressed: () {
+            setState(() {
+              _medications.remove(medication);
+            });
+          },
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTestItem(Map<String, dynamic> test) {
+    return Card(
+      margin: const EdgeInsets.only(bottom: 8),
+      child: ListTile(
+        leading: const Icon(Icons.science, color: Colors.orange),
+        title: Text(test['testName']),
+        subtitle: Text(test['instructions'] ?? 'No special instructions'),
+        trailing: IconButton(
+          icon: const Icon(Icons.delete, color: Colors.red),
+          onPressed: () {
+            setState(() {
+              _tests.remove(test);
+            });
+          },
+        ),
+      ),
+    );
+  }
+
+  String _formatReportType(String type) {
+    switch (type) {
+      case 'prescription':
+        return 'Prescription';
+      case 'lab_request':
+        return 'Lab Test Request';
+      case 'diagnosis':
+        return 'Diagnosis Report';
+      case 'medical_certificate':
+        return 'Medical Certificate';
+      case 'referral':
+        return 'Referral Letter';
+      case 'summary':
+        return 'Medical Summary';
+      default:
+        return type;
+    }
+  }
+
+  void _previewReport() {
+    // Show preview of the report
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Report Preview'),
+        content: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Patient: ${widget.patientName}', style: const TextStyle(fontWeight: FontWeight.bold)),
+              Text('Report Type: ${_formatReportType(_selectedReportType)}'),
+              if (_diagnosisController.text.isNotEmpty)
+                Text('Diagnosis: ${_diagnosisController.text}'),
+              if (_medications.isNotEmpty)
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('Medications:', style: TextStyle(fontWeight: FontWeight.bold)),
+                    ..._medications.map((m) => Text('• ${m['name']} - ${m['dosage']}')),
+                  ],
+                ),
+            ],
           ),
         ),
-        SizedBox(height: 4),
-        Text(
-          'Generated on August 18, 2025',
-          style: TextStyle(
-            fontSize: 14,
-            color: Colors.grey,
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Close'),
           ),
+        ],
+      ),
+    );
+  }
+}
+
+// Medication Dialog
+class MedicationDialog extends StatefulWidget {
+  final Function(Map<String, dynamic>) onSave;
+
+  const MedicationDialog({super.key, required this.onSave});
+
+  @override
+  State<MedicationDialog> createState() => _MedicationDialogState();
+}
+
+class _MedicationDialogState extends State<MedicationDialog> {
+  final TextEditingController _nameController = TextEditingController();
+  final TextEditingController _dosageController = TextEditingController();
+  final TextEditingController _frequencyController = TextEditingController();
+  final TextEditingController _durationController = TextEditingController();
+  final TextEditingController _instructionsController = TextEditingController();
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Add Medication'),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: _nameController,
+              decoration: const InputDecoration(labelText: 'Medication Name'),
+            ),
+            TextField(
+              controller: _dosageController,
+              decoration: const InputDecoration(labelText: 'Dosage (e.g., 500mg)'),
+            ),
+            TextField(
+              controller: _frequencyController,
+              decoration: const InputDecoration(labelText: 'Frequency (e.g., 2 times daily)'),
+            ),
+            TextField(
+              controller: _durationController,
+              decoration: const InputDecoration(labelText: 'Duration (e.g., 7 days)'),
+            ),
+            TextField(
+              controller: _instructionsController,
+              decoration: const InputDecoration(labelText: 'Special Instructions'),
+              maxLines: 2,
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancel'),
+        ),
+        ElevatedButton(
+          onPressed: () {
+            final medication = {
+              'name': _nameController.text,
+              'dosage': _dosageController.text,
+              'frequency': _frequencyController.text,
+              'duration': _durationController.text,
+              'instructions': _instructionsController.text,
+            };
+            widget.onSave(medication);
+            Navigator.pop(context);
+          },
+          child: const Text('Add'),
         ),
       ],
     );
   }
-
-  Widget _buildDownloadButton(BuildContext context) {
-    return SizedBox(
-      width: double.infinity,
-      child: ElevatedButton(
-        onPressed: () {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Downloading full report...'),
-              backgroundColor: Color(0xFF32BACD),
-            ),
-          );
-        },
-        style: ElevatedButton.styleFrom(
-          backgroundColor: const Color(0xFF18A3B6),
-          padding: const EdgeInsets.symmetric(vertical: 16),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(30),
-          ),
-          elevation: 5,
-        ),
-        child: const Text(
-          'Download Full Report (PDF)',
-          style: TextStyle(
-            fontSize: 18,
-            fontWeight: FontWeight.bold,
-            color: Colors.white,
-          ),
-        ),
-      ),
-    );
-  }
 }
 
-// Reusable Health Chart Card Widget
-class HealthChartCard extends StatefulWidget {
-  final String title;
-  final List<double> data;
-  final List<String> labels;
-  final ChartType chartType;
-  final String labelDescription;
+// Test Dialog
+class TestDialog extends StatefulWidget {
+  final Function(Map<String, dynamic>) onSave;
 
-  const HealthChartCard({
-    Key? key,
-    required this.title,
-    required this.data,
-    required this.labels,
-    required this.chartType,
-    required this.labelDescription,
-  }) : super(key: key);
+  const TestDialog({super.key, required this.onSave});
 
   @override
-  _HealthChartCardState createState() => _HealthChartCardState();
+  State<TestDialog> createState() => _TestDialogState();
 }
 
-class _HealthChartCardState extends State<HealthChartCard> {
-  int? _tappedIndex;
+class _TestDialogState extends State<TestDialog> {
+  final TextEditingController _testNameController = TextEditingController();
+  final TextEditingController _instructionsController = TextEditingController();
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(15),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 10,
-            offset: const Offset(0, 5),
-          ),
-        ],
+    return AlertDialog(
+      title: const Text('Add Lab Test'),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: _testNameController,
+              decoration: const InputDecoration(labelText: 'Test Name'),
+            ),
+            TextField(
+              controller: _instructionsController,
+              decoration: const InputDecoration(labelText: 'Special Instructions'),
+              maxLines: 3,
+            ),
+          ],
+        ),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            widget.title,
-            style: const TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.bold,
-              color: Color(0xFF32BACD),
-            ),
-          ),
-          const SizedBox(height: 10),
-          AspectRatio(
-            aspectRatio: 1.5,
-            child: GestureDetector(
-              onTapUp: (details) {
-                final box = context.findRenderObject() as RenderBox;
-                final localPosition = box.globalToLocal(details.globalPosition);
-                final chartWidth = box.size.width - 50;
-                final index = (localPosition.dx / (chartWidth / (widget.data.length - 1))).round();
-                setState(() {
-                  if (index >= 0 && index < widget.data.length) {
-                    _tappedIndex = index;
-                  }
-                });
-              },
-              child: CustomPaint(
-                painter: widget.chartType == ChartType.line
-                    ? _LineChartPainter(
-                        widget.data,
-                        widget.labels,
-                        _tappedIndex,
-                      )
-                    : _BarChartPainter(
-                        widget.data,
-                        widget.labels,
-                        _tappedIndex,
-                      ),
-              ),
-            ),
-          ),
-          const SizedBox(height: 8),
-          Center(
-            child: Text(
-              widget.labelDescription,
-              style: const TextStyle(color: Colors.grey),
-            ),
-          ),
-        ],
-      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancel'),
+        ),
+        ElevatedButton(
+          onPressed: () {
+            final test = {
+              'testName': _testNameController.text,
+              'instructions': _instructionsController.text,
+            };
+            widget.onSave(test);
+            Navigator.pop(context);
+          },
+          child: const Text('Add'),
+        ),
+      ],
     );
-  }
-}
-
-// Custom Painter for the Line Chart
-class _LineChartPainter extends CustomPainter {
-  final List<double> data;
-  final List<String> labels;
-  final int? tappedIndex;
-
-  _LineChartPainter(this.data, this.labels, this.tappedIndex);
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    if (data.isEmpty) return;
-    final chartWidth = size.width;
-    final chartHeight = size.height;
-    final maxDataValue = data.reduce((a, b) => a > b ? a : b);
-    final minDataValue = data.reduce((a, b) => a < b ? a : b);
-    const padding = 20.0;
-    const yAxisLabelWidth = 30.0;
-    final chartAreaWidth = chartWidth - yAxisLabelWidth - padding;
-
-    final linePaint = Paint()
-      ..color = const Color(0xFF32BACD)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 3.0;
-
-    final pointPaint = Paint()
-      ..color = const Color(0xFF18A3B6)
-      ..style = PaintingStyle.fill;
-
-    final highlightPaint = Paint()
-      ..color = const Color(0xFF85CEDA)
-      ..style = PaintingStyle.fill;
-
-    // Draw Y-axis labels
-    final yInterval = (maxDataValue - minDataValue) / 2;
-    for (int i = 0; i <= 2; i++) {
-      final yValue = minDataValue + i * yInterval;
-      final yPosition = (1 - (yValue - minDataValue) / (maxDataValue - minDataValue)) * chartHeight;
-      final textPainter = TextPainter(
-        text: TextSpan(
-          text: yValue.toInt().toString(),
-          style: const TextStyle(color: Colors.grey, fontSize: 10),
-        ),
-        textDirection: TextDirection.ltr,
-      )..layout(minWidth: 0, maxWidth: yAxisLabelWidth);
-      textPainter.paint(canvas, Offset(0, yPosition - textPainter.height / 2));
-    }
-
-    final path = Path();
-    for (int i = 0; i < data.length; i++) {
-      final xPosition = yAxisLabelWidth + (i / (data.length - 1)) * chartAreaWidth;
-      final yPosition = (1 - (data[i] - minDataValue) / (maxDataValue - minDataValue)) * chartHeight;
-
-      if (i == 0) {
-        path.moveTo(xPosition, yPosition);
-      } else {
-        path.lineTo(xPosition, yPosition);
-      }
-      canvas.drawCircle(Offset(xPosition, yPosition), 5, pointPaint);
-
-      final textPainter = TextPainter(
-        text: TextSpan(
-          text: labels[i],
-          style: const TextStyle(color: Colors.grey, fontSize: 10),
-        ),
-        textDirection: TextDirection.ltr,
-      )..layout(minWidth: 0, maxWidth: chartAreaWidth / data.length);
-      textPainter.paint(canvas, Offset(xPosition - textPainter.width / 2, chartHeight + 5));
-
-      if (i == tappedIndex) {
-        canvas.drawCircle(Offset(xPosition, yPosition), 8, highlightPaint);
-        final tooltipPainter = TextPainter(
-          text: TextSpan(
-            text: '${data[i]}',
-            style: const TextStyle(color: Colors.white, fontSize: 12),
-          ),
-          textDirection: TextDirection.ltr,
-        )..layout();
-        const tooltipPadding = 5.0;
-        final tooltipRect = Rect.fromLTRB(
-          xPosition - tooltipPainter.width / 2 - tooltipPadding,
-          yPosition - tooltipPainter.height - 20,
-          xPosition + tooltipPainter.width / 2 + tooltipPadding,
-          yPosition - 20,
-        );
-        final tooltipPaint = Paint()..color = Colors.black.withOpacity(0.7);
-        canvas.drawRRect(RRect.fromRectAndRadius(tooltipRect, const Radius.circular(5)), tooltipPaint);
-        tooltipPainter.paint(canvas, Offset(xPosition - tooltipPainter.width / 2, yPosition - tooltipPainter.height - 15));
-      }
-    }
-    canvas.drawPath(path, linePaint);
-  }
-
-  @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) {
-    return true;
-  }
-}
-
-// Custom Painter for the Bar Chart
-class _BarChartPainter extends CustomPainter {
-  final List<double> data;
-  final List<String> labels;
-  final int? tappedIndex;
-
-  _BarChartPainter(this.data, this.labels, this.tappedIndex);
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    if (data.isEmpty) return;
-    final chartWidth = size.width;
-    final chartHeight = size.height;
-    final maxDataValue = data.reduce((a, b) => a > b ? a : b);
-    const yAxisLabelWidth = 30.0;
-    const padding = 20.0;
-    final chartAreaWidth = chartWidth - yAxisLabelWidth - padding;
-    final barWidth = (chartAreaWidth / data.length) * 0.7;
-    const barSpacing = 10.0;
-
-    final normalBarPaint = Paint()..color = const Color(0xFF32BACD);
-    final riskBarPaint = Paint()..color = Colors.red;
-    final highlightPaint = Paint()..color = const Color(0xFF18A3B6);
-
-    for (int i = 0; i < data.length; i++) {
-      final barHeight = (data.isNotEmpty && maxDataValue > 0)
-          ? (data.elementAt(i) / maxDataValue) * chartHeight
-          : 0.0;
-      final xPosition = yAxisLabelWidth + i * (barWidth + barSpacing) + barSpacing / 2;
-      final barRect = Rect.fromLTWH(
-        xPosition,
-        chartHeight - barHeight,
-        barWidth,
-        barHeight,
-      );
-
-      final currentBarPaint = i == tappedIndex
-          ? highlightPaint
-          : (data.elementAt(i) > 6.0 ? riskBarPaint : normalBarPaint);
-      canvas.drawRRect(RRect.fromRectAndRadius(barRect, const Radius.circular(5)), currentBarPaint);
-
-      final textPainter = TextPainter(
-        text: TextSpan(
-          text: labels.elementAt(i),
-          style: const TextStyle(color: Colors.grey, fontSize: 10),
-        ),
-        textDirection: TextDirection.ltr,
-      )..layout();
-      textPainter.paint(canvas, Offset(xPosition + barWidth / 2 - textPainter.width / 2, chartHeight + 5));
-    
-      if (i == tappedIndex) {
-        final tooltipPainter = TextPainter(
-          text: TextSpan(
-            text: '${data.elementAt(i).toStringAsFixed(1)} %',
-            style: const TextStyle(color: Colors.white, fontSize: 12),
-          ),
-          textDirection: TextDirection.ltr,
-        )..layout();
-        const tooltipPadding = 5.0;
-        final tooltipRect = Rect.fromLTRB(
-          xPosition - tooltipPainter.width / 2 - tooltipPadding,
-          chartHeight - barHeight - tooltipPainter.height - 15,
-          xPosition + barWidth + tooltipPainter.width / 2 + tooltipPadding,
-          chartHeight - barHeight - 15,
-        );
-        final tooltipPaint = Paint()..color = Colors.black.withOpacity(0.7);
-        canvas.drawRRect(RRect.fromRectAndRadius(tooltipRect, const Radius.circular(5)), tooltipPaint);
-        tooltipPainter.paint(canvas, Offset(xPosition + barWidth / 2 - tooltipPainter.width / 2, chartHeight - barHeight - tooltipPainter.height - 10));
-      }
-    }
-    
-    const yAxisCount = 3;
-    final yInterval = maxDataValue / (yAxisCount - 1);
-    for(int i=0; i< yAxisCount; i++) {
-        final yValue = maxDataValue - i * yInterval;
-        final yPosition = (maxDataValue > 0) ? (yValue / maxDataValue) * chartHeight : 0.0;
-        final textPainter = TextPainter(
-          text: TextSpan(
-            text: yValue.toStringAsFixed(1),
-            style: const TextStyle(color: Colors.grey, fontSize: 10),
-          ),
-          textDirection: TextDirection.ltr,
-        )..layout(minWidth: 0, maxWidth: yAxisLabelWidth);
-        textPainter.paint(canvas, Offset(0, yPosition - textPainter.height/2));
-    }
-  }
-
-  @override
-  bool shouldRepaint(covariant _BarChartPainter oldDelegate) {
-    return oldDelegate.data != data ||
-        oldDelegate.tappedIndex != tappedIndex;
   }
 }

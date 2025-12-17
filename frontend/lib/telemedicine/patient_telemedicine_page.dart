@@ -1,9 +1,12 @@
+
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:frontend/model/telemedicine_session.dart';
 import 'package:frontend/screens/doctor_screens/doctor_chat_list_screen.dart';
 import 'package:frontend/screens/doctor_screens/doctor_chat_screen.dart';
 import 'package:frontend/services/chat_service.dart';
+import 'package:frontend/services/prescription_storage_service.dart';
 import 'package:frontend/telemedicine/consultation_screen.dart';
 import 'package:frontend/telemedicine/telemedicine_chat_screen.dart';
 import '../../services/firestore_service.dart';
@@ -40,7 +43,8 @@ final ChatService _chatService = ChatService();
 
 final Map<String, bool> _hasUnreadMessages = {};
 
-  
+ final Map<String, Map<String, dynamic>> _prescriptions = {};
+  final Map<String, bool> _loadingPrescriptions = {};
 
   // Color scheme
   final Color _primaryColor = const Color(0xFF18A3B6);
@@ -304,7 +308,7 @@ bool _canPatientJoin(TelemedicineSession session) {
   }
 
 
-  Widget _buildSessionCard(TelemedicineSession session) {
+Widget _buildSessionCard(TelemedicineSession session) {
   return Card(
     margin: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
     elevation: 3,
@@ -318,7 +322,7 @@ bool _canPatientJoin(TelemedicineSession session) {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Header row
+          // Header row (Doctor name + Status)
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
@@ -352,7 +356,7 @@ bool _canPatientJoin(TelemedicineSession session) {
           
           SizedBox(height: 12),
           
-          // Session details
+          // Session details (date, type, etc.)
           _buildDetailRow(
             icon: Icons.videocam,
             text: session.isVideoCall ? 'Video Consultation' : 'Audio Consultation',
@@ -385,11 +389,11 @@ bool _canPatientJoin(TelemedicineSession session) {
           
           SizedBox(height: 16),
           
-          // Action buttons row 
-          if (_canPatientJoin(session))
+          // ✅ SIMPLE FIX: Different layouts for different statuses
+          if (_canPatientJoin(session)) 
+            // For In-Progress: JOIN + CHAT
             Row(
               children: [
-                // JOIN BUTTON
                 Expanded(
                   child: ElevatedButton(
                     onPressed: () => _joinConsultation(session),
@@ -417,58 +421,113 @@ bool _canPatientJoin(TelemedicineSession session) {
                   ),
                 ),
                 SizedBox(width: 8),
-         Container(
-  width: 50,
-  child: Stack(
-    children: [
-      ElevatedButton(
-        onPressed: () => _navigateToChatScreen(session),
-        style: ElevatedButton.styleFrom(
-          backgroundColor: Colors.green,
-          padding: EdgeInsets.all(12),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(8),
-          ),
-        ),
-        child: Icon(Icons.chat, color: Colors.white),
-      ),
-      // RED DOT for unread messages - FIXED THIS
-      if (_hasUnreadMessages.containsKey(session.appointmentId) && 
-          _hasUnreadMessages[session.appointmentId] == true)
-        Positioned(
-          right: 0,
-          top: 0,
-          child: Container(
-            width: 12,
-            height: 12,
-            decoration: BoxDecoration(
-              color: Colors.red,
-              shape: BoxShape.circle,
-              border: Border.all(color: Colors.white, width: 2),
-            ),
-          ),
-        ),
-    ],
-  ),
-),
+                Container(
+                  width: 50,
+                  child: Stack(
+                    children: [
+                      ElevatedButton(
+                        onPressed: () => _navigateToChatScreen(session),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.green,
+                          padding: EdgeInsets.all(12),
+                        ),
+                        child: Icon(Icons.chat, color: Colors.white),
+                      ),
+                      if (_hasUnreadMessages[session.appointmentId] == true)
+                        Positioned(
+                          right: 0, top: 0,
+                          child: Container(
+                            width: 12, height: 12,
+                            decoration: BoxDecoration(
+                              color: Colors.red,
+                              shape: BoxShape.circle,
+                              border: Border.all(color: Colors.white, width: 2),
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
               ],
             )
           else if (session.status == 'Completed')
-            SizedBox(
-              width: double.infinity,
-              child: OutlinedButton(
-                onPressed: () {
-                  _showSessionDetails(session);
-                },
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: _primaryColor,
-                  side: BorderSide(color: _primaryColor),
-                  padding: EdgeInsets.symmetric(vertical: 12),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(8),
+            
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: () { _showSessionDetails(session); },
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: _primaryColor,
+                      side: BorderSide(color: _primaryColor),
+                      padding: EdgeInsets.symmetric(vertical: 10),
+                    ),
+                    icon: Icon(Icons.info, size: 16),
+                    label: Text('DETAILS', style: TextStyle(fontSize: 11)),
                   ),
                 ),
-                child: Text('VIEW DETAILS'),
+                SizedBox(width: 8),
+                
+                SizedBox(width: 8),
+                Container(
+                  width: 48,
+                  child: Stack(
+                    children: [
+                      ElevatedButton(
+                        onPressed: () => _navigateToChatScreen(session),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.green,
+                          padding: EdgeInsets.all(10),
+                        ),
+                        child: Icon(Icons.chat, size: 18),
+                      ),
+                      if (_hasUnreadMessages[session.appointmentId] == true)
+                        Positioned(
+                          right: 2, top: 2,
+                          child: Container(
+                            width: 10, height: 10,
+                            decoration: BoxDecoration(
+                              color: Colors.red,
+                              shape: BoxShape.circle,
+                              border: Border.all(color: Colors.white, width: 1.5),
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              ],
+            )
+          else
+            // For Scheduled/Cancelled: Just CHAT button
+            Align(
+              alignment: Alignment.centerRight,
+              child: Container(
+                width: 50,
+                child: Stack(
+                  children: [
+                    ElevatedButton(
+                      onPressed: () => _navigateToChatScreen(session),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.green,
+                        padding: EdgeInsets.all(12),
+                      ),
+                      child: Icon(Icons.chat, color: Colors.white),
+                    ),
+                    if (_hasUnreadMessages[session.appointmentId] == true)
+                      Positioned(
+                        right: 0, top: 0,
+                        child: Container(
+                          width: 12, height: 12,
+                          decoration: BoxDecoration(
+                            color: Colors.red,
+                            shape: BoxShape.circle,
+                            border: Border.all(color: Colors.white, width: 2),
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
               ),
             ),
         ],
@@ -476,7 +535,227 @@ bool _canPatientJoin(TelemedicineSession session) {
     ),
   );
 }
+Future<void> _fetchPrescription(String appointmentId, TelemedicineSession session) async {
+    if (_loadingPrescriptions[appointmentId] == true) return;
+    
+    setState(() {
+      _loadingPrescriptions[appointmentId] = true;
+    });
+    
+    try {
+      debugPrint('💊 Fetching prescription for appointment: $appointmentId');
+      
+      final prescription = await PrescriptionFirestoreService.getPrescriptionByAppointmentId(appointmentId);
+      
+      if (mounted) {
+        setState(() {
+          if (prescription != null) {
+            _prescriptions[appointmentId] = prescription;
+          }
+          _loadingPrescriptions[appointmentId] = false;
+        });
+      }
+      
+    } catch (e) {
+      debugPrint('❌ Error fetching prescription: $e');
+      if (mounted) {
+        setState(() {
+          _loadingPrescriptions[appointmentId] = false;
+        });
+      }
+    }
+  }
+  void _showPrescription(TelemedicineSession session) async {
+  final appointmentId = session.appointmentId;
+  
+  // Show loading
+  showDialog(
+    context: context,
+    barrierDismissible: false,
+    builder: (context) => AlertDialog(
+      backgroundColor: _veryLightColor,
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          CircularProgressIndicator(valueColor: AlwaysStoppedAnimation<Color>(_primaryColor)),
+          SizedBox(height: 16),
+          Text('Loading prescription...', style: TextStyle(color: _primaryColor)),
+        ],
+      ),
+    ),
+  );
+  
+  try {
+    // Fetch prescription
+    final prescription = await PrescriptionFirestoreService.getPrescriptionByAppointmentId(appointmentId);
+    
+    // Close loading dialog
+    Navigator.pop(context);
+    
+    if (prescription == null) {
+      _showError('No prescription found for this appointment');
+      return;
+    }
+    
+    // Show prescription dialog
+    _showPrescriptionDialog(session, prescription);
+    
+  } catch (e) {
+    Navigator.pop(context); // Close loading
+    _showError('Failed to load prescription: $e');
+  }
+}
 
+void _showPrescriptionDialog(TelemedicineSession session, Map<String, dynamic> prescription) {
+  showDialog(
+    context: context,
+    builder: (context) => AlertDialog(
+      backgroundColor: _veryLightColor,
+      title: Row(
+        children: [
+          Icon(Icons.medication, color: Colors.deepPurple),
+          SizedBox(width: 8),
+          Text('Prescription', style: TextStyle(color: Colors.deepPurple, fontWeight: FontWeight.bold)),
+        ],
+      ),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Basic info
+            _buildPrescriptionDetailRow('Doctor', 'Dr. ${prescription['doctorName'] ?? session.doctorName}'),
+            _buildPrescriptionDetailRow('Patient', prescription['patientName'] ?? widget.patientName),
+            _buildPrescriptionDetailRow('Date', _formatDate(DateTime.parse(prescription['createdAt'].toDate().toString()))),
+            
+            SizedBox(height: 16),
+            
+            // Medicines section
+            Text('Medicines:', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.deepPurple)),
+            SizedBox(height: 8),
+            
+            if (prescription['medicines'] != null && (prescription['medicines'] as List).isNotEmpty)
+              ...(prescription['medicines'] as List).map<Widget>((medicine) {
+                return Card(
+                  margin: EdgeInsets.symmetric(vertical: 4),
+                  color: Colors.white,
+                  child: Padding(
+                    padding: EdgeInsets.all(12),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('💊 ${medicine['name']}', style: TextStyle(fontWeight: FontWeight.bold)),
+                        SizedBox(height: 4),
+                        Text('Dosage: ${medicine['dosage']}'),
+                        Text('Frequency: ${medicine['frequency']}'),
+                        Text('Duration: ${medicine['duration']}'),
+                        if (medicine['instructions'] != null && medicine['instructions'].toString().isNotEmpty)
+                          Text('Instructions: ${medicine['instructions']}'),
+                      ],
+                    ),
+                  ),
+                );
+              }).toList()
+            else
+              Text('No medicines prescribed', style: TextStyle(color: Colors.grey)),
+            
+            SizedBox(height: 16),
+            
+            // Additional info
+            if (prescription['diagnosis'] != null && prescription['diagnosis'].toString().isNotEmpty)
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Diagnosis:', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.deepPurple)),
+                  SizedBox(height: 4),
+                  Text(prescription['diagnosis']),
+                  SizedBox(height: 12),
+                ],
+              ),
+            
+            if (prescription['description'] != null && prescription['description'].toString().isNotEmpty)
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Description:', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.deepPurple)),
+                  SizedBox(height: 4),
+                  Text(prescription['description']),
+                  SizedBox(height: 12),
+                ],
+              ),
+            
+            // Pharmacy info
+            if (prescription['dispensingPharmacy'] != null)
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Dispensing Pharmacy:', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.deepPurple)),
+                  SizedBox(height: 4),
+                  Text(prescription['dispensingPharmacy']),
+                  SizedBox(height: 8),
+                  Text('Last Dispensed: ${_formatDateTime(prescription['lastDispensedAt']?.toDate() ?? DateTime.now())}',
+                    style: TextStyle(fontSize: 12, color: Colors.grey)),
+                ],
+              ),
+            
+            // Prescription image
+            if (prescription['prescriptionImageUrl'] != null && prescription['prescriptionImageUrl'].toString().isNotEmpty)
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  SizedBox(height: 16),
+                  Text('Prescription Image:', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.deepPurple)),
+                  SizedBox(height: 8),
+                  Container(
+                    height: 200,
+                    decoration: BoxDecoration(
+                      border: Border.all(color: Colors.grey[300]!),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Image.network(
+                      prescription['prescriptionImageUrl'],
+                      fit: BoxFit.cover,
+                      errorBuilder: (context, error, stackTrace) => Center(
+                        child: Icon(Icons.broken_image, color: Colors.grey, size: 50),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: Text('CLOSE', style: TextStyle(color: Colors.deepPurple)),
+        ),
+      ],
+    ),
+  );
+}
+
+Widget _buildPrescriptionDetailRow(String label, String value) {
+  return Padding(
+    padding: EdgeInsets.symmetric(vertical: 4),
+    child: Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          width: 100,
+          child: Text(
+            '$label:',
+            style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey[700]),
+          ),
+        ),
+        SizedBox(width: 8),
+        Expanded(
+          child: Text(value),
+        ),
+      ],
+    ),
+  );
+}
 void _navigateToChatScreen(TelemedicineSession session) async {
   debugPrint('💬 Navigating to chat screen with Dr. ${session.doctorName}');
   
@@ -821,8 +1100,7 @@ void _setupUnreadListeners() {
               ],
             ),
           ),
-        // Statistics card
-        // Statistics card - NOW CLICKABLE
+        
 Padding(
   padding: EdgeInsets.all(16),
   child: Card(

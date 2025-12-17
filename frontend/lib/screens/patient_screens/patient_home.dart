@@ -766,7 +766,7 @@ Widget _buildHeader(double screenWidth) {
           ),
           GestureDetector(
             onTap: () {
-              // FIXED: Check if patientId and patientName are available
+              
               if (patientId != null && patientName != null) {
                 Navigator.push(
                   context, 
@@ -790,7 +790,12 @@ Widget _buildHeader(double screenWidth) {
           ),
           GestureDetector(
             onTap: () {
-              Navigator.push(context, MaterialPageRoute(builder: (_) => const AnalysisReportScreen()));
+              if (patientId != null) {
+                Navigator.push(context, MaterialPageRoute(builder: (_) => ReportGenerationScreen(
+                  patientId: patientId!, patientName: patientName!)));
+              } else {
+                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Unable to load appointments. Please try again.'), backgroundColor: Colors.red));
+              }
             },
             child: _buildActionButton(Icons.show_chart_outlined, 'Health Analysis', kBrightCyan),
           ),
@@ -894,8 +899,7 @@ void _navigateToChatList(BuildContext context) {
   Widget _buildHealthReportSummary() {
     return GestureDetector(
       onTap: () {
-        Navigator.push(context,
-            MaterialPageRoute(builder: (_) => const AnalysisReportScreen()));
+       
       },
       child: Container(
         margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 20),

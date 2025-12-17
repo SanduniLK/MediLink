@@ -71,7 +71,7 @@ class _DoctorRevenueAnalysisPageState extends State<DoctorRevenueAnalysisPage> {
     }
     
     if (_doctorData != null) {
-      // DEBUG: Print all doctor data
+  
       print('=== FULL DOCTOR DATA ===');
       _doctorData!.forEach((key, value) {
         print('$key: $value');
@@ -104,7 +104,7 @@ class _DoctorRevenueAnalysisPageState extends State<DoctorRevenueAnalysisPage> {
 double _extractDoctorFeesSimple(Map<String, dynamic> data) {
   print('🔍 Looking for doctor fees...');
   
-  // First priority: 'fees' field
+  
   if (data['fees'] != null) {
     final value = data['fees'];
     print('Found "fees" field: $value');
@@ -937,21 +937,24 @@ Widget build(BuildContext context) {
   );
 }
 
-  // Helper methods
   String _getMaskedPatientName(String? fullName) {
-    if (fullName == null || fullName.isEmpty) return 'Patient';
+  if (fullName == null || fullName.isEmpty) return 'Patient';
+  
+  final parts = fullName.split(' ');
+  if (parts.length >= 2) {
+    final firstName = parts[0];
+    final lastName = parts[parts.length - 1];
     
-    final parts = fullName.split(' ');
-    if (parts.length >= 2) {
-      final firstName = parts[0];
-      final lastName = parts[parts.length - 1];
-      final maskedLastName = lastName.length > 1 
-        ? '${lastName[0]}${'*' * (lastName.length - 1)}'
-        : '*';
-      return '$firstName $maskedLastName';
+    // Show first name fully, only hide part of last name
+    if (lastName.length > 2) {
+      final visiblePart = lastName.substring(0, 2); // Show first 2 letters
+      final hiddenPart = '*' * (lastName.length - 2); // Hide the rest
+      return '$firstName $visiblePart$hiddenPart';
     }
-    return 'Patient';
+    return '$firstName ${lastName[0]}*'; // For short last names
   }
+  return fullName; // For single names
+}
 
   Widget _buildStatCard(String title, String value, IconData icon, Color color) {
     return Card(

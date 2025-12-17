@@ -1008,14 +1008,14 @@ Widget _buildFeeRow(String label, double amount) {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   const Text(
-                    'Slot Available ✓',
+                    'Available bookings ✓',
                     style: TextStyle(
                       fontWeight: FontWeight.bold,
                       color: Colors.green,
                     ),
                   ),
                   Text(
-                    '${_maxAppointments - _bookedAppointments} slots available ($_bookedAppointments/$_maxAppointments booked)',
+                    '${_maxAppointments - _bookedAppointments}  available ($_bookedAppointments/$_maxAppointments booked)',
                     style: const TextStyle(color: Colors.green),
                   ),
                   const SizedBox(height: 8),

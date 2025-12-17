@@ -1,8 +1,12 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import '../../model/appointment.dart';
+
+// Add this import for prescription service
+import '../../services/prescription_storage_service.dart';
 
 class MyAppointmentsPage extends StatefulWidget {
   final String patientId;
@@ -15,16 +19,21 @@ class MyAppointmentsPage extends StatefulWidget {
 
 class _MyAppointmentsPageState extends State<MyAppointmentsPage>
     with SingleTickerProviderStateMixin {
-  final String baseUrl = 'http://localhost:8080/api'; // Update with your backend URL
+  final String baseUrl = 'http://localhost:8080/api'; 
   
   late TabController _tabController;
   List<Appointment> appointments = [];
   bool isLoading = false;
   
+  // Add these for prescription management
+  final Map<String, Map<String, dynamic>> _prescriptions = {};
+  final Map<String, bool> _loadingPrescriptions = {};
+  final Map<String, bool> _hasPrescription = {};
+  
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 2, vsync: this); // Changed to 2 tabs
+    _tabController = TabController(length: 2, vsync: this);
     _loadAppointments();
   }
 
@@ -49,6 +58,9 @@ class _MyAppointmentsPageState extends State<MyAppointmentsPage>
                 .map((apt) => Appointment.fromMap(apt['id'], apt))
                 .toList();
           });
+          
+          // Check for prescriptions for completed appointments
+          _checkPrescriptionsForCompletedAppointments();
         }
       }
     } catch (e) {
@@ -56,6 +68,264 @@ class _MyAppointmentsPageState extends State<MyAppointmentsPage>
     } finally {
       setState(() => isLoading = false);
     }
+  }
+  
+  // New method to check prescriptions for completed appointments
+  Future<void> _checkPrescriptionsForCompletedAppointments() async {
+    final completedAppointments = appointments.where((apt) => apt.status == 'completed').toList();
+    
+    for (final appointment in completedAppointments) {
+      // Use appointment.id as the prescription identifier
+      await _checkIfPrescriptionExists(appointment.id);
+    }
+  }
+  
+  // New method to check if prescription exists for an appointment
+  Future<void> _checkIfPrescriptionExists(String appointmentId) async {
+    if (_loadingPrescriptions[appointmentId] == true) return;
+    
+    setState(() {
+      _loadingPrescriptions[appointmentId] = true;
+    });
+    
+    try {
+      debugPrint('💊 Checking for prescription for appointment: $appointmentId');
+      
+      final prescription = await PrescriptionFirestoreService.getPrescriptionByAppointmentId(appointmentId);
+      
+      if (mounted) {
+        setState(() {
+          _hasPrescription[appointmentId] = prescription != null;
+          if (prescription != null) {
+            _prescriptions[appointmentId] = prescription;
+          }
+          _loadingPrescriptions[appointmentId] = false;
+        });
+      }
+      
+    } catch (e) {
+      debugPrint('❌ Error checking prescription: $e');
+      if (mounted) {
+        setState(() {
+          _loadingPrescriptions[appointmentId] = false;
+          _hasPrescription[appointmentId] = false;
+        });
+      }
+    }
+  }
+  
+  // New method to show prescription
+  Future<void> _showPrescription(Appointment appointment) async {
+    final appointmentId = appointment.id;
+    
+    // Show loading
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        backgroundColor: Colors.grey[50],
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            CircularProgressIndicator(valueColor: AlwaysStoppedAnimation<Color>(Colors.blue[600]!)),
+            SizedBox(height: 16),
+            Text('Loading prescription...', style: TextStyle(color: Colors.blue[600])),
+          ],
+        ),
+      ),
+    );
+    
+    try {
+      // Fetch prescription
+      final prescription = await PrescriptionFirestoreService.getPrescriptionByAppointmentId(appointmentId);
+      
+      // Close loading dialog
+      Navigator.pop(context);
+      
+      if (prescription == null) {
+        _showErrorSnackBar('No prescription found for this appointment');
+        return;
+      }
+      
+      // Show prescription dialog
+      _showPrescriptionDialog(appointment, prescription);
+      
+    } catch (e) {
+      Navigator.pop(context); // Close loading
+      _showErrorSnackBar('Failed to load prescription: $e');
+    }
+  }
+  
+  // New method to show prescription dialog
+  void _showPrescriptionDialog(Appointment appointment, Map<String, dynamic> prescription) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: Colors.white,
+        title: Row(
+          children: [
+            Icon(Icons.medication, color: Colors.deepPurple),
+            SizedBox(width: 8),
+            Text('Prescription', style: TextStyle(color: Colors.deepPurple, fontWeight: FontWeight.bold)),
+          ],
+        ),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Basic info
+              _buildPrescriptionDetailRow('Doctor', 'Dr. ${prescription['doctorName'] ?? appointment.doctorName}'),
+              _buildPrescriptionDetailRow('Patient', prescription['patientName'] ?? 'Patient'),
+              _buildPrescriptionDetailRow('Appointment ID', appointment.id),
+              _buildPrescriptionDetailRow('Date', _formatPrescriptionDate(prescription['createdAt'])),
+              
+              SizedBox(height: 16),
+              
+              // Medicines section
+              Text('Medicines:', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.deepPurple)),
+              SizedBox(height: 8),
+              
+              if (prescription['medicines'] != null && (prescription['medicines'] as List).isNotEmpty)
+                ...(prescription['medicines'] as List).map<Widget>((medicine) {
+                  return Card(
+                    margin: EdgeInsets.symmetric(vertical: 4),
+                    color: Colors.grey[50],
+                    child: Padding(
+                      padding: EdgeInsets.all(12),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('💊 ${medicine['name']}', style: TextStyle(fontWeight: FontWeight.bold)),
+                          SizedBox(height: 4),
+                          Text('Dosage: ${medicine['dosage']}'),
+                          Text('Frequency: ${medicine['frequency']}'),
+                          Text('Duration: ${medicine['duration']}'),
+                          if (medicine['instructions'] != null && medicine['instructions'].toString().isNotEmpty)
+                            Text('Instructions: ${medicine['instructions']}'),
+                        ],
+                      ),
+                    ),
+                  );
+                }).toList()
+              else
+                Text('No medicines prescribed', style: TextStyle(color: Colors.grey)),
+              
+              SizedBox(height: 16),
+              
+              // Additional info
+              if (prescription['diagnosis'] != null && prescription['diagnosis'].toString().isNotEmpty)
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Diagnosis:', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.deepPurple)),
+                    SizedBox(height: 4),
+                    Text(prescription['diagnosis']),
+                    SizedBox(height: 12),
+                  ],
+                ),
+              
+              if (prescription['description'] != null && prescription['description'].toString().isNotEmpty)
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Description:', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.deepPurple)),
+                    SizedBox(height: 4),
+                    Text(prescription['description']),
+                    SizedBox(height: 12),
+                  ],
+                ),
+              
+              // Pharmacy info
+              if (prescription['dispensingPharmacy'] != null)
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Dispensing Pharmacy:', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.deepPurple)),
+                    SizedBox(height: 4),
+                    Text(prescription['dispensingPharmacy']),
+                    SizedBox(height: 8),
+                    Text('Last Dispensed: ${_formatDateTime(prescription['lastDispensedAt']?.toDate() ?? DateTime.now())}',
+                      style: TextStyle(fontSize: 12, color: Colors.grey)),
+                  ],
+                ),
+              
+              // Prescription image
+              if (prescription['prescriptionImageUrl'] != null && prescription['prescriptionImageUrl'].toString().isNotEmpty)
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    SizedBox(height: 16),
+                    Text('Prescription Image:', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.deepPurple)),
+                    SizedBox(height: 8),
+                    Container(
+                      height: 200,
+                      decoration: BoxDecoration(
+                        border: Border.all(color: Colors.grey[300]!),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Image.network(
+                        prescription['prescriptionImageUrl'],
+                        fit: BoxFit.cover,
+                        errorBuilder: (context, error, stackTrace) => Center(
+                          child: Icon(Icons.broken_image, color: Colors.grey, size: 50),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text('CLOSE', style: TextStyle(color: Colors.deepPurple)),
+          ),
+        ],
+      ),
+    );
+  }
+  
+  Widget _buildPrescriptionDetailRow(String label, String value) {
+    return Padding(
+      padding: EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 100,
+            child: Text(
+              '$label:',
+              style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey[700]),
+            ),
+          ),
+          SizedBox(width: 8),
+          Expanded(
+            child: Text(value),
+          ),
+        ],
+      ),
+    );
+  }
+  
+  String _formatPrescriptionDate(dynamic date) {
+    try {
+      if (date is Timestamp) {
+        return DateFormat('MMM dd, yyyy HH:mm').format(date.toDate());
+      } else if (date is String) {
+        return DateFormat('MMM dd, yyyy HH:mm').format(DateTime.parse(date));
+      } else if (date is DateTime) {
+        return DateFormat('MMM dd, yyyy HH:mm').format(date);
+      }
+      return 'Unknown date';
+    } catch (e) {
+      return 'Invalid date';
+    }
+  }
+  
+  String _formatDateTime(DateTime date) {
+    return DateFormat('MMM dd, yyyy HH:mm').format(date);
   }
 
   void _showErrorSnackBar(String message) {
@@ -224,6 +494,8 @@ class _MyAppointmentsPageState extends State<MyAppointmentsPage>
     final isHistory = type == 'history';
     final isCancelled = appointment.status == 'cancelled';
     final isCompleted = appointment.status == 'completed';
+    final hasPrescription = isCompleted && _hasPrescription[appointment.id] == true;
+    final isLoadingPrescription = _loadingPrescriptions[appointment.id] == true;
     
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
@@ -495,7 +767,8 @@ class _MyAppointmentsPageState extends State<MyAppointmentsPage>
                     ),
                   ),
                 ],
-                if (isHistory && !isCancelled) ...[
+                if (isHistory) ...[
+                  // Always show details button for history
                   TextButton.icon(
                     onPressed: () {
                       _showAppointmentDetails(appointment);
@@ -503,6 +776,29 @@ class _MyAppointmentsPageState extends State<MyAppointmentsPage>
                     icon: const Icon(Icons.info, size: 16),
                     label: const Text('Details'),
                   ),
+                  
+                  // Show prescription button only for completed appointments with prescription
+                  if (isCompleted) ...[
+                    const SizedBox(width: 8),
+                    if (isLoadingPrescription)
+                      Padding(
+                        padding: const EdgeInsets.all(8.0),
+                        child: SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        ),
+                      )
+                    else if (hasPrescription)
+                      TextButton.icon(
+                        onPressed: () => _showPrescription(appointment),
+                        icon: const Icon(Icons.medication, size: 16),
+                        label: const Text('Prescription'),
+                        style: TextButton.styleFrom(
+                          foregroundColor: Colors.deepPurple,
+                        ),
+                      ),
+                  ],
                 ],
               ],
             ),

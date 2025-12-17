@@ -110,10 +110,14 @@ void _checkQueueStatus(Map<String, dynamic> appointment) async {
       appointment['scheduleId'] ?? appointment['_id'] ?? appointment['id'];
 
   if (scheduleId == null) {
-    _showError('Cannot find Schedule ID for this appointment.');
+    if (mounted) {
+      _showError('Cannot find Schedule ID for this appointment.');
+    }
     return;
   }
 
+  if (!mounted) return;
+  
   setState(() {
     _selectedAppointment = appointment;
     _isLoading = true;
@@ -223,33 +227,47 @@ Future<void> _fetchQueueData(
   String scheduleId, {
   bool isBackground = false,
 }) async {
-  final queueProvider = Provider.of<QueueProvider>(context, listen: false);
+  // Check if widget is still mounted before proceeding
+  if (!mounted) {
+    return;
+  }
 
   try {
+    // Get the QueueProvider from context BEFORE any async operations
+    final queueProvider = Provider.of<QueueProvider>(context, listen: false);
+    
     final queueData = await queueProvider.getQueueByScheduleId(scheduleId);
 
-    if (mounted) {
-      setState(() {
-        _queueStatus = queueData;
-        if (!isBackground) _isLoading = false;
-      });
+    // Check mounted again after async operation
+    if (!mounted) {
+      return;
+    }
 
-      // Check if all appointments are completed
-      if (queueData != null) {
-        final patients = (queueData['patients'] as List?)?.cast<Map<String, dynamic>>() ?? [];
-        final allCompleted = _checkIfAllAppointmentsCompleted(patients);
-        
-        if (allCompleted) {
-          _showSessionEndedDialog();
-        } else {
-          // Check if MY consultation has started
-          _checkIfMyConsultationStarted(patients);
-        }
-      }
+    setState(() {
+      _queueStatus = queueData;
+      if (!isBackground) _isLoading = false;
+    });
+
+    // Check if all appointments are completed
+    if (queueData != null) {
+      final patients = (queueData['patients'] as List?)?.cast<Map<String, dynamic>>() ?? [];
+      final allCompleted = _checkIfAllAppointmentsCompleted(patients);
       
-      if (queueData == null && !isBackground) {
-        _showInfo('Queue has not started for this schedule yet.');
+      if (allCompleted) {
+        // Use WidgetsBinding to ensure we're in a frame
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) {
+            _showSessionEndedDialog();
+          }
+        });
+      } else {
+        // Check if MY consultation has started
+        _checkIfMyConsultationStarted(patients);
       }
+    }
+    
+    if (queueData == null && !isBackground && mounted) {
+      _showInfo('Queue has not started for this schedule yet.');
     }
   } catch (e) {
     if (mounted && !isBackground) {

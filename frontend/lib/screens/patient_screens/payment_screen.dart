@@ -64,7 +64,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
   
   print('📅 Original date string: "$dateString"');
   
-  // Case 1: Contains parentheses like "Today (5/12/2025)" or "Tomorrow (8/12/2025)"
+  
   if (dateString.contains('(') && dateString.contains(')')) {
     final start = dateString.indexOf('(') + 1;
     final end = dateString.indexOf(')');
@@ -75,7 +75,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
     }
   }
   
-  // Case 2: Just return as is if no parentheses
+  
   print('📅 Using original date as is: "$dateString"');
   return dateString.trim();
 }
@@ -159,7 +159,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
     }
   }
 
-  // NEW METHOD: Store failed payment record
+  
   Future<void> _storeFailedPaymentRecord(
     String payherePaymentId,
     String error,
@@ -236,7 +236,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
       _processingPayment = true;
     });
 
-    String? payherePaymentId; // Declare the variable here
+    String? payherePaymentId; 
 
     try {
       print('💳 Starting PayHere payment...');
@@ -303,7 +303,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
         'paymentId': 'PAY_${DateTime.now().millisecondsSinceEpoch}',
       };
 
-      // 4) Update bookedAppointments count (transaction to be safe)
+      // Update bookedAppointments count (transaction to be safe)
       final scheduleRef = FirebaseFirestore.instance
           .collection('doctorSchedules')
           .doc(widget.scheduleId);
@@ -322,7 +322,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
         });
       });
 
-      // 5) Save appointment to Firestore
+      // Save appointment to Firestore
       final appointmentRef = await FirebaseFirestore.instance
           .collection('appointments')
           .add(updatedAppointmentData);
@@ -337,17 +337,17 @@ class _PaymentScreenState extends State<PaymentScreen> {
         payherePaymentId!,
       );
 
-      // 7) If telemedicine, create session
+      //  If telemedicine, create session
       final appointmentType =
           widget.appointmentData['appointmentType'] ?? 'physical';
       if (appointmentType == 'video' || appointmentType == 'audio') {
         await _createTelemedicineSession(appointmentRef.id, tokenNumber);
       }
 
-      // 8) Store token locally
+      //  Store token locally
       await _tokenService.storeTokenLocally(widget.scheduleId, tokenNumber);
 
-      // 9) Show success dialog
+      //  Show success dialog
       _showSuccessDialog(tokenNumber, appointmentRef.id);
     } catch (e, st) {
       print('❌ Payment/Booking error: $e\n$st');
@@ -369,7 +369,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
     }
   }
 
-  // NEW METHOD: Create Telemedicine Session
+  //  Create Telemedicine Session
   Future<void> _createTelemedicineSession(
     String appointmentId,
     int tokenNumber,

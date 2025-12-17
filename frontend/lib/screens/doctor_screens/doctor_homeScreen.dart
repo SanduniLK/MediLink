@@ -10,6 +10,7 @@ import 'package:frontend/screens/doctor_screens/doctor_appointments_page.dart';
 import 'package:frontend/screens/doctor_screens/doctor_feedback_dashboard.dart';
 import 'package:frontend/screens/doctor_screens/doctor_profile.dart';
 import 'package:frontend/screens/doctor_screens/doctor_revenue_analyze.dart';
+
 import 'package:frontend/screens/doctor_screens/new_medicalcenter_register.dart';
 import 'package:frontend/screens/doctor_screens/settings_screen.dart';
 import 'package:frontend/screens/doctor_screens/today_appointments_screen.dart';
@@ -18,7 +19,7 @@ import 'package:frontend/telemedicine/doctor_telemedicine_page.dart';
 import 'package:frontend/telemedicine/notification_badge.dart';
 import 'package:intl/intl.dart';
 import 'package:frontend/screens/doctor_screens/doctor_chat_list_screen.dart';
-
+import 'package:frontend/screens/doctor_screens/doctor_scanner_screen.dart';
 class DoctorHomeScreen extends StatefulWidget {
   const DoctorHomeScreen({super.key});
 
@@ -489,14 +490,13 @@ bool _isDateToday(String dateString, DateTime today) {
              date.day == today.day;
     }
     
-    // Check if it says "Today" or "tomorrow"
+    
     if (dateString.toLowerCase().contains('today')) {
       return true;
     }
     
     if (dateString.toLowerCase().contains('tomorrow')) {
       final tomorrow = today.add(Duration(days: 1));
-      // Extract the date part from "Tomorrow (10/10/2025)"
       final regex = RegExp(r'\((\d{1,2}/\d{1,2}/\d{4})\)');
       final match = regex.firstMatch(dateString);
       if (match != null) {
@@ -508,7 +508,7 @@ bool _isDateToday(String dateString, DateTime today) {
       }
     }
     
-    // Try other date formats
+    
     List<String> formats = ['dd/MM/yyyy', 'yyyy-MM-dd', 'MM/dd/yyyy'];
     for (final format in formats) {
       try {
@@ -595,9 +595,7 @@ Future<void> _loadUnreadMessagesCount() async {
       print('Checking chat room: ${chatRoomId}');
       
       try {
-        // Query for unread messages where:
-        // 1. The message is not read (read == false)
-        // 2. The sender is NOT the doctor (patient sent it)
+        
         final unreadSnapshot = await FirebaseFirestore.instance
             .collection('chat_rooms')
             .doc(chatRoomId)
@@ -684,7 +682,6 @@ Future<void> _loadUnreadMessagesCount() async {
 
 
 
-  // ADD THESE NEW NAVIGATION METHODS FOR CHAT
   void _navigateToChatList() {
     Navigator.push(
       context,
@@ -732,7 +729,27 @@ void _navigatetoregistermedicalcenter(){
     MaterialPageRoute(
       builder: (context)=> MedicalCenterSelectionScreen()));
 }
+void _navigatescanpatient() {
+  // Get doctorId and doctorName from your loaded data or Firebase Auth
+  final currentDoctorId = doctorData?['uid'] ?? FirebaseAuth.instance.currentUser?.uid ?? '';
+  final currentDoctorName = doctorData?['fullname'] ?? 'Doctor';
   
+  if (currentDoctorId.isEmpty) {
+    _showErrorSnackBar('Doctor not authenticated');
+    return;
+  }
+
+  Navigator.push(
+    context,
+    MaterialPageRoute(
+      builder: (context) => DoctorUnifiedSearchScreen(
+        doctorId: currentDoctorId,
+        doctorName: currentDoctorName,
+       
+      ),
+    ),
+  );
+}
   @override
   Widget build(BuildContext context) {
     List<Widget> widgetOptions = <Widget>[
@@ -801,10 +818,7 @@ Widget _buildCurrentScreen() {
                           ),
                         ],
                       ),
-                      child: IconButton(
-                        icon: Icon(Icons.chat_outlined, color:Color.fromARGB(255, 225, 114, 44)),
-                        onPressed: _navigateToChatList,
-                      ),
+                     
                     ),
                     if (_unreadMessageCount > 0)
                 Positioned(
@@ -847,6 +861,7 @@ Widget _buildCurrentScreen() {
     );
   },
 ),
+
                 ),
               ),
             ],
@@ -1428,6 +1443,11 @@ Color _getFeedbackColor(double score) {
               onTap: _navigatetoAmmountAnalysis, 
               color: primaryDark
             ),
+            _buildQuickActionButton(
+              icon: Icons.search,
+               label: 'Acess patient profile', 
+               color: primaryDark, 
+               onTap: _navigatescanpatient)
           ],
         ),
       ],
@@ -1591,15 +1611,9 @@ Color _getFeedbackColor(double score) {
                 ),
                 const Divider(height: 24, color: Color(0xFFDDF0F5)),
                 
-                const Divider(height: 24, color: Color(0xFFDDF0F5)),
-                _buildActivityItem(
-                  icon: Icons.chat,
-                  title: 'Unread Messages',
-                  subtitle: '$unreadMessagesCount new messages',
-                  color: const Color(0xFFFF9800),
-                  onTap: _navigateToChatList,
-                ),
-                const Divider(height: 24, color: Color(0xFFDDF0F5)),
+            
+                
+              
                
               ],
             ),

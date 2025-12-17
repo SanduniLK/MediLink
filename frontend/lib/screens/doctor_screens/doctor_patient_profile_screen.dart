@@ -5,7 +5,6 @@ import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:frontend/screens/doctor_screens/prescription_screen.dart';
 import 'package:frontend/services/doctor_medical_records_service.dart';
-import 'package:intl/intl.dart';
 import '../../services/patient_services.dart';
 import 'doctor_medical_history_screen.dart';
 

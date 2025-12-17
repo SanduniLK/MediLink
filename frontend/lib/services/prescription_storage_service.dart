@@ -152,6 +152,23 @@ class PrescriptionFirestoreService {
       return null;
     }
   }
+  static Future<Map<String, dynamic>?> getPrescriptionByAppointmentId(String appointmentId) async {
+  try {
+    final querySnapshot = await FirebaseFirestore.instance
+        .collection('prescriptions')
+        .where('appointmentId', isEqualTo: appointmentId)
+        .limit(1)
+        .get();
+    
+    if (querySnapshot.docs.isNotEmpty) {
+      return querySnapshot.docs.first.data();
+    }
+    return null;
+  } catch (e) {
+    print('❌ Error fetching prescription: $e');
+    return null;
+  }
+}
 }
 
 // Updated Model Classes
