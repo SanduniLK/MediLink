@@ -26,40 +26,57 @@ class DoctorMedicalHistoryScreen extends StatefulWidget {
 class _DoctorMedicalHistoryScreenState extends State<DoctorMedicalHistoryScreen> {
   final DoctorMedicalRecordsService _recordsService = DoctorMedicalRecordsService();
   final Map<String, bool> _expandedCategories = {};
-  
-  // Add these variables to store counts
-  int _totalPrescriptions = 0;
-  int _totalLabResults = 0;
-  int _totalOtherRecords = 0;
-  bool _isLoadingCounts = true;
+  bool _isLoading = true;
+  Map<String, List<Map<String, dynamic>>> _allRecords = {
+    'lab_results': [],
+    'past_prescriptions': [],
+    'other': [],
+  };
 
   @override
   void initState() {
     super.initState();
-    _loadRecordCounts();
+    _loadMedicalRecords();
   }
 
-  Future<void> _loadRecordCounts() async {
+  Future<void> _loadMedicalRecords() async {
     try {
-      // Get total prescriptions
-      final prescriptionsCount = await _recordsService.getTotalPrescriptionCount(widget.patientId);
-      
-      // Get counts from getAllPatientMedicalRecords
+      setState(() {
+        _isLoading = true;
+      });
+
+      // Get all records
       final allRecords = await _recordsService.getAllPatientMedicalRecords(widget.patientId);
       
+      // Debug: Print counts
+      debugPrint('📊 Medical History Records for ${widget.patientName}:');
+      debugPrint('  Lab Results: ${allRecords['lab_results']?.length ?? 0}');
+      debugPrint('  Prescriptions: ${allRecords['past_prescriptions']?.length ?? 0}');
+      debugPrint('  Other: ${allRecords['other']?.length ?? 0}');
+      
+      // Debug: List all records
+      debugPrint('📝 Detailed Records:');
+      for (final category in ['lab_results', 'past_prescriptions', 'other']) {
+        final records = allRecords[category] ?? [];
+        if (records.isNotEmpty) {
+          debugPrint('  $category:');
+          for (final record in records) {
+            debugPrint('    - ${record['fileName']} (${record['type']})');
+          }
+        }
+      }
+      
       setState(() {
-        _totalPrescriptions = prescriptionsCount;
-        _totalLabResults = allRecords['lab_results']?.length ?? 0;
-        _totalOtherRecords = allRecords['other']?.length ?? 0;
-        _isLoadingCounts = false;
+        _allRecords = allRecords;
+        _isLoading = false;
       });
     } catch (e) {
+      debugPrint('❌ Error loading medical records: $e');
       if (mounted) {
         setState(() {
-          _isLoadingCounts = false;
+          _isLoading = false;
         });
       }
-      debugPrint('Error loading record counts: $e');
     }
   }
 
@@ -70,144 +87,171 @@ class _DoctorMedicalHistoryScreenState extends State<DoctorMedicalHistoryScreen>
         title: Text('Medical History - ${widget.patientName}'),
         backgroundColor: Color(0xFF18A3B6),
         foregroundColor: Colors.white,
+        actions: [
+          IconButton(
+            icon: Icon(Icons.refresh),
+            onPressed: _loadMedicalRecords,
+            tooltip: 'Refresh',
+          ),
+        ],
       ),
-      body: FutureBuilder<Map<String, List<Map<String, dynamic>>>>(
-        future: _recordsService.getAllPatientMedicalRecords(widget.patientId),
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return Center(child: CircularProgressIndicator());
-          }
-
-          if (snapshot.hasError) {
-            return Center(child: Text('Error loading medical records: ${snapshot.error}'));
-          }
-
-          final allRecords = snapshot.data ?? {
-            'lab_results': [],
-            'past_prescriptions': [],
-            'other': [],
-          };
-
-          // Use actual counts from the snapshot
-          final int labResultsCount = allRecords['lab_results']!.length;
-          final int prescriptionsCount = allRecords['past_prescriptions']!.length;
-          final int otherCount = allRecords['other']!.length;
-          final int totalRecords = labResultsCount + prescriptionsCount + otherCount;
-
-          if (totalRecords == 0) {
-            return Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(Icons.medical_services, size: 64, color: Colors.grey[400]),
-                  SizedBox(height: 16),
-                  Text(
-                    'No Medical Records Found',
-                    style: TextStyle(fontSize: 18, color: Colors.grey[600]),
-                  ),
-                  SizedBox(height: 8),
-                  Text(
-                    '${widget.patientName} has not uploaded any medical records yet',
-                    style: TextStyle(color: Colors.grey[500]),
-                    textAlign: TextAlign.center,
-                  ),
-                ],
-              ),
-            );
-          }
-
-          return ListView(
-            padding: EdgeInsets.all(16),
-            children: [
-              // Patient Summary Card
-              Card(
-                child: Padding(
-                  padding: EdgeInsets.all(16),
-                  child: Column(
-                    children: [
-                      CircleAvatar(
-                        backgroundColor: Color(0xFF18A3B6),
-                        radius: 30,
-                        child: Text(
-                          widget.patientName[0].toUpperCase(),
-                          style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold),
-                        ),
-                      ),
-                      SizedBox(height: 12),
-                      Text(
-                        widget.patientName,
-                        style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                      ),
-                      SizedBox(height: 8),
-                      Text(
-                        'Total Medical Records: $totalRecords',
-                        style: TextStyle(color: Colors.grey[600]),
-                      ),
-                      
-                      // Add counts breakdown
-                      SizedBox(height: 12),
-                      Wrap(
-                        spacing: 12,
-                        runSpacing: 8,
-                        alignment: WrapAlignment.center,
-                        children: [
-                          if (labResultsCount > 0) _buildCountChip('$labResultsCount Lab Tests', Colors.blue),
-                          if (prescriptionsCount > 0) _buildCountChip('$prescriptionsCount Prescriptions', Colors.green),
-                          if (otherCount > 0) _buildCountChip('$otherCount Other Files', Colors.orange),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-              
-              SizedBox(height: 20),
-              
-              // Lab Results Section
-              if (allRecords['lab_results']!.isNotEmpty)
-                _buildCategorySection(
-                  category: 'lab_results',
-                  records: allRecords['lab_results']!,
-                  title: 'Lab Test Results',
-                  icon: '🧪',
-                  count: labResultsCount,
-                ),
-              
-              // Prescriptions Section
-              if (allRecords['past_prescriptions']!.isNotEmpty)
-                _buildCategorySection(
-                  category: 'past_prescriptions',
-                  records: allRecords['past_prescriptions']!,
-                  title: 'Past Prescriptions',
-                  icon: '💊',
-                  count: prescriptionsCount,
-                ),
-              
-              // Other Records Section
-              if (allRecords['other']!.isNotEmpty)
-                _buildCategorySection(
-                  category: 'other',
-                  records: allRecords['other']!,
-                  title: 'Other Medical Records',
-                  icon: '📁',
-                  count: otherCount,
-                ),
-            ],
-          );
-        },
-      ),
+      body: _isLoading
+          ? Center(child: CircularProgressIndicator())
+          : _buildContent(),
     );
   }
 
-  Widget _buildCountChip(String text, Color color) {
-    return Chip(
-      label: Text(
-        text,
-        style: TextStyle(color: Colors.white, fontSize: 12),
-      ),
-      backgroundColor: color,
-      padding: EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-      visualDensity: VisualDensity.compact,
+  Widget _buildContent() {
+    final int labResultsCount = _allRecords['lab_results']!.length;
+    final int prescriptionsCount = _allRecords['past_prescriptions']!.length;
+    final int otherCount = _allRecords['other']!.length;
+    final int totalRecords = labResultsCount + prescriptionsCount + otherCount;
+
+    if (totalRecords == 0) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.medical_services, size: 64, color: Colors.grey[400]),
+            SizedBox(height: 16),
+            Text(
+              'No Medical Records Found',
+              style: TextStyle(fontSize: 18, color: Colors.grey[600]),
+            ),
+            SizedBox(height: 8),
+            Text(
+              '${widget.patientName} has not uploaded any medical records yet',
+              style: TextStyle(color: Colors.grey[500]),
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
+      );
+    }
+
+    return ListView(
+      padding: EdgeInsets.all(16),
+      children: [
+        // Patient Summary Card
+        Card(
+          elevation: 4,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Padding(
+            padding: EdgeInsets.all(16),
+            child: Column(
+              children: [
+                CircleAvatar(
+                  backgroundColor: Color(0xFF18A3B6),
+                  radius: 30,
+                  child: Text(
+                    widget.patientName[0].toUpperCase(),
+                    style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold),
+                  ),
+                ),
+                SizedBox(height: 12),
+                Text(
+                  widget.patientName,
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                ),
+                SizedBox(height: 8),
+                Text(
+                  'Patient ID: ${widget.patientId}',
+                  style: TextStyle(color: Colors.grey[600]),
+                ),
+                
+                SizedBox(height: 12),
+                Divider(),
+                SizedBox(height: 12),
+                
+                // Records Summary
+                Text(
+                  'Medical Records Summary',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                ),
+                SizedBox(height: 8),
+                
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceAround,
+                  children: [
+                    _buildSummaryItem('Total', '$totalRecords', Icons.summarize, Color(0xFF18A3B6)),
+                    _buildSummaryItem('Lab Results', '$labResultsCount', Icons.science, Colors.blue),
+                    _buildSummaryItem('Prescriptions', '$prescriptionsCount', Icons.medication, Colors.green),
+                    _buildSummaryItem('Other', '$otherCount', Icons.folder, Colors.orange),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+        
+        SizedBox(height: 20),
+        
+        // Lab Results Section
+        if (labResultsCount > 0)
+          _buildCategorySection(
+            category: 'lab_results',
+            records: _allRecords['lab_results']!,
+            title: 'Lab Test Results',
+            icon: Icons.science,
+            color: Colors.blue,
+            count: labResultsCount,
+          ),
+        
+        // Prescriptions Section
+        if (prescriptionsCount > 0)
+          _buildCategorySection(
+            category: 'past_prescriptions',
+            records: _allRecords['past_prescriptions']!,
+            title: 'Prescriptions',
+            icon: Icons.medication,
+            color: Colors.green,
+            count: prescriptionsCount,
+          ),
+        
+        // Other Records Section
+        if (otherCount > 0)
+          _buildCategorySection(
+            category: 'other',
+            records: _allRecords['other']!,
+            title: 'Other Medical Records',
+            icon: Icons.folder,
+            color: Colors.orange,
+            count: otherCount,
+          ),
+      ],
+    );
+  }
+
+  Widget _buildSummaryItem(String label, String value, IconData icon, Color color) {
+    return Column(
+      children: [
+        Container(
+          padding: EdgeInsets.all(8),
+          decoration: BoxDecoration(
+            color: color.withOpacity(0.1),
+            shape: BoxShape.circle,
+          ),
+          child: Icon(icon, size: 20, color: color),
+        ),
+        SizedBox(height: 4),
+        Text(
+          value,
+          style: TextStyle(
+            fontSize: 18,
+            fontWeight: FontWeight.bold,
+            color: color,
+          ),
+        ),
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: 10,
+            color: Colors.grey[600],
+          ),
+        ),
+      ],
     );
   }
 
@@ -215,13 +259,15 @@ class _DoctorMedicalHistoryScreenState extends State<DoctorMedicalHistoryScreen>
     required String category,
     required List<Map<String, dynamic>> records,
     required String title,
-    required String icon,
+    required IconData icon,
+    required Color color,
     required int count,
   }) {
     final bool isExpanded = _expandedCategories[category] ?? false;
 
     return Card(
       margin: EdgeInsets.only(bottom: 16),
+      elevation: 2,
       child: ExpansionTile(
         initiallyExpanded: isExpanded,
         onExpansionChanged: (expanded) {
@@ -229,16 +275,16 @@ class _DoctorMedicalHistoryScreenState extends State<DoctorMedicalHistoryScreen>
             _expandedCategories[category] = expanded;
           });
         },
-        leading: Text(icon, style: TextStyle(fontSize: 24)),
+        leading: Icon(icon, color: color, size: 28),
         title: Text(
           title,
           style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
         ),
-        subtitle: Text('${count} file${count == 1 ? '' : 's'}'),
+        subtitle: Text('$count record${count == 1 ? '' : 's'}'),
         trailing: Container(
           padding: EdgeInsets.all(8),
           decoration: BoxDecoration(
-            color: Color(0xFF18A3B6),
+            color: color,
             borderRadius: BorderRadius.circular(12),
           ),
           child: Text(
@@ -267,32 +313,49 @@ class _DoctorMedicalHistoryScreenState extends State<DoctorMedicalHistoryScreen>
     final bool hasPrescriptionImage = record['fileUrl'] != null && 
                                    (record['fileUrl'] as String).isNotEmpty;
     final bool isStorageFile = record['type'] == 'storage_file';
+    final bool isFirestoreRecord = record['type'] == 'firestore_record';
+
+    // Determine the date to display
+    DateTime displayDate;
+    if (record['uploadDate'] != null) {
+      displayDate = record['uploadDate'];
+    } else if (record['createdAt'] != null) {
+      displayDate = record['createdAt'];
+    } else {
+      displayDate = DateTime.now();
+    }
 
     return Card(
       margin: EdgeInsets.only(bottom: 8),
+      elevation: 1,
       child: ListTile(
-        leading: isFirestorePrescription 
-            ? Icon(Icons.medication, size: 32, color: Color(0xFF18A3B6))
-            : _buildFileIcon(record['fileName']),
+        leading: _buildRecordIcon(record),
         
         title: Text(
-          record['fileName'],
+          record['fileName'] ?? 'Unknown File',
           style: TextStyle(fontWeight: FontWeight.bold),
         ),
         
         subtitle: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            // Show diagnosis for prescriptions
             if (isFirestorePrescription && record['diagnosis'] != null && (record['diagnosis'] as String).isNotEmpty)
               Text(
                 'Diagnosis: ${record['diagnosis']}',
                 style: TextStyle(fontWeight: FontWeight.w500),
               ),
             
-            Text('Date: ${DateFormat('MMM dd, yyyy - HH:mm').format(
-              record['uploadDate'] ?? record['createdAt'] ?? DateTime.now()
-            )}'),
+            // Show source type
+            Text(
+              _getSourceType(record),
+              style: TextStyle(fontSize: 11, color: Colors.grey[600]),
+            ),
             
+            // Date
+            Text('Date: ${DateFormat('MMM dd, yyyy - HH:mm').format(displayDate)}'),
+            
+            // File size for storage files
             if (isStorageFile && record['fileSize'] != null && record['fileSize'] > 0)
               Text(_recordsService.getFileSizeString(record['fileSize'])),
           ],
@@ -318,7 +381,7 @@ class _DoctorMedicalHistoryScreenState extends State<DoctorMedicalHistoryScreen>
               ),
             
             // Download button for files
-            if (hasPrescriptionImage || isStorageFile)
+            if (hasPrescriptionImage || isStorageFile || isFirestoreRecord)
               IconButton(
                 icon: Icon(Icons.download, color: Color(0xFF18A3B6)),
                 onPressed: () => _downloadRecord(record),
@@ -329,12 +392,25 @@ class _DoctorMedicalHistoryScreenState extends State<DoctorMedicalHistoryScreen>
         
         onTap: isFirestorePrescription 
             ? () => _showPrescriptionDetails(record)
-            : () => _downloadRecord(record),
+            : (hasPrescriptionImage || isStorageFile || isFirestoreRecord)
+                ? () => _downloadRecord(record)
+                : null,
       ),
     );
   }
 
-  Widget _buildFileIcon(String fileName) {
+  Widget _buildRecordIcon(Map<String, dynamic> record) {
+    final bool isFirestorePrescription = record['type'] == 'firestore_prescription';
+    
+    if (isFirestorePrescription) {
+      return Icon(Icons.medication, size: 32, color: Colors.green);
+    }
+    
+    final String? fileName = record['fileName'];
+    if (fileName == null) {
+      return Icon(Icons.insert_drive_file, size: 32, color: Color(0xFF18A3B6));
+    }
+    
     final String extension = fileName.split('.').last.toLowerCase();
     final Color iconColor = Color(0xFF18A3B6);
 
@@ -346,6 +422,23 @@ class _DoctorMedicalHistoryScreenState extends State<DoctorMedicalHistoryScreen>
       return Icon(Icons.insert_drive_file, size: 32, color: iconColor);
     }
   }
+
+  String _getSourceType(Map<String, dynamic> record) {
+    switch (record['type']) {
+      case 'firestore_prescription':
+        return 'Digital Prescription';
+      case 'firestore_record':
+        return 'Uploaded File';
+      case 'storage_file':
+        return 'Legacy File';
+      default:
+        return 'Unknown Source';
+    }
+  }
+
+  // The rest of your methods (_showPrescriptionDetails, _viewPrescriptionImage, _downloadRecord)
+  // remain the same as in your original code
+  // ...
 
   void _showPrescriptionDetails(Map<String, dynamic> prescription) {
     final medicines = prescription['medicines'] as List<dynamic>? ?? [];

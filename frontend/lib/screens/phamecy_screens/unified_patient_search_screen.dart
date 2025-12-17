@@ -211,7 +211,7 @@ class _QRCodeTabState extends State<QRCodeTab> {
           const SizedBox(height: 12),
           _buildCameraControls(),
           const SizedBox(height: 12),
-          _buildManualInputSection(),
+          
           const SizedBox(height: 12),
           _buildHelpSection(),
         ],
@@ -333,54 +333,7 @@ List<Widget> _buildScannerStackChildren() {
     );
   }
 
-  Widget _buildManualInputSection() {
-    return Card(
-      elevation: 2,
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Text(
-              'Manual QR Input',
-              style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Color(0xFF18A3B6)),
-            ),
-            const SizedBox(height: 8),
-            TextField(
-              controller: _qrController,
-              decoration: const InputDecoration(
-                labelText: 'QR Code Data',
-                prefixIcon: Icon(Icons.qr_code),
-                border: OutlineInputBorder(),
-                hintText: 'Paste or type QR code here',
-                contentPadding: EdgeInsets.symmetric(vertical: 10, horizontal: 12),
-              ),
-            ),
-            const SizedBox(height: 10),
-            SizedBox(
-              width: double.infinity,
-              height: 42,
-              child: ElevatedButton(
-                onPressed: _isSearching ? null : _searchByQRManual,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF18A3B6),
-                  foregroundColor: Colors.white,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                ),
-                child: _isSearching
-                    ? const SizedBox(
-                        width: 16, height: 16,
-                        child: CircularProgressIndicator(strokeWidth: 2, valueColor: AlwaysStoppedAnimation<Color>(Colors.white)),
-                      )
-                    : const Text('Search Patient', style: TextStyle(fontSize: 13)),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
+  
   Widget _buildHelpSection() {
     return Card(
       child: Padding(
@@ -732,39 +685,7 @@ class _PhoneNumberTabState extends State<PhoneNumberTab> {
             ),
           ),
           const SizedBox(height: 12),
-          Card(
-            elevation: 2,
-            child: Padding(
-              padding: const EdgeInsets.all(12),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Text(
-                    "Can't find patient?",
-                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.orange),
-                  ),
-                  const SizedBox(height: 6),
-                  const Text(
-                    'Register new patient in the system',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(fontSize: 11),
-                  ),
-                  const SizedBox(height: 8),
-                  OutlinedButton(
-                    onPressed: _registerNewPatient,
-                    style: OutlinedButton.styleFrom(
-                      side: const BorderSide(color: Colors.orange),
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                    ),
-                    child: const Text(
-                      'Register New Patient',
-                      style: TextStyle(fontSize: 12, color: Colors.orange),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
+          
           const SizedBox(height: 12),
           const Card(
             child: Padding(
