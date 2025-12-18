@@ -42,7 +42,7 @@ class _LabReportsManagementScreenState extends State<LabReportsManagementScreen>
   final Color _primaryColor = const Color(0xFF18A3B6);
   final Color _primaryDark = const Color(0xFF12899B);
   final Color _secondaryColor = const Color(0xFF32BACD);
-  final Color _accentColor = const Color(0xFFB2DEE6);
+  
   final Color _backgroundColor = const Color(0xFFF8FBFD);
   final Color _cardColor = Colors.white;
   final Color _textPrimary = Color(0xFF2C3E50);

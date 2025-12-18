@@ -1,6 +1,6 @@
 // screens/doctor_screens/doctor_qr_scanner_screen.dart - FIXED VERSION
 import 'package:flutter/material.dart';
-import 'package:frontend/screens/doctor_screens/doctor_medical_history_screen.dart';
+
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'dart:convert';

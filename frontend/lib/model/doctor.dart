@@ -32,7 +32,7 @@ class Doctor {
       bio: data['bio'] ?? '',
       experience: data['experience'] ?? '',
       availableTimes: List<String>.from(data['availableTimes'] ?? []),
-       schedules: List<Map<String, dynamic>>.from(['schedules'] ?? []),
+       schedules: List<Map<String, dynamic>>.from(['schedules']),
     );
   }
 }

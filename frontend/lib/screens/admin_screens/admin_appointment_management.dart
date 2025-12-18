@@ -188,7 +188,6 @@ class _AppointmentsView extends StatefulWidget {
 class __AppointmentsViewState extends State<_AppointmentsView> with SingleTickerProviderStateMixin {
   late TabController _tabController;
   final CollectionReference _appointmentsRef = FirebaseFirestore.instance.collection('appointments');
-  bool _loading = true;
 
   @override
   void initState() {

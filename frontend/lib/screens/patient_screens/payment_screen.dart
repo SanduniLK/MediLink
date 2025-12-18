@@ -1,6 +1,5 @@
 // payment_screen.dart
 import 'dart:async';
-
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:frontend/services/token_service.dart';
@@ -330,11 +329,11 @@ class _PaymentScreenState extends State<PaymentScreen> {
       print('✅ Appointment saved with ID: ${appointmentRef.id}');
       print('✅ Token $tokenNumber confirmed for appointment');
 
-      // 6) Store payment record - CALL THE METHOD HERE
+      // 6) Store payment record 
       await _storePaymentRecord(
         appointmentRef.id,
         tokenNumber,
-        payherePaymentId!,
+        payherePaymentId,
       );
 
       //  If telemedicine, create session

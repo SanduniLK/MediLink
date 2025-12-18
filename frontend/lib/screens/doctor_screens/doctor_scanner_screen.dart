@@ -22,7 +22,7 @@ class DoctorUnifiedSearchScreen extends StatefulWidget {
 class _DoctorUnifiedSearchScreenState extends State<DoctorUnifiedSearchScreen> {
   // Control which view is shown
   bool _showQRScanner = true;
-  String? _searchResult;
+  
   bool _isSearching = false;
 
   // Mobile scanner controller
@@ -79,7 +79,7 @@ class _DoctorUnifiedSearchScreenState extends State<DoctorUnifiedSearchScreen> {
     if (userDoc.exists) {
       print('✅ Found as user ID');
       patientId = userDoc.id;
-      patientData = userDoc.data() as Map<String, dynamic>?;
+      
     } else {
       // Try to find by phone number in users collection
       final phoneQuery = await FirebaseFirestore.instance

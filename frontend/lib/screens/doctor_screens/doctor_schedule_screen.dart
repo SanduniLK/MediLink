@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
+
 import 'package:frontend/model/doctor_schedule_model.dart';
 import 'package:frontend/model/medical_center_model.dart';
 import 'package:frontend/services/doctor_schedule_service.dart';
 import 'package:frontend/services/medical_center_service.dart';
-import 'package:intl/intl.dart';
+
 
 class DoctorScheduleScreen extends StatefulWidget {
   final Map<String, dynamic> doctor;
@@ -22,9 +22,7 @@ class _DoctorScheduleScreenState extends State<DoctorScheduleScreen> {
   bool isLoading = false;
   bool isSaved = false;
   bool loadingCenters = true;
-  String _appointmentType = 'physical';
-  List<String> _selectedTelemedicineTypes = [];
-  
+
   @override
   void initState() {
     super.initState();

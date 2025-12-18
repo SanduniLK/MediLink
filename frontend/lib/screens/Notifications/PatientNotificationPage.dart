@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:frontend/model/telemedicine_session.dart';
+
 import 'package:frontend/screens/Notifications/notification_service.dart';
 import 'package:frontend/services/firestore_service.dart';
 

@@ -867,7 +867,7 @@ void _viewOriginalPrescriptionImage() {
     int dispensedDays
   ) {
     final currentDuration = _selectedDurations[medicineId] ?? '7 days';
-    final medicineName = medicine['name'];
+    
     
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,

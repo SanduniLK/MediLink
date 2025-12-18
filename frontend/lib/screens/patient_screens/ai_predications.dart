@@ -152,22 +152,5 @@ class AiPredictionScreen extends StatelessWidget {
 
   
 
-  Widget _buildNavBarItem(String label, IconData icon, {bool isSelected = false}) {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Icon(
-          icon,
-          color: isSelected ? const Color(0xFF32BACD) : Colors.grey, // bright cyan
-        ),
-        Text(
-          label,
-          style: TextStyle(
-            color: isSelected ? const Color(0xFF32BACD) : Colors.grey,
-            fontSize: 12,
-          ),
-        ),
-      ],
-    );
-  }
+  
 }

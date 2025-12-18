@@ -3,9 +3,8 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:frontend/screens/admin_screens/admin_analyze.page.dart';
-import 'package:frontend/screens/admin_screens/admin_appoinment_mng.dart';
-import 'package:frontend/screens/admin_screens/admin_appoinment_mng.dart'
-    as appointment_mng;
+
+    
 import 'package:frontend/screens/admin_screens/admin_doctor_manegment.dart'
     as doctor_management;
 import 'package:frontend/enroll_screnns/sign_in_page.dart';

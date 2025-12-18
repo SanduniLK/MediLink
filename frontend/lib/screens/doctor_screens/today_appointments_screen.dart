@@ -16,7 +16,7 @@ class _TodayAppointmentsScreenState extends State<TodayAppointmentsScreen> {
   
   bool _isLoading = true;
   List<Map<String, dynamic>> _appointments = [];
-  String _todayDate = '';
+  
 
   @override
   void initState() {
@@ -173,70 +173,7 @@ class _TodayAppointmentsScreenState extends State<TodayAppointmentsScreen> {
       }
     }
   }
-
-  // Alternative: Query directly by date (if you know the exact format)
-  Future<void> _loadTodayAppointmentsDirectQuery() async {
-    setState(() {
-      _isLoading = true;
-    });
-
-    try {
-      final user = _auth.currentUser;
-      if (user == null) return;
-
-      // Get today's date in multiple possible formats
-      final now = DateTime.now();
-      final todayFormatted1 = '${now.day}/${now.month}/${now.year}'; // 5/12/2025
-      final todayFormatted2 = '${now.day.toString().padLeft(2, '0')}/${now.month.toString().padLeft(2, '0')}/${now.year}'; // 05/12/2025
-      final todayFormatted3 = '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}'; // 2025-12-05
-      
-      print('🔍 Querying for appointments with date: $todayFormatted1');
-
-      // Query using 'appointmentDate' field (from payment_screen)
-      final snapshot = await _firestore
-          .collection('appointments')
-          .where('doctorId', isEqualTo: user.uid)
-          .where('appointmentDate', isEqualTo: todayFormatted1)
-          .get();
-
-      print('📊 Found ${snapshot.docs.length} appointments for today');
-
-      final appointments = <Map<String, dynamic>>[];
-      for (final doc in snapshot.docs) {
-        final appointment = doc.data();
-        appointment['id'] = doc.id;
-        
-        // Get patient details
-        final patientId = appointment['patientId'];
-        if (patientId != null) {
-          try {
-            final patientDoc = await _firestore.collection('patients').doc(patientId).get();
-            if (patientDoc.exists) {
-              appointment['patientName'] = patientDoc.data()?['fullname'] ?? appointment['patientName'] ?? 'Unknown Patient';
-              appointment['patientPhone'] = patientDoc.data()?['phone'] ?? '';
-              appointment['patientEmail'] = patientDoc.data()?['email'] ?? '';
-            }
-          } catch (e) {
-            print('⚠️ Error loading patient: $e');
-          }
-        }
-        
-        appointments.add(appointment);
-      }
-
-      setState(() {
-        _appointments = appointments;
-        _isLoading = false;
-      });
-    } catch (e) {
-      print('❌ Error loading appointments: $e');
-      setState(() {
-        _isLoading = false;
-      });
-    }
-  }
-
-  Color _getStatusColor(String status) {
+Color _getStatusColor(String status) {
     switch (status.toLowerCase()) {
       case 'confirmed':
         return Colors.green;

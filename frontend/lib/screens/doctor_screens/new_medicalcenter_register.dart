@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:frontend/screens/admin_screens/admin_doctor_manegment.dart';
+
 
 class MedicalCenterSelectionScreen extends StatefulWidget {
   const MedicalCenterSelectionScreen({super.key});

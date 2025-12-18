@@ -87,7 +87,7 @@ Future<List<Map<String, dynamic>>> getAllSchedulesQueueStatus(String doctorId, S
     }
   }
 
-  // ✅ FIXED: Cancel appointment and dynamically update tokens
+  //  Cancel appointment and dynamically update tokens
   Future<void> cancelAppointmentAndUpdateTokens({
     required String appointmentId,
     required String scheduleId,
@@ -168,7 +168,7 @@ Future<List<Map<String, dynamic>>> getAllSchedulesQueueStatus(String doctorId, S
     }
   }
 
-  // ✅ NEW: Simple token adjustment method for MyAppointmentsPage
+  // Simple token adjustment method for MyAppointmentsPage
   Future<void> adjustTokensAfterCancellationSimple({
     required String doctorId,
     required String date,

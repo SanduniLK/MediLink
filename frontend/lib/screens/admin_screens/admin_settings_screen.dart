@@ -165,70 +165,7 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
   }
 }
 
-  // Optional: Method to handle email change with reauthentication
-  Future<void> _showReauthenticationDialog(String newEmail) async {
-    return showDialog(
-      context: context,
-      builder: (context) {
-        final passwordController = TextEditingController();
-        return AlertDialog(
-          title: const Text('Change Email Address'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Text('For security, please enter your current password to change your email:'),
-              const SizedBox(height: 16),
-              TextFormField(
-                controller: passwordController,
-                obscureText: true,
-                decoration: const InputDecoration(
-                  labelText: 'Current Password',
-                  border: OutlineInputBorder(),
-                ),
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Cancel'),
-            ),
-            ElevatedButton(
-              onPressed: () async {
-                try {
-                  final user = _auth.currentUser;
-                  final credential = EmailAuthProvider.credential(
-                    email: user!.email!,
-                    password: passwordController.text,
-                  );
-                  
-                  await user.reauthenticateWithCredential(credential);
-                  await user.verifyBeforeUpdateEmail(newEmail);
-                  
-                  Navigator.pop(context);
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('Verification email sent to new address'),
-                      backgroundColor: Colors.green,
-                    ),
-                  );
-                } catch (e) {
-                  Navigator.pop(context);
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text('Failed to update email: $e'),
-                      backgroundColor: Colors.red,
-                    ),
-                  );
-                }
-              },
-              child: const Text('Update Email'),
-            ),
-          ],
-        );
-      },
-    );
-  }
+  
 
   String _formatTimestamp(dynamic timestamp) {
     try {

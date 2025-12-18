@@ -5,14 +5,10 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:frontend/enroll_screnns/sign_in_page.dart';
 import 'package:frontend/screens/Notifications/PatientNotificationPage.dart';
-import 'package:frontend/screens/doctor_screens/doctor_chat_list_screen.dart';
 import 'package:frontend/screens/doctor_screens/doctors_list.dart';
 import 'package:frontend/screens/patient_screens/PatientProfileScreen.dart';
 import 'package:frontend/screens/patient_screens/ai_predications.dart';
 import 'package:frontend/screens/patient_screens/analysis_report.dart';
-import 'package:frontend/screens/patient_screens/doctor_patient_list_screen.dart';
-import 'package:frontend/screens/patient_screens/feedback_form_screen.dart';
-import 'package:frontend/screens/patient_screens/information.dart';
 import 'package:frontend/screens/patient_screens/medical_records_screen.dart';
 import 'package:frontend/screens/patient_screens/my_appointments_page.dart';
 import 'package:frontend/screens/patient_screens/patient_prescriptions.dart';
@@ -177,46 +173,7 @@ void _getPatientId() {
     );
   }
 }
-Future<void> _forceSignOut() async {
-  try {
-    print('💥 FORCE SIGN-OUT INITIATED');
-    
-    // Clear any local state first
-    if (mounted) {
-      setState(() {
-        patientId = null;
-        patientName = null;
-      });
-    }
-    
-    // Sign out from Firebase
-    await FirebaseAuth.instance.signOut();
-    
-    // Force clear any cached credentials
-    await Future.delayed(const Duration(milliseconds: 500));
-    
-    // Navigate to login no matter what
-    if (mounted) {
-      Navigator.pushNamedAndRemoveUntil(
-        context, 
-        '/welcome',  // CHANGED TO '/welcome' as fallback
-        (route) => false,
-      );
-    }
-    
-  } catch (e) {
-    print('💥 Force sign-out error: $e');
-    
-    // Last resort - try to navigate anyway
-    if (mounted) {
-      Navigator.pushNamedAndRemoveUntil(
-        context, 
-        '/welcome',  
-        (route) => false,
-      );
-    }
-  }
-}
+
 @override
   void dispose() {
     _unreadSubscription?.cancel();
@@ -315,20 +272,8 @@ Widget _buildNotificationsPage() {
                       subtitle: 'Manage your notifications',
                       onTap: () {},
                     ),
-                    const Divider(),
-                    _buildSettingsOption(
-                      icon: Icons.security,
-                      title: 'Privacy & Security',
-                      subtitle: 'Control your privacy settings',
-                      onTap: () {},
-                    ),
-                    const Divider(),
-                    _buildSettingsOption(
-                      icon: Icons.help,
-                      title: 'Help & Support',
-                      subtitle: 'Get help and contact support',
-                      onTap: () {},
-                    ),
+                    
+                    
                     const Divider(),
                     _buildSettingsOption(
                       icon: Icons.info,
@@ -477,7 +422,7 @@ void _showSignOutConfirmation() {
     );
   }
 
-  // --- Home Page with Layered Background Style ---
+  // Home Page with Layered Background Style 
   Widget _buildHomePage(BuildContext context) {
     final screenWidth = MediaQuery.of(context).size.width;
 
@@ -877,24 +822,7 @@ Widget _buildHeader(double screenWidth) {
       ),
     );
   }
-void _navigateToChatList(BuildContext context) {
-  final user = FirebaseAuth.instance.currentUser;
-  if (user != null) {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => ChatListScreen(),
-      ),
-    );
-  } else {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Please login to view messages'),
-        backgroundColor: Colors.red,
-      ),
-    );
-  }
-}
+
   // --- Summary/Info Sections ---
   Widget _buildHealthReportSummary() {
     return GestureDetector(

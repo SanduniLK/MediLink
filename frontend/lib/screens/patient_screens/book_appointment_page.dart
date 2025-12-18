@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'payment_screen.dart';
 
 class BookAppointmentPage extends StatefulWidget {
@@ -165,16 +164,7 @@ void _filterConsultationTypes() {
   }
 }
 
-void _toggleSearchBar() {
-  setState(() {
-    _showSearchBar = !_showSearchBar;
-    if (!_showSearchBar) {
-      searchController.clear();
-      _searchQuery = '';
-      _filterConsultationTypes();
-    }
-  });
-}
+
   
   bool get isMounted => mounted;
 

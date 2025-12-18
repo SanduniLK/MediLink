@@ -8,12 +8,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/rendering.dart';
 import 'package:frontend/model/prescription_model.dart';
-import 'package:frontend/screens/doctor_screens/pharmacy_selection_screen.dart';
-import 'package:frontend/screens/doctor_screens/prescription_history_screen.dart';
-import 'package:path_provider/path_provider.dart';
 import 'package:intl/intl.dart';
-
-
 
 class PrescriptionScreen extends StatefulWidget {
   final String? patientId;
@@ -1269,20 +1264,7 @@ Future<void> _completeAppointmentAndAdvanceQueue() async {
   }
 }
 
-  Future<void> _shareWithPharmacies() async {
-    final selectedPharmacies = await Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => PharmacySelectionScreen(
-          pharmacies: _availablePharmacies,
-        ),
-      ),
-    );
-
-    if (selectedPharmacies != null && selectedPharmacies.isNotEmpty) {
-      await _savePrescription(shareWithPharmacies: true);
-    }
-  }
+  
 
   @override
   Widget build(BuildContext context) {

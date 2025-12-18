@@ -86,7 +86,7 @@ class _MedicalCenterAppointmentManagementPageState extends State<MedicalCenterAp
       print("  - date: ${data['date']}");
       print("  - time: ${data['time']}");
       
-      if (medicalCenterId == _currentUser!.uid) {
+      if (medicalCenterId == _currentUser.uid) {
         matchingMedicalCenter++;
         print("  ✅ MATCHES current medical center");
       } else {

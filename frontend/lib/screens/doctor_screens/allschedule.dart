@@ -1,7 +1,7 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:frontend/screens/doctor_screens/create_schedule_screen.dart';
+
 import 'schedule_appointments_screen.dart';
 import 'package:frontend/telemedicine/doctor_telemedicine_page.dart';
 

@@ -2,31 +2,21 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:intl/intl.dart';
-
-
-
 import 'feedback_form_screen.dart'; 
-
-class TokenService {
-  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
-}
-
 class MyAppointmentsPage extends StatefulWidget {
   final String patientId;
-  
   const MyAppointmentsPage({Key? key, required this.patientId}) : super(key: key);
 
   @override
   State<MyAppointmentsPage> createState() => _MyAppointmentsPageState();
 }
-
 class _MyAppointmentsPageState extends State<MyAppointmentsPage>
     with SingleTickerProviderStateMixin {
   late TabController _tabController;
   List<Map<String, dynamic>> appointments = [];
   bool isLoading = true;
   String errorMessage = '';
-  final TokenService _tokenService = TokenService();
+  
   
   @override
   void initState() {
@@ -80,7 +70,7 @@ class _MyAppointmentsPageState extends State<MyAppointmentsPage>
           'doctorName': data['doctorName'] ?? 'Doctor',
           'doctorSpecialty': data['doctorSpecialty'] ?? 'General Practitioner',
           'medicalCenterName': data['medicalCenterName'] ?? 'Medical Center',
-          'medicalCenterId': data['medicalCenterId'] ?? '', // Added for feedback
+          'medicalCenterId': data['medicalCenterId'] ?? '', 
           'date': data['date'] ?? 'Not specified',
           'time': data['time'] ?? 'Not specified',
           'appointmentType': data['appointmentType'] ?? 'physical',
@@ -95,7 +85,7 @@ class _MyAppointmentsPageState extends State<MyAppointmentsPage>
           'qrCodeData': data['qrCodeData'] ?? '',
           'currentQueueNumber': data['currentQueueNumber'] ?? 0,
           'scheduleId': data['scheduleId'] ?? '',
-          'feedbackSubmitted': data['feedbackSubmitted'] ?? false, // Added feedback status
+          'feedbackSubmitted': data['feedbackSubmitted'] ?? false, 
         });
       }
 
@@ -495,7 +485,7 @@ class _MyAppointmentsPageState extends State<MyAppointmentsPage>
               // Time and Appointment Type
               LayoutBuilder(
                 builder: (context, constraints) {
-                  final isSmallScreen = constraints.maxWidth < 360;
+                  
                   
                   return Row(
                     children: [
@@ -624,12 +614,6 @@ class _MyAppointmentsPageState extends State<MyAppointmentsPage>
       ),
     );
   }
-
-  
-  
-
-  
-
   Widget _buildPastAppointmentButtons(Map<String, dynamic> appointment, bool feedbackSubmitted) {
     return Wrap(
       spacing: 8,
