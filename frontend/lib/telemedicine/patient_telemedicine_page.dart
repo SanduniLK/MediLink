@@ -1,10 +1,7 @@
-
-
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:frontend/model/telemedicine_session.dart';
-import 'package:frontend/screens/doctor_screens/doctor_chat_list_screen.dart';
-import 'package:frontend/screens/doctor_screens/doctor_chat_screen.dart';
+
 import 'package:frontend/services/chat_service.dart';
 import 'package:frontend/services/prescription_storage_service.dart';
 import 'package:frontend/telemedicine/consultation_screen.dart';

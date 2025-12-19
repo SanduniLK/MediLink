@@ -128,6 +128,8 @@ class _MyAppointmentsPageState extends State<MyAppointmentsPage>
     }).toList();
   }
 
+  
+
   @override
   Widget build(BuildContext context) {
     final upcoming = _getUpcomingAppointments();
@@ -158,6 +160,7 @@ class _MyAppointmentsPageState extends State<MyAppointmentsPage>
             Tab(
               child: _buildTabWithBadge('Completed ', past.length),
             ),
+            
           ],
         ),
       ),
@@ -168,12 +171,13 @@ class _MyAppointmentsPageState extends State<MyAppointmentsPage>
     );
   }
 
-  Widget _buildTabContent(List<Map<String, dynamic>> upcoming, List<Map<String, dynamic>> past) {
+  Widget _buildTabContent(List<Map<String, dynamic>> upcoming, List<Map<String, dynamic>> past, ) {
     return TabBarView(
       controller: _tabController,
       children: [
         _buildAppointmentsList(upcoming, 'upcoming'),
         _buildAppointmentsList(past, 'past'),
+        
       ],
     );
   }
@@ -806,10 +810,7 @@ class _MyAppointmentsPageState extends State<MyAppointmentsPage>
       ],
     );
   }
-
- 
-
-  // Helper methods
+ // Helper methods
   String _formatTime(String time) {
     try {
       if (time.contains(' - ')) {
@@ -849,6 +850,7 @@ class _MyAppointmentsPageState extends State<MyAppointmentsPage>
         return Icons.event_available;
       case 'past':
         return Icons.history;
+      
       default:
         return Icons.event;
     }
@@ -860,6 +862,7 @@ class _MyAppointmentsPageState extends State<MyAppointmentsPage>
         return 'No upcoming appointments';
       case 'past':
         return 'No past appointments';
+      
       default:
         return 'No appointments';
     }
@@ -871,6 +874,7 @@ class _MyAppointmentsPageState extends State<MyAppointmentsPage>
         return 'Book a new appointment to get started';
       case 'past':
         return 'Your completed appointments will appear here';
+      
       default:
         return '';
     }
@@ -916,10 +920,6 @@ class _MyAppointmentsPageState extends State<MyAppointmentsPage>
         return type;
     }
   }
-
-  
-
-  
 
   String _formatQueueStatus(String queueStatus) {
     switch (queueStatus) {

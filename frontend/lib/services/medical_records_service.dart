@@ -22,30 +22,30 @@ class MedicalRecordsService {
     try {
       debugPrint('📤 Starting upload: $fileName');
       
-      // 1. First extract text SILENTLY
+      // First extract text SILENTLY
       debugPrint('🔍 Extracting text silently...');
       Map<String, dynamic> extractedData = await GoogleVisionService.extractMedicalText(file);
       
       String? extractedText = extractedData['success'] ? extractedData['fullText'] : null;
       Map<String, dynamic>? medicalInfo = extractedData['success'] ? extractedData['medicalInfo'] : null;
       
-      // 2. Validate file type
+      // Validate file type
       final String fileExtension = fileName.split('.').last.toLowerCase();
       if (!_isValidFileType(fileExtension)) {
         throw Exception('Invalid file type. Please upload PDF, JPG, or PNG files only.');
       }
 
-      // 3. Get file size
+      // Get file size
       final int fileSize = await file.length();
       if (fileSize > 20 * 1024 * 1024) {
         throw Exception('File size too large. Please select a file smaller than 20MB.');
       }
 
-      // 4. Create storage path
+      //  Create storage path
       final String storagePath = 'medical_records/$patientId/${category.name}/${DateTime.now().millisecondsSinceEpoch}_$fileName';
       final Reference storageRef = _storage.ref().child(storagePath);
 
-      // 5. Upload file to Firebase Storage
+      //  Upload file to Firebase Storage
       final UploadTask uploadTask = storageRef.putFile(
         file,
         SettableMetadata(contentType: _getContentType(fileExtension)),
@@ -54,10 +54,10 @@ class MedicalRecordsService {
       final TaskSnapshot snapshot = await uploadTask;
       final String downloadUrl = await snapshot.ref.getDownloadURL();
 
-      // 6. Create record ID
+      // Create record ID
       final String recordId = _firestore.collection('medical_records').doc().id;
       
-      // 7. Create MedicalRecord object
+      // Create MedicalRecord object
       final MedicalRecord record = MedicalRecord(
         id: recordId,
         patientId: patientId,
@@ -169,7 +169,7 @@ class MedicalRecordsService {
         });
   }
 
-  // 🔥 NEW: Get notes by category
+  // NEW: Get notes by category
   Stream<List<Map<String, dynamic>>> getPatientNotesByCategory(
       String patientId, String category) {
     return _firestore

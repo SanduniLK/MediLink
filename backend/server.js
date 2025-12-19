@@ -33,7 +33,7 @@ const io = socketIo(server, {
   transports: ['websocket', 'polling']
 });
 
-// ========== COMPLETE SOCKET.IO EVENT HANDLERS ==========
+//  COMPLETE SOCKET.IO EVENT HANDLERS 
 io.on('connection', (socket) => {
   console.log('🎯 NEW CLIENT CONNECTED:', socket.id);
   console.log('   Headers:', socket.handshake.headers);
