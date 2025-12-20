@@ -8,6 +8,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/rendering.dart';
 import 'package:frontend/model/prescription_model.dart';
+
 import 'package:intl/intl.dart';
 
 class PrescriptionScreen extends StatefulWidget {
@@ -42,15 +43,18 @@ class _PrescriptionScreenState extends State<PrescriptionScreen> {
   final List<TextEditingController> _durationControllers = [];
   final List<TextEditingController> _frequencyControllers = [];
   final List<TextEditingController> _instructionControllers = [];
-
-  final TextEditingController _descriptionController = TextEditingController();
+ final TextEditingController _descriptionController = TextEditingController();
   final TextEditingController _patientNameController = TextEditingController();
   final TextEditingController _patientAgeController = TextEditingController();
   final TextEditingController _diagnosisController = TextEditingController();
   final TextEditingController _notesController = TextEditingController();
   final TextEditingController _doctorNameController = TextEditingController();
   final TextEditingController _doctorRegNoController = TextEditingController();
+  
   final TextEditingController _medicalCenterController = TextEditingController(text: 'City Medical Center & Hospital');
+  final TextEditingController _doctorHospitalController = TextEditingController();
+
+  String _doctorHospital = 'City Medical Center & Hospital';
 
   // Drawing variables
   Color _selectedColor = Colors.black;
@@ -96,6 +100,7 @@ class _PrescriptionScreenState extends State<PrescriptionScreen> {
     _addMedicineField();
     _loadPharmacies();
     _loadPatientAppointments();
+    _loadMedicalCenterFromAppointments();
     _loadDoctorInfo();
     _setPatientData();
   }
@@ -150,13 +155,13 @@ void _setPatientData() {
           setState(() {
             _doctorNameController.text = data?['fullname'] ?? 'Dr. Rajesh Kumar';
             _doctorRegNoController.text = data?['regNumber'] ?? 'MED12345';
-            _medicalCenterController.text = data?['hospital'] ?? 'City Medical Center & Hospital';
+            _doctorHospital = data?['hospital'] ?? 'City Medical Center & Hospital';
           });
         } else {
           setState(() {
             _doctorNameController.text = 'Dr. Rajesh Kumar';
             _doctorRegNoController.text = 'MED12345';
-            _medicalCenterController.text = 'City Medical Center & Hospital';
+            _doctorHospital = 'City Medical Center & Hospital';
           });
         }
       }
@@ -165,7 +170,7 @@ void _setPatientData() {
       setState(() {
         _doctorNameController.text = 'Dr. Rajesh Kumar';
         _doctorRegNoController.text = 'MED12345';
-        _medicalCenterController.text = 'City Medical Center & Hospital';
+        _doctorHospital = 'City Medical Center & Hospital';
       });
     }
   }
@@ -189,7 +194,50 @@ void _setPatientData() {
       debugPrint('Error loading pharmacies: $e');
     }
   }
-
+Future<void> _loadMedicalCenterFromAppointments() async {
+  try {
+    debugPrint('Trying to get medical center...');
+    
+    // If we have appointment ID, get medical center from that appointment
+    if (widget.appointmentId != null && widget.appointmentId!.isNotEmpty) {
+      debugPrint('Getting from appointment: ${widget.appointmentId}');
+      
+      // Get the appointment document from Firebase
+      final appointmentDoc = await FirebaseFirestore.instance
+          .collection('appointments')
+          .doc(widget.appointmentId!)
+          .get();
+      
+      if (appointmentDoc.exists) {
+        final data = appointmentDoc.data() as Map<String, dynamic>?;
+        if (data != null) {
+          // Get medical center name
+          final String? medicalCenter = data['medicalCenterName'] as String?;
+          
+          if (medicalCenter != null && medicalCenter.isNotEmpty) {
+            debugPrint('Found medical center: $medicalCenter');
+            setState(() {
+              _medicalCenterController.text = medicalCenter;
+            });
+            return;
+          }
+        }
+      }
+    }
+    
+    // If no appointment or no medical center found, use doctor's hospital
+    debugPrint('Using doctor hospital: $_doctorHospital');
+    setState(() {
+      _medicalCenterController.text = _doctorHospital;
+    });
+    
+  } catch (e) {
+    debugPrint('Error: $e');
+    setState(() {
+      _medicalCenterController.text = 'City Medical Center & Hospital';
+    });
+  }
+}
   Future<void> _loadPatientAppointments() async {
     try {
       final user = FirebaseAuth.instance.currentUser;
@@ -207,6 +255,7 @@ void _setPatientData() {
         if (data['status'] == 'confirmed') {
           final patientId = data['patientId'] as String?;
           final patientName = data['patientName'] as String?;
+          
           
           if (patientId != null && patientName != null && !patientMap.containsKey(patientId)) {
             patientMap[patientId] = {
@@ -314,7 +363,7 @@ void _setPatientData() {
     }
   }
 
-  // FIXED DRAWING METHODS - Prevent scrolling while drawing
+  //  DRAWING METHODS - Prevent scrolling while drawing
   void _handleDrawingStart(DragStartDetails details) {
     setState(() {
       _isDrawing = true;
@@ -364,7 +413,7 @@ void _setPatientData() {
     });
   }
 
-  // FIXED SIGNATURE METHODS - Prevent scrolling while signing
+  //  SIGNATURE METHODS - Prevent scrolling while signing
   void _handleSignatureStart(DragStartDetails details) {
     setState(() {
       _isSigning = true;
@@ -2357,7 +2406,7 @@ Widget _buildPatientDropdownSection() {
                         ),
                         const SizedBox(height: 2),
                         Text(
-                          'Medical Center: ${_medicalCenterController.text}',
+                          'hospital: ${_doctorHospital}',
                           style: TextStyle(
                             color: _darkColor.withOpacity(0.7),
                             fontSize: 12,

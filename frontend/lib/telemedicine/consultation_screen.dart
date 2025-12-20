@@ -830,7 +830,7 @@ void _endCall() {
       debugPrint('❌ Error updating join status: $e');
     });
 
-    // 4. ✅ UPDATE FIREBASE STATUS FROM "In-Progress" TO "Completed" ✅
+    // 4.  UPDATE FIREBASE STATUS FROM "In-Progress" TO "Completed" 
     debugPrint('📝 Updating appointment status from "In-Progress" to "Completed"...');
     
     // Get the document reference and update
@@ -875,7 +875,7 @@ void _endCall() {
         _connectionRetries = 0;
       });
       
-      debugPrint('✅ Doctor permanently ended meeting');
+      debugPrint(' Doctor permanently ended meeting');
     }
 
     // Complete cleanup

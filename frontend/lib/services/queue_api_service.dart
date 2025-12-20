@@ -18,7 +18,7 @@ static Future<Map<String, dynamic>> startConsultation({
     print('🚀 Starting consultation with Dio...');
     print('   Appointments to send: ${appointments.length}');
     
-    // ✅ FIX: Include appointments in the request
+    //  Include appointments in the request
     final response = await _dio.post(
       '$baseUrl/queue/start',
       data: {

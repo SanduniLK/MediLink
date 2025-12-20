@@ -99,7 +99,7 @@ class PatientService {
     }
   }
 
-  // Fix profile picture URL - handle different URL formats
+  //  profile picture URL - handle different URL formats
   String _fixProfilePicUrl(String originalUrl, String patientId) {
     try {
       if (originalUrl.startsWith('gs://')) {

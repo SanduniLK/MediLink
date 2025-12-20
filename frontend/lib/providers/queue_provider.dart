@@ -30,14 +30,14 @@ class QueueProvider with ChangeNotifier {
       print('   Medical Center: $medicalCenterName');
       print('   Appointments: ${appointments.length}');
 
-      // ✅ FIX: Pass appointments to the API service
+      //  Pass appointments to the API service
       final result = await QueueApiService.startConsultation(
         scheduleId: scheduleId,
         doctorId: doctorId,
         medicalCenterId: medicalCenterId,
         doctorName: doctorName,
         medicalCenterName: medicalCenterName,
-        appointments: appointments, // Pass appointments here
+        appointments: appointments, 
       );
 
       _isLoading = false;

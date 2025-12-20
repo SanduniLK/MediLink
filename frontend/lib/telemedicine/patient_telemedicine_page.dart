@@ -236,13 +236,13 @@ void _joinConsultation(TelemedicineSession session) async {
       hasJoined: true,
     );
     
-    // 🔔 SEND NOTIFICATION TO DOCTOR THAT PATIENT JOINED
+    //  SEND NOTIFICATION TO DOCTOR THAT PATIENT JOINED
     debugPrint('🔔 Sending patient joined notification to doctor...');
     await FirestoreService.createPatientJoinedNotification(
       doctorId: session.doctorId,
       patientName: widget.patientName,
       appointmentId: session.appointmentId,
-      consultationType: session.consultationType, // FIXED: Now this parameter exists
+      consultationType: session.consultationType, 
     );
 
     // Close loading dialog using stored context
@@ -386,7 +386,7 @@ Widget _buildSessionCard(TelemedicineSession session) {
           
           SizedBox(height: 16),
           
-          // ✅ SIMPLE FIX: Different layouts for different statuses
+          //  SIMPLE FIX: Different layouts for different statuses
           if (_canPatientJoin(session)) 
             // For In-Progress: JOIN + CHAT
             Row(

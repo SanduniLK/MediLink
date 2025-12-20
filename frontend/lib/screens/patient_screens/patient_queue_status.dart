@@ -15,6 +15,7 @@ class PatientQueueStatus extends StatefulWidget {
 
 class _PatientQueueStatusState extends State<PatientQueueStatus> {
   String? _patientId;
+  String? Patientname;
   bool _isLoading = false;
   List<Map<String, dynamic>> _appointments = [];
   Map<String, dynamic>? _selectedAppointment;
@@ -41,6 +42,7 @@ class _PatientQueueStatusState extends State<PatientQueueStatus> {
     if (currentUser != null) {
       setState(() {
         _patientId = currentUser.uid;
+        Patientname = currentUser.displayName;
       });
       _loadTodayAppointments();
     } else {
@@ -50,6 +52,7 @@ class _PatientQueueStatusState extends State<PatientQueueStatus> {
 
   void _loadTodayAppointments() async {
     final patientId = _patientId;
+    final patientName = Patientname;
     if (patientId == null || patientId.isEmpty) {
       _showError('Unable to detect patient information. Please try again.');
       return;
@@ -103,7 +106,7 @@ class _PatientQueueStatusState extends State<PatientQueueStatus> {
     }
   }
 
-  // --- UPDATED QUEUE CHECK LOGIC ---
+  //  UPDATED QUEUE LOGIC 
 void _checkQueueStatus(Map<String, dynamic> appointment) async {
   // 1. Get Schedule ID
   final scheduleId =
@@ -367,7 +370,7 @@ bool _checkIfAllAppointmentsCompleted(List<Map<String, dynamic>> patients) {
     final status = patient['status']?.toString().toLowerCase() ?? '';
     final queueStatus = patient['queueStatus']?.toString().toLowerCase() ?? '';
     
-    // Skip cancelled/absent appointments
+    // Skip cancelled appointments
     if (status == 'cancelled' || status == 'absent' || status == 'skipped') {
       continue;
     }
@@ -553,16 +556,10 @@ Widget _buildBulletPoint(String text) {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       const Text(
-                        'Patient ID',
-                        style: TextStyle(fontSize: 12, color: Colors.grey),
+                        'Your token number',
+                        style: TextStyle(fontSize: 15, color: Colors.black),
                       ),
-                      Text(
-                        _patientId ?? 'Not available',
-                        style: const TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
+                      
                     ],
                   ),
                 ),
