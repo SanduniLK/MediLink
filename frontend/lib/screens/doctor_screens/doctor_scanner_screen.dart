@@ -61,7 +61,7 @@ class _DoctorUnifiedSearchScreenState extends State<DoctorUnifiedSearchScreen> {
     }
   }
 
- Future<void> _searchPatient(String identifier) async {
+Future<void> _searchPatient(String identifier) async {
   setState(() => _isSearching = true);
   
   try {
@@ -70,30 +70,44 @@ class _DoctorUnifiedSearchScreenState extends State<DoctorUnifiedSearchScreen> {
     
     print('🔍 Searching for patient with identifier: $identifier');
 
-    // First, check if it's a user ID (from QR)
-    var userDoc = await FirebaseFirestore.instance
-        .collection('users')
+    // First, try to find in patients collection by ID (most likely from QR)
+    var patientDoc = await FirebaseFirestore.instance
+        .collection('patients')
         .doc(identifier)
         .get();
 
-    if (userDoc.exists) {
-      print('✅ Found as user ID');
-      patientId = userDoc.id;
-      
-    } else {
-      // Try to find by phone number in users collection
-      final phoneQuery = await FirebaseFirestore.instance
+    if (patientDoc.exists) {
+      print('✅ Found as patient ID in patients collection');
+      patientId = patientDoc.id;
+      patientData = patientDoc.data();
+    } 
+    // If not found, try users collection by ID
+    else {
+      var userDoc = await FirebaseFirestore.instance
           .collection('users')
-          .where('phone', isEqualTo: identifier)
-          .limit(1)
+          .doc(identifier)
           .get();
 
-      if (phoneQuery.docs.isNotEmpty) {
-        print('✅ Found as phone number in users collection');
-        patientId = phoneQuery.docs.first.id;
-        patientData = phoneQuery.docs.first.data() as Map<String, dynamic>?;
-      } else {
-        // Try patients collection
+      if (userDoc.exists) {
+        print('✅ Found as user ID in users collection');
+        patientId = userDoc.id;
+        
+        // Now try to get patient data from patients collection using the same ID
+        patientDoc = await FirebaseFirestore.instance
+            .collection('patients')
+            .doc(identifier)
+            .get();
+        
+        if (patientDoc.exists) {
+          patientData = patientDoc.data();
+        } else {
+          // If no patient doc exists, use user data
+          patientData = userDoc.data();
+        }
+      } 
+      // Try phone number search
+      else {
+        // Try patients collection by phone
         final patientQuery = await FirebaseFirestore.instance
             .collection('patients')
             .where('phone', isEqualTo: identifier)
@@ -103,19 +117,19 @@ class _DoctorUnifiedSearchScreenState extends State<DoctorUnifiedSearchScreen> {
         if (patientQuery.docs.isNotEmpty) {
           print('✅ Found as phone number in patients collection');
           patientId = patientQuery.docs.first.id;
-          patientData = patientQuery.docs.first.data() as Map<String, dynamic>?;
+          patientData = patientQuery.docs.first.data();
         } else {
-          // Try mobile field (if different)
-          final mobileQuery = await FirebaseFirestore.instance
-              .collection('patients')
-              .where('mobile', isEqualTo: identifier)
+          // Try users collection by phone
+          final userQuery = await FirebaseFirestore.instance
+              .collection('users')
+              .where('phone', isEqualTo: identifier)
               .limit(1)
               .get();
 
-          if (mobileQuery.docs.isNotEmpty) {
-            print('✅ Found as mobile number');
-            patientId = mobileQuery.docs.first.id;
-            patientData = mobileQuery.docs.first.data() as Map<String, dynamic>?;
+          if (userQuery.docs.isNotEmpty) {
+            print('✅ Found as phone number in users collection');
+            patientId = userQuery.docs.first.id;
+            patientData = userQuery.docs.first.data();
           }
         }
       }
@@ -123,7 +137,7 @@ class _DoctorUnifiedSearchScreenState extends State<DoctorUnifiedSearchScreen> {
 
     if (patientId != null && patientData != null) {
       print('🎯 Patient found: $patientId');
-      print('📋 Patient data: $patientData');
+      print('📋 Patient data keys: ${patientData.keys}');
       _navigateToPatientProfile(patientId, patientData);
     } else {
       print('❌ Patient not found with identifier: $identifier');
@@ -131,7 +145,7 @@ class _DoctorUnifiedSearchScreenState extends State<DoctorUnifiedSearchScreen> {
     }
   } catch (e) {
     print('💥 Search error: $e');
-    _showError('Search error: $e');
+    _showError('Search error: ${e.toString()}');
   } finally {
     setState(() => _isSearching = false);
   }

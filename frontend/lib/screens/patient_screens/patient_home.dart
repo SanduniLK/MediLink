@@ -9,6 +9,8 @@ import 'package:frontend/screens/doctor_screens/doctors_list.dart';
 import 'package:frontend/screens/patient_screens/PatientProfileScreen.dart';
 import 'package:frontend/screens/patient_screens/ai_predications.dart';
 import 'package:frontend/screens/patient_screens/analysis_report.dart';
+import 'package:frontend/screens/patient_screens/enhanced_medical_dashboard.dart';
+import 'package:frontend/screens/patient_screens/health_analysis_page.dart';
 import 'package:frontend/screens/patient_screens/medical_records_screen.dart';
 import 'package:frontend/screens/patient_screens/my_appointments_page.dart';
 import 'package:frontend/screens/patient_screens/patient_prescriptions.dart';
@@ -40,6 +42,9 @@ class _MedicalHomeScreenState extends State<MedicalHomeScreen> {
   final ChatService _chatService = ChatService();
   int _unreadMessageCount = 0;
   StreamSubscription? _unreadSubscription;
+
+  final String sampleReportText = "";
+
   @override
   void initState() {
     super.initState();
@@ -734,16 +739,25 @@ Widget _buildHeader(double screenWidth) {
             child: _buildActionButton(Icons.video_call_outlined, 'Telemedicine', kBrightCyan),
           ),
           GestureDetector(
-            onTap: () {
-              if (patientId != null) {
-                Navigator.push(context, MaterialPageRoute(builder: (_) => ReportGenerationScreen(
-                  patientId: patientId!, patientName: patientName!)));
-              } else {
-                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Unable to load appointments. Please try again.'), backgroundColor: Colors.red));
-              }
-            },
-            child: _buildActionButton(Icons.show_chart_outlined, 'Health Analysis', kBrightCyan),
-          ),
+  onTap: () {
+    if (patientId != null) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => HealthAnalysisPage(patientId: patientId!),
+        ),
+      );
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Unable to load health analysis. Please try again.'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  },
+  child: _buildActionButton(Icons.show_chart_outlined, 'Health Analysis', kBrightCyan),
+),
           GestureDetector(
             onTap: () {
               if (patientId != null) {

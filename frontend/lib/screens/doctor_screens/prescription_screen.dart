@@ -89,7 +89,7 @@ class _PrescriptionScreenState extends State<PrescriptionScreen> {
 
   final GlobalKey _prescriptionCaptureKey = GlobalKey();
 
-  // FIX: Add these variables for scroll control
+  //  Add these variables for scroll control
   bool _isDrawing = false;
   bool _isSigning = false;
   final ScrollController _scrollController = ScrollController();
@@ -413,7 +413,7 @@ Future<void> _loadMedicalCenterFromAppointments() async {
     });
   }
 
-  //  SIGNATURE METHODS - Prevent scrolling while signing
+  //  SIGNATURE METHODS 
   void _handleSignatureStart(DragStartDetails details) {
     setState(() {
       _isSigning = true;

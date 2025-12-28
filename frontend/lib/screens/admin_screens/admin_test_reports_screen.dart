@@ -589,31 +589,62 @@ Widget _buildCompactStatCard(int count, String title, IconData icon, Color color
     );
   }
 
- void _showUploadTestReportDialog() {
-  if (_patients.isEmpty) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('No patients available to upload test reports'),
-        backgroundColor: _warningColor,
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      ),
-    );
-    return;
-  }
-
-  showDialog(
-    context: context,
-    builder: (context) => UploadTestReportDialog(
+void _showUploadTestReportDialog() {
+  print('🟡 _showUploadTestReportDialog called');
+  
+  try {
+    if (_patients.isEmpty) {
+      print('🟡 No patients available');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text('No patients available to upload test reports'),
+          backgroundColor: Colors.orange,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        ),
+      );
+      return;
+    }
+    
+    print('🟡 Showing dialog with ${_patients.length} patients');
+    
+    // Test if we can create the dialog first
+    final testDialog = UploadTestReportDialog(
       patients: _patients,
       medicalCenterId: widget.medicalCenterId,
       medicalCenterName: widget.medicalCenterName,
       onReportUploaded: () {
-        _refreshStats(); // Refresh statistics after upload
-        _loadInitialData(); // Also reload initial data if needed
+        print('🟡 onReportUploaded callback triggered');
+        _refreshStats();
+        _loadInitialData();
       },
-    ),
-  );
+    );
+    
+    print('🟡 Dialog instance created successfully');
+    
+    showDialog(
+      context: context,
+      builder: (context) {
+        print('🟡 Building UploadTestReportDialog in builder');
+        return testDialog;
+      },
+    );
+    
+    print('🟢 Dialog shown successfully');
+    
+  } catch (e) {
+    print('🔴 CRITICAL ERROR in _showUploadTestReportDialog: $e');
+    print('🔴 Stack trace: ${e.toString()}');
+    
+    // Show error to user
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Error opening dialog: $e'),
+        backgroundColor: Colors.red,
+        duration: const Duration(seconds: 5),
+      ),
+    );
+  }
 }
 
 Future<Map<String, int>> _getTestReportStats() async {
@@ -773,180 +804,182 @@ Future<Map<String, int>> _getTestReportStats() async {
     );
   }
 
-  Widget _buildTestReportCard(TestReportModel report) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 16),
-      decoration: BoxDecoration(
-        color: _cardColor,
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.08),
-            blurRadius: 15,
-            offset: const Offset(0, 5),
-          ),
-        ],
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Header
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Container(
-                  width: 60,
-                  height: 60,
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      colors: [
-                        report.statusColor.withOpacity(0.15),
-                        report.statusColor.withOpacity(0.05)
-                      ],
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                    ),
-                    borderRadius: BorderRadius.circular(15),
-                    border: Border.all(color: report.statusColor.withOpacity(0.3), width: 2),
-                  ),
-                  child: Icon(report.statusIcon, color: report.statusColor, size: 28),
-                ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        report.testName,
-                        style: TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                          color: _textPrimary,
-                        ),
-                      ),
-                      const SizedBox(height: 6),
-                      Text(
-                        report.patientName,
-                        style: TextStyle(
-                          color: _textSecondary,
-                          fontSize: 15,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      Row(
-                        children: [
-                          Icon(Icons.calendar_today, size: 14, color: _textSecondary),
-                          const SizedBox(width: 4),
-                          Text(
-                            'Test Date: ${report.formattedTestDate}',
-                            style: TextStyle(
-                              color: _textSecondary,
-                              fontSize: 13,
-                            ),
-                          ),
-                        ],
-                      ),
+ Widget _buildTestReportCard(TestReportModel report) {
+  return Container(
+    margin: const EdgeInsets.only(bottom: 16),
+    decoration: BoxDecoration(
+      color: _cardColor,
+      borderRadius: BorderRadius.circular(20),
+      boxShadow: [
+        BoxShadow(
+          color: Colors.black.withOpacity(0.08),
+          blurRadius: 15,
+          offset: const Offset(0, 5),
+        ),
+      ],
+    ),
+    child: Padding(
+      padding: const EdgeInsets.all(20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Header
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                width: 60,
+                height: 60,
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [
+                      report.statusColor.withOpacity(0.15),
+                      report.statusColor.withOpacity(0.05)
                     ],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
                   ),
+                  borderRadius: BorderRadius.circular(15),
+                  border: Border.all(color: report.statusColor.withOpacity(0.3), width: 2),
                 ),
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.end,
+                child: Icon(report.statusIcon, color: report.statusColor, size: 28),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                      decoration: BoxDecoration(
-                        color: report.statusColor.withOpacity(0.1),
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: report.statusColor.withOpacity(0.3)),
-                      ),
-                      child: Text(
-                        report.status.toUpperCase(),
-                        style: TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.bold,
-                          color: report.statusColor,
-                        ),
+                    Text(
+                      report.testName,
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                        color: _textPrimary,
                       ),
                     ),
                     const SizedBox(height: 6),
                     Text(
-                      report.fileSize,
+                      report.patientName,
                       style: TextStyle(
                         color: _textSecondary,
-                        fontSize: 12,
+                        fontSize: 15,
+                        fontWeight: FontWeight.w500,
                       ),
                     ),
-                  ],
-                ),
-              ],
-            ),
-            
-            const SizedBox(height: 16),
-            
-            // Description
-            if (report.description.isNotEmpty) ...[
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: _backgroundColor,
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Text(
-                  report.description,
-                  style: TextStyle(
-                    fontSize: 14,
-                    color: _textPrimary,
-                    height: 1.5,
-                  ),
-                ),
-              ),
-              const SizedBox(height: 12),
-            ],
-            
-           
-            
-            // Notes
-            if (report.notes.isNotEmpty) ...[
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: _primaryColor.withOpacity(0.05),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: _primaryColor.withOpacity(0.2)),
-                ),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Icon(Icons.note, size: 18, color: _primaryColor),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        'Notes: ${report.notes}',
-                        style: TextStyle(
-                          fontSize: 13,
-                          color: _textPrimary,
+                    const SizedBox(height: 4),
+                    Row(
+                      children: [
+                        Icon(Icons.calendar_today, size: 14, color: _textSecondary),
+                        const SizedBox(width: 4),
+                        Text(
+                          'Test Date: ${report.formattedTestDate}',
+                          style: TextStyle(
+                            color: _textSecondary,
+                            fontSize: 13,
+                          ),
                         ),
-                      ),
+                      ],
                     ),
                   ],
                 ),
               ),
-              const SizedBox(height: 16),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: report.statusColor.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: report.statusColor.withOpacity(0.3)),
+                    ),
+                    child: Text(
+                      report.status.toUpperCase(),
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.bold,
+                        color: report.statusColor,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    report.fileSize,
+                    style: TextStyle(
+                      color: _textSecondary,
+                      fontSize: 12,
+                    ),
+                  ),
+                ],
+              ),
             ],
-            
-            // Actions
+          ),
+          
+          const SizedBox(height: 16),
+          
+          // Description
+          if (report.description.isNotEmpty) ...[
             Container(
-              height: 1,
-              color: Colors.grey.shade200,
+              width: double.infinity,
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: _backgroundColor,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Text(
+                report.description,
+                style: TextStyle(
+                  fontSize: 14,
+                  color: _textPrimary,
+                  height: 1.5,
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+          ],
+          
+          // Notes
+          if (report.notes.isNotEmpty) ...[
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: _primaryColor.withOpacity(0.05),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: _primaryColor.withOpacity(0.2)),
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(Icons.note, size: 18, color: _primaryColor),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Notes: ${report.notes}',
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: _textPrimary,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
             ),
             const SizedBox(height: 16),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.end,
+          ],
+          
+          // Actions
+          Container(
+            height: 1,
+            color: Colors.grey.shade200,
+          ),
+          const SizedBox(height: 16),
+          
+          // FIXED: Wrap the Row with SingleChildScrollView to handle overflow
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.start,
               children: [
                 _buildActionButton('View Report', Icons.visibility, _primaryColor, () => _viewTestReport(report)),
                 const SizedBox(width: 8),
@@ -955,38 +988,47 @@ Future<Map<String, int>> _getTestReportStats() async {
                 _buildActionButton('Delete', Icons.delete_outline, _dangerColor, () => _deleteTestReport(report)),
               ],
             ),
-          ],
-        ),
+          ),
+        ],
       ),
-    );
-  }
-
+    ),
+  );
+}
   Widget _buildActionButton(String text, IconData icon, Color color, VoidCallback onPressed) {
-    return Container(
-      decoration: BoxDecoration(
-        color: color.withOpacity(0.1),
+  return Container(
+    decoration: BoxDecoration(
+      color: color.withOpacity(0.1),
+      borderRadius: BorderRadius.circular(10),
+    ),
+    child: Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onPressed,
         borderRadius: BorderRadius.circular(10),
-      ),
-      child: IconButton(
-        onPressed: onPressed,
-        icon: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon, size: 18, color: color),
-            const SizedBox(width: 4),
-            Text(
-              text,
-              style: TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
-                color: color,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(icon, size: 16, color: color),
+              const SizedBox(width: 4),
+              Text(
+                text,
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: color,
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
-    );
-  }
+    ),
+  );
+}
 
   void _viewTestReport(TestReportModel report) {
     // TODO: Implement view test report functionality

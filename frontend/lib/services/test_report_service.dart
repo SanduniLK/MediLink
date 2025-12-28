@@ -238,36 +238,36 @@ class TestReportService {
     }
   }
 
-  // Get all patients with enhanced error handling and fallbacks
   static Future<List<Map<String, dynamic>>> getAllPatients() async {
-    try {
-      debugPrint('🟡 Fetching all patients...');
+  try {
+    print('🟡 Fetching all patients...');
+    final QuerySnapshot snapshot = await FirebaseFirestore.instance
+        .collection('patients')
+        .get();
 
-      // Try patients collection first
-      final patientsSnapshot = await _firestore
-          .collection('patients')
-          .where('role', isEqualTo: 'patient')
-          .get();
+    final patients = snapshot.docs.map((doc) {
+      final data = doc.data() as Map<String, dynamic>;
+      return {
+        'id': doc.id, // This should NOT be null - it's the document ID
+        ...data,
+      };
+    }).toList();
 
-      if (patientsSnapshot.docs.isNotEmpty) {
-        debugPrint('🟢 Found ${patientsSnapshot.docs.length} patients in patients collection');
-        return patientsSnapshot.docs.map((doc) {
-          final data = doc.data();
-          return _buildPatientData(doc.id, data);
-        }).toList();
+    print('🟢 Found ${patients.length} patients in patients collection');
+    
+    // Debug: Check for null IDs
+    for (var patient in patients) {
+      if (patient['id'] == null) {
+        print('⚠️ WARNING: Patient has null ID: ${patient['fullname']}');
       }
-
-      debugPrint('🟡 No patients found in patients collection, trying users collection...');
-      
-      // Fallback to users collection
-      return await _getPatientsFromUsersCollection();
-      
-    } catch (e) {
-      debugPrint('🔴 Error fetching patients: $e');
-      // Final fallback to users collection
-      return await _getPatientsFromUsersCollection();
     }
+    
+    return patients;
+  } catch (e) {
+    print('🔴 Error fetching patients: $e');
+    return [];
   }
+}
 
   // Alternative method to get patients from users collection
   static Future<List<Map<String, dynamic>>> _getPatientsFromUsersCollection() async {

@@ -1,33 +1,6 @@
 // lib/model/medical_record.dart
 import 'package:cloud_firestore/cloud_firestore.dart';
-
-enum RecordCategory {
-  labResults,
-  pastPrescriptions,
-  other;
-
-  String get displayName {
-    switch (this) {
-      case RecordCategory.labResults:
-        return 'Lab Results';
-      case RecordCategory.pastPrescriptions:
-        return 'Prescriptions';
-      case RecordCategory.other:
-        return 'Other';
-    }
-  }
-
-  String get icon {
-    switch (this) {
-      case RecordCategory.labResults:
-        return '🔬';
-      case RecordCategory.pastPrescriptions:
-        return '💊';
-      case RecordCategory.other:
-        return '📁';
-    }
-  }
-}
+import 'package:frontend/model/record_category.dart'; // Add this import
 
 class MedicalRecord {
   final String id;
@@ -46,6 +19,9 @@ class MedicalRecord {
   final String? textExtractionStatus;
   final DateTime? textExtractedAt;
 
+  final String? testReportCategory; 
+  final String? testDate;
+
   MedicalRecord({
     required this.id,
     required this.patientId,
@@ -60,6 +36,8 @@ class MedicalRecord {
     this.medicalInfo,
     this.textExtractionStatus,
     this.textExtractedAt,
+    this.testReportCategory,
+    this.testDate,
   });
 
   factory MedicalRecord.fromMap(Map<String, dynamic> map) {
@@ -141,6 +119,8 @@ class MedicalRecord {
           : null,
       textExtractionStatus: map['textExtractionStatus']?.toString(),
       textExtractedAt: parseTextExtractedAt(map['textExtractedAt']),
+      testReportCategory: map['testReportCategory']?.toString(),
+      testDate: map['testDate']?.toString(),
     );
   }
 
@@ -161,6 +141,8 @@ class MedicalRecord {
       'textExtractedAt': textExtractedAt != null 
           ? Timestamp.fromDate(textExtractedAt!) 
           : null,
+      'testReportCategory': testReportCategory,
+      'testDate': testDate,
     };
   }
 }

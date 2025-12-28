@@ -24,6 +24,7 @@ import 'package:frontend/providers/doctor_provider.dart';
 import 'firebase_options.dart';
 
 void main() async {
+    //debugDisableShadows = true;
   // Set error handler before anything else
   FlutterError.onError = (details) {
     debugPrint('🔥 Flutter Error: ${details.exception}');
