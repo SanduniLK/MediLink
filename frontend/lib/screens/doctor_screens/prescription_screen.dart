@@ -2577,6 +2577,7 @@ void setupDebugLogging() {
   debugPrint('📱 Platform: ${Platform.operatingSystem}');
   debugPrint('📅 Date: ${DateTime.now()}');
 }
+
 // FIXED CUSTOM PAINTERS - Add these at the bottom of the file
 class FixedDrawingPainter extends CustomPainter {
   final List<DrawingPoint> points;

@@ -2,8 +2,10 @@ const express = require('express');
 const cors = require('cors');
 const admin = require('firebase-admin');
 const app = express();
+const router = express.Router();
+const HealthAIIntegration = require('./healthai');
 const PORT = 5000;
-
+const healthAI = new HealthAIIntegration();
 app.use(express.json());
 app.use(cors());
 

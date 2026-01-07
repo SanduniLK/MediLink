@@ -7,10 +7,11 @@ import 'package:frontend/enroll_screnns/sign_in_page.dart';
 import 'package:frontend/screens/Notifications/PatientNotificationPage.dart';
 import 'package:frontend/screens/doctor_screens/doctors_list.dart';
 import 'package:frontend/screens/patient_screens/PatientProfileScreen.dart';
-import 'package:frontend/screens/patient_screens/ai_predications.dart';
+import 'package:frontend/screens/patient_screens/ai_page.dart';
 import 'package:frontend/screens/patient_screens/analysis_report.dart';
 import 'package:frontend/screens/patient_screens/enhanced_medical_dashboard.dart';
 import 'package:frontend/screens/patient_screens/health_analysis_page.dart';
+
 import 'package:frontend/screens/patient_screens/medical_records_screen.dart';
 import 'package:frontend/screens/patient_screens/my_appointments_page.dart';
 import 'package:frontend/screens/patient_screens/patient_prescriptions.dart';
@@ -42,6 +43,7 @@ class _MedicalHomeScreenState extends State<MedicalHomeScreen> {
   final ChatService _chatService = ChatService();
   int _unreadMessageCount = 0;
   StreamSubscription? _unreadSubscription;
+  Map<String, dynamic> _patientData = {}; 
 
   final String sampleReportText = "";
 
@@ -67,39 +69,64 @@ class _MedicalHomeScreenState extends State<MedicalHomeScreen> {
     }
   }
 Future<void> _getPatientInfo() async {
-  try {
-    final user = FirebaseAuth.instance.currentUser;
+    try {
+      final user = FirebaseAuth.instance.currentUser;
 
-    if (user == null) {
-      if (mounted) setState(() => _isLoading = false);
-      return;
-    }
+      if (user == null) {
+        if (mounted) setState(() => _isLoading = false);
+        return;
+      }
 
-    final doc = await FirebaseFirestore.instance
-        .collection('patients')
-        .doc(user.uid)
-        .get();
+      final doc = await FirebaseFirestore.instance
+          .collection('patients')
+          .doc(user.uid)
+          .get();
 
-    String fullName = doc.data()?['fullname'] ?? 'Patient';
-    String firstName = fullName.split(' ').first;
+      if (doc.exists) {
+        String fullName = doc.data()?['fullname'] ?? 'Patient';
+        String firstName = fullName.split(' ').first;
 
-    if (mounted) {
-      setState(() {
-        patientId = user.uid;
-        patientName = firstName; 
-        _isLoading = false;
-      });
-    }
-  } catch (e) {
-    print('❌ Error loading patient info: $e');
-    if (mounted) {
-      setState(() {
-        patientName = 'Patient';
-        _isLoading = false;
-      });
+        // Get ALL patient data, not just name
+        final allPatientData = doc.data() as Map<String, dynamic>;
+        
+        print('✅ Loaded patient data:');
+        print('  - Keys: ${allPatientData.keys}');
+        print('  - Has bpReadings: ${allPatientData.containsKey('bpReadings')}');
+        if (allPatientData.containsKey('bpReadings')) {
+          print('  - bpReadings type: ${allPatientData['bpReadings'].runtimeType}');
+          print('  - bpReadings length: ${allPatientData['bpReadings'] is List ? allPatientData['bpReadings'].length : 'Not a list'}');
+        }
+
+        if (mounted) {
+          setState(() {
+            patientId = user.uid;
+            patientName = firstName; 
+            _patientData = allPatientData; // STORE ALL PATIENT DATA
+            _isLoading = false;
+          });
+        }
+      } else {
+        print('❌ No patient document found');
+        if (mounted) {
+          setState(() {
+            patientName = 'Patient';
+            _patientData = {};
+            _isLoading = false;
+          });
+        }
+      }
+    } catch (e) {
+      print('❌ Error loading patient info: $e');
+      if (mounted) {
+        setState(() {
+          patientName = 'Patient';
+          _patientData = {};
+          _isLoading = false;
+        });
+      }
     }
   }
-}
+
 
 
 void _getPatientId() {
@@ -744,7 +771,7 @@ Widget _buildHeader(double screenWidth) {
       Navigator.push(
         context,
         MaterialPageRoute(
-          builder: (_) => HealthAnalysisPage(patientId: patientId!),
+          builder: (_) => HealthAnalysisPage(patientId: patientId!,additionalDetails: _patientData,),
         ),
       );
     } else {
@@ -863,8 +890,7 @@ Widget _buildHeader(double screenWidth) {
   Widget _buildAiSection() {
     return GestureDetector(
       onTap: () {
-        Navigator.push(context,
-            MaterialPageRoute(builder: (_) => const AiPredictionScreen()));
+        
       },
       child: Container(
         margin: const EdgeInsets.symmetric(horizontal: 20),

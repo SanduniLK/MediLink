@@ -7,6 +7,11 @@ const PORT = 5001;
 const http = require('http');
 const socketIo = require('socket.io');
 
+const HealthAIIntegration = require('./healthai');
+const healthAI = new HealthAIIntegration();
+
+
+
 // Initialize Firebase Admin
 const serviceAccount = require('./serviceAccountKey.json');
 
@@ -1715,6 +1720,8 @@ async function updateMedicalCenterRatings(medicalCenterId) {
   }
 }
 
+// ========== START SERVER ==========
+
 // Start server
 server.listen(PORT, '0.0.0.0', () => {
   console.log('🚀 QUEUE BACKEND + WEBRTC running on PORT 5001');
@@ -1744,4 +1751,6 @@ server.listen(PORT, '0.0.0.0', () => {
   console.log('   GET  http://localhost:5001/api/debug-appointments');
   console.log('   🔌 WebSocket: ws://localhost:5001');
   console.log('   📡 WebRTC Signaling: Active');
+   
+  
 });

@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/material.dart';
+import 'package:frontend/screens/patient_screens/AdditionalDetailsScreen.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:file_picker/file_picker.dart';
@@ -29,8 +30,9 @@ class _PatientProfileScreenState extends State<PatientProfileScreen> {
   final allergyCtrl = TextEditingController();
   final heightCtrl = TextEditingController();
   final weightCtrl = TextEditingController();
+  
 
-  String lifestyle = "Non-smoker";
+  String lifestyle = "never";
   String bloodGroup = "A+";
   String? profilePicUrl;
   File? pickedImage;
@@ -61,7 +63,7 @@ class _PatientProfileScreenState extends State<PatientProfileScreen> {
         allergyCtrl.text = data["allergies"] ?? "";
         heightCtrl.text = data["height"]?.toString() ?? "";
         weightCtrl.text = data["weight"]?.toString() ?? "";
-        lifestyle = data["lifestyle"] ?? "Non-smoker";
+        lifestyle = data["lifestyle"] ?? "never";
         profilePicUrl = data["profilePic"];
       });
     }
@@ -372,13 +374,14 @@ class _PatientProfileScreenState extends State<PatientProfileScreen> {
               TextFormField(controller: weightCtrl, decoration: const InputDecoration(labelText: "Weight (kg)")),
 
               DropdownButtonFormField(
-                value: lifestyle,
-                decoration: const InputDecoration(labelText: "Lifestyle"),
-                items: ["Non-smoker", "Smoker", "Alcohol", "Both"]
-                    .map((e) => DropdownMenuItem(value: e, child: Text(e)))
-                    .toList(),
-                onChanged: (val) => setState(() => lifestyle = val!),
-              ),
+  value: lifestyle,
+  decoration: const InputDecoration(labelText: "Lifestyle"),
+  items: [ "Smoker", "Alcohol", "Both","past smoker","past alcohol","past both","never"]
+      .map((e) => DropdownMenuItem(value: e, child: Text(e)))
+      .toList(),
+  onChanged: (val) => setState(() => lifestyle = val!),
+),
+
              
               DropdownButtonFormField(
                 value: bloodGroup,
@@ -389,6 +392,31 @@ class _PatientProfileScreenState extends State<PatientProfileScreen> {
                 onChanged: (val) => setState(() => bloodGroup = val!),
               ),
               const SizedBox(height: 20),
+             //Add more details 
+             Container(
+  width: double.infinity, // optional, full width
+  alignment: Alignment.centerRight, // center the text
+  child: TextButton(
+    onPressed: () {
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => AdditionalDetailsScreen(uid: widget.uid),
+        ),
+      );
+      print("Text button clicked!");
+    },
+    child: const Text(
+      "Add more details",
+      style: TextStyle(
+        fontSize: 16,
+        color: Color(0xFF18A3B6), // text color
+        decoration: TextDecoration.underline, // optional underline
+      ),
+    ),
+  ),
+),
+
 
               // QR Code
               Card(

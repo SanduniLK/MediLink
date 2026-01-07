@@ -329,7 +329,9 @@ class _TestReportVerificationFlowState extends State<TestReportVerificationFlow>
         
         // Dates
         'testDate': Timestamp.fromDate(testDate),
-        'updatedAt': Timestamp.now(),
+  'testDateFormatted': DateFormat('dd/MM/yyyy').format(testDate), // ADD THIS LINE
+  'updatedAt': Timestamp.now(),
+  
         
         // Uploader Info (keep original)
         'uploadedBy': currentUser?.uid ?? widget.medicalCenterId,

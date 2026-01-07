@@ -9,7 +9,7 @@ import 'package:frontend/screens/patient_screens/LabReportConfirmationScreen.dar
 import 'package:frontend/screens/patient_screens/lab_report_verification_flow.dart';
 import 'package:intl/intl.dart';
 import 'package:frontend/model/medical_record.dart';
-import 'package:frontend/model/record_category.dart'; // ADD THIS IMPORT
+import 'package:frontend/model/record_category.dart'; 
 import 'package:frontend/services/google_vision_service.dart';
 
 // ========== ADD MISSING CLASSES ==========

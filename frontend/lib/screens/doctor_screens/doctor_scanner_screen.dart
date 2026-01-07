@@ -110,7 +110,7 @@ Future<void> _searchPatient(String identifier) async {
         // Try patients collection by phone
         final patientQuery = await FirebaseFirestore.instance
             .collection('patients')
-            .where('phone', isEqualTo: identifier)
+            .where('mobile', isEqualTo: identifier)
             .limit(1)
             .get();
 
