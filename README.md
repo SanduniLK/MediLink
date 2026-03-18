@@ -14,6 +14,7 @@ Patients can easily manage appointments, consult doctors online, and access pres
 Patient registration & profile management
 
 Appointment booking with real-time queue system
+online payment
 
 QR code–based patient identification
 
